@@ -64,21 +64,6 @@ CATEGORY_NAMES = {
     "culture": {"ar": "🎬 ثقافة وفن وترفيه", "en": "🎬 Culture & Arts"}
 }
 
-# 📡 شبكة مصادر متعددة موزعة حسب التخصص واللغة
-MULTI_SOURCES = {
-    "ar": [
-        "http://feeds.bbci.co.uk/arabic/rss.xml",                  # BBC العربي (عالم وسياسة)
-        "https://www.aljazeera.net/aljazeerarss/a7c18663-7311-4224-b77e-d960b077f092/73d0e1b4-532f-45ef-b135-bfd3d2cf8712", # الجزيرة
-        "https://arabic.rt.com/rss/"                              # RT عربي
-    ],
-    "en": [
-        "http://feeds.bbci.co.uk/news/world/rss.xml",              # BBC World
-        "http://feeds.bbci.co.uk/news/technology/rss.xml",         # BBC Tech
-        "https://www.eurogamer.net/feed/news",                     # Eurogamer (Gaming)
-        "https://rss.nytimes.com/services/xml/rss/nyt/World.xml"    # NYT World
-    ]
-}
-
 CATEGORY_HD_COLLECTIONS = {
     "politics": [
         "https://images.unsplash.com/photo-1540910419892-4a36d2c3266c?auto=format&fit=crop&w=1920&q=90",
@@ -122,11 +107,11 @@ def detect_category_smart(title, summary):
         return "politics"
     if any(k in text for k in ["اقتصاد", "دولار", "أسواق", "نفط", "تضخم", "أسهم", "economy", "market", "dollar", "stocks", "oil"]):
         return "economy"
-    if any(k in text for k in ["تكنولوجيا", "ذكاء اصطناعي", "جوجل", "أبل", "هاتف", "tech", "ai", "google", "apple", "software"]):
+    if any(k in text for k in ["تكنولوجيا", "ذكاء اصطناعي", "جوجل", "أبل", "هاتف", "tech", "ai", "google", "apple"]):
         return "tech"
-    if any(k in text for k in ["لعبة", "جيمنج", "بلايستيشن", "gaming", "playstation", "xbox", "nintendo", "steam", "game"]):
+    if any(k in text for k in ["لعبة", "جيمنج", "بلايستيشن", "gaming", "playstation", "xbox"]):
         return "gaming"
-    if any(k in text for k in ["كرة", "مباراة", "دوري", "sports", "football", "match", "league"]):
+    if any(k in text for k in ["كرة", "مباراة", "دوري", "sports", "football", "match"]):
         return "sports"
     if any(k in text for k in ["فضاء", "علماء", "طب", "science", "space", "health"]):
         return "science"
@@ -141,11 +126,11 @@ def calculate_read_time(text, lang):
 
 def generate_detailed_fallback_content(raw_title, lang):
     if lang == "ar":
-        return f"""تتابع الصحافة العالمية باهتمام بالغ التطورات الأخيرة المرتبطة بـ "{raw_title}". وتشير التقارير الميدانية والتحليلات إلى أن هذا الحدث يفتح الباب أمام قراءات متعددة لتبعاته المستقبلية على الصعيد الإقليمي والدولي.
+        return f"""تتابع الصحافة العالمية باهتمام بالغ التطورات الأخيرة المرتبطة بـ "{raw_title}". وتشير التقارير الميدانية والتحليلات السياسية إلى أن هذا الحدث يفتح الباب أمام قراءات متعددة لتبعاته المستقبلية على الصعيد الإقليمي والدولي.
 
-وقد عبر المراقبون عن ضرورة رصد ردود الفعل الرسمية وغير الرسمية للوقوف على تداعيات الموقف بدقة. ومن المرتقب أن تشهد الأيام القادمة مستجدات إضافية ترسم ملامح جديدة للتعامل مع هذا الملف."""
+وقد عبر المراقبون عن ضرورة رصد ردود الفعل الرسمية وغير الرسمية للوقوف على تداعيات الموقف بدقة. ومن المتقب أن تشهد الأيام القادمة مستجدات إضافية ترسم ملامح جديدة للتعامل مع هذا الملف."""
     else:
-        return f"""Global media outlets are closely tracking the unfolding events regarding "{raw_title}". Field reports and analysis indicate that this development opens the door for wide-ranging perspectives on its long-term impacts.
+        return f"""Global media outlets are closely tracking the unfolding events regarding "{raw_title}". Field reports and political analysis indicate that this development opens the door for wide-ranging perspectives on its long-term regional and international impacts.
 
 Observers emphasize the necessity of monitoring official and unofficial reactions to accurately evaluate the situation. Further updates are expected in the coming days."""
 
@@ -194,23 +179,23 @@ def get_articles_from_db(lang):
 
 def fetch_and_process_news(lang="ar"):
     existing = get_articles_from_db(lang)
-    if existing and len(existing) >= 8:
+    if existing and len(existing) >= 6:
         return existing
 
-    sources = MULTI_SOURCES.get(lang, MULTI_SOURCES["ar"])
+    sources = ["http://feeds.bbci.co.uk/arabic/rss.xml"] if lang == "ar" else ["http://feeds.bbci.co.uk/news/world/rss.xml"]
     all_entries = []
     for url in sources:
         try:
             feed = feedparser.parse(url)
             if feed and hasattr(feed, 'entries'):
-                all_entries.extend(feed.entries[:5])
+                all_entries.extend(feed.entries)
         except Exception:
             pass
 
     now_str = datetime.now().strftime("%Y-%m-%d | %H:%M")
     day_str = datetime.now().strftime("%A")
 
-    for entry in all_entries[:15]:
+    for entry in all_entries[:10]:
         raw_title = entry.get("title", "خبر عاجل")
         raw_summary = entry.get("summary", "تغطية إخبارية مستمرة.")
         smart_cat = detect_category_smart(raw_title, raw_summary)
