@@ -38,7 +38,7 @@ def init_db():
             return
         cursor = conn.cursor()
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS ai_newsroom_pro_v4 (
+            CREATE TABLE IF NOT EXISTS ai_newsroom_pro_v5 (
                 id SERIAL PRIMARY KEY,
                 lang TEXT,
                 title TEXT,
@@ -74,96 +74,153 @@ CATEGORY_NAMES = {
     "culture": {"ar": "🎬 ثقافة وفن وترفيه", "en": "🎬 Culture & Arts"}
 }
 
+SPECIALIZED_SOURCES = {
+    "ar": [
+        "http://feeds.bbci.co.uk/arabic/rss.xml",
+        "https://www.aljazeera.net/aljazeerarss/a7c18663-7311-4224-b77e-d960b077f092/73d0e1b4-532f-45ef-b135-bfd3d2cf8712"
+    ],
+    "en": [
+        "http://feeds.bbci.co.uk/news/world/rss.xml",
+        "https://www.eurogamer.net/feed/news"
+    ]
+}
+
 CATEGORY_HD_COLLECTIONS = {
-    "politics": ["https://images.unsplash.com/photo-1540910419892-4a36d2c3266c?auto=format&fit=crop&w=1200&q=80", "https://images.unsplash.com/photo-1529107386315-e1a2ed48a620?auto=format&fit=crop&w=1200&q=80"],
-    "world": ["https://images.unsplash.com/photo-1526778548025-fa2f459cd5c1?auto=format&fit=crop&w=1200&q=80", "https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&w=1200&q=80"],
-    "economy": ["https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?auto=format&fit=crop&w=1200&q=80", "https://images.unsplash.com/photo-1590283603385-17ffb3a7f29f?auto=format&fit=crop&w=1200&q=80"],
-    "tech": ["https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=1200&q=80", "https://images.unsplash.com/photo-1485827404703-89b55fcc595e?auto=format&fit=crop&w=1200&q=80"],
-    "gaming": ["https://images.unsplash.com/photo-1538481199705-c710c4e965fc?auto=format&fit=crop&w=1200&q=80", "https://images.unsplash.com/photo-1511512578047-dfb367046420?auto=format&fit=crop&w=1200&q=80"],
-    "sports": ["https://images.unsplash.com/photo-1508098682722-e99c43a406b2?auto=format&fit=crop&w=1200&q=80", "https://images.unsplash.com/photo-1461896836934-ffe607ba8211?auto=format&fit=crop&w=1200&q=80"],
+    "politics": ["https://images.unsplash.com/photo-1540910419892-4a36d2c3266c?auto=format&fit=crop&w=1200&q=80"],
+    "world": ["https://images.unsplash.com/photo-1526778548025-fa2f459cd5c1?auto=format&fit=crop&w=1200&q=80"],
+    "economy": ["https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?auto=format&fit=crop&w=1200&q=80"],
+    "tech": ["https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=1200&q=80"],
+    "gaming": ["https://images.unsplash.com/photo-1538481199705-c710c4e965fc?auto=format&fit=crop&w=1200&q=80"],
+    "sports": ["https://images.unsplash.com/photo-1508098682722-e99c43a406b2?auto=format&fit=crop&w=1200&q=80"],
     "science": ["https://images.unsplash.com/photo-1507668077129-56e32842fceb?auto=format&fit=crop&w=1200&q=80"],
     "culture": ["https://images.unsplash.com/photo-1485846234645-a62644f84728?auto=format&fit=crop&w=1200&q=80"]
 }
 
-# 🌟 أخبار افتراضية ذكية تظهر فوراً لضمان عدم بقاء الموقع فارغاً أبداً
-DEFAULT_ARTICLES = {
-    "ar": [
-        {
-            "id": 1,
-            "title": "إطلاق النسخة المحدثة من وكالة غرفة التحرير الذكية بالكامل",
-            "summary": "بدء التشغيل الفعلي لشبكة الأخبار المدارة بالذكاء الاصطناعي مع تغطية حية ومستمرة على مدار الساعة.",
-            "content": "تشهد المنصات الإخبارية الرقمية اليوم تحولاً جذرياً نحو الأتمتة الكاملة وإدارة المحتوى عبر خوارزميات الذكاء الاصطناعي المتقدمة. تهدف هذه المنظومة إلى تقديم تغطيات دقيقة، سريعة، ومصنفة بعناية فائقة لضمان حصول القارئ على المعلومة من مصادر موثوقة وبأعلى معايير الجودة الصحفية العالمية.",
-            "category": "tech",
-            "image": "https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=1200&q=80",
-            "time": "اليوم - 21:00",
-            "read_time": "3 دقائق قراءة"
-        },
-        {
-            "id": 2,
-            "title": "تطورات الأسواق العالمية وأسعار العملات الرقمية والذهب",
-            "summary": "قراءة تحليلية لأحدث تحركات الأسواق المالية والاقتصادية وسط ترقب لقرارات البنوك المركزية.",
-            "content": "تواصل الأسواق العالمية تسجيل تقلبات ملحوظة وسط ترقب المستثمرين لبيانات التضخم وتقارير الفائدة الصادرة عن كبرى المؤسسات الاقتصادية الدولية. تشير التحليلات إلى أهمية تنوع المحافظ الاستثمارية في ظل المعطيات الجيوسياسية الراهنة.",
-            "category": "economy",
-            "image": "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?auto=format&fit=crop&w=1200&q=80",
-            "time": "اليوم - 20:30",
-            "read_time": "4 دقائق قراءة"
-        },
-        {
-            "id": 3,
-            "title": "الإعلان عن أقوى عناوين ألعاب الفيديو المرتقبة لهذا العام",
-            "summary": "استعراض لأبرز الإصدارات والتقنيات الرسومية الحديثة في عالم الألعاب الإلكترونية والجيمنج.",
-            "content": "كشفت استوديوهات تطوير الألعاب الكبرى عن تفاصيل مشوقة حول الإصدارات القادمة التي تستغل قدرات منصات الجيل الجديد وأجهزة الحواسيب الخارقة. تتضمن العناوين الجديدة عوالم مفتوحة ضخمة وتجارب لعب تفاعلية غير مسبوقة.",
-            "category": "gaming",
-            "image": "https://images.unsplash.com/photo-1538481199705-c710c4e965fc?auto=format&fit=crop&w=1200&q=80",
-            "time": "اليوم - 19:45",
-            "read_time": "3 دقائق قراءة"
-        }
-    ],
-    "en": [
-        {
-            "id": 1,
-            "title": "Launch of the Fully Autonomous AI Newsroom Network",
-            "summary": "Initiating live, AI-driven news operations with continuous round-the-clock coverage.",
-            "content": "Digital news platforms are undergoing a radical shift toward full automation and content curation using advanced AI algorithms. This system aims to deliver accurate, fast, and meticulously categorized coverage.",
-            "category": "tech",
-            "image": "https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=1200&q=80",
-            "time": "Today - 21:00",
-            "read_time": "3 min read"
-        }
-    ]
-}
+def get_dynamic_news_image(cat_key, used_set):
+    collection = CATEGORY_HD_COLLECTIONS.get(cat_key, CATEGORY_HD_COLLECTIONS["world"])
+    available = [img for img in collection if img not in used_set]
+    if not available:
+        available = collection
+    return random.choice(available)
+
+def calculate_read_time(text, lang):
+    words = len(text.split())
+    minutes = math.ceil(words / 130) if words > 0 else 1
+    return f"{minutes} دقائق قراءة" if lang == "ar" else f"{minutes} min read"
+
+def save_article_to_db(art):
+    conn = get_db_connection()
+    if not conn:
+        return
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO ai_newsroom_pro_v5 (lang, title, summary, content, category, image, time, read_time)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (lang, title) DO NOTHING
+        """, (art['lang'], art['title'], art['summary'], art['content'], art['category'], art['image'], art['time'], art['read_time']))
+        conn.commit()
+        cursor.close()
+        conn.close()
+    except Exception as e:
+        print(f"DB Save Error: {e}")
 
 def get_articles_from_db(lang):
     conn = get_db_connection()
     if not conn:
-        return DEFAULT_ARTICLES.get(lang, DEFAULT_ARTICLES["ar"])
+        return []
     try:
         cursor = conn.cursor()
-        cursor.execute('SELECT id, lang, title, summary, content, category, image, time, read_time FROM ai_newsroom_pro_v4 WHERE lang = %s ORDER BY id DESC', (lang,))
+        cursor.execute('SELECT id, lang, title, summary, content, category, image, time, read_time, created_at FROM ai_newsroom_pro_v5 WHERE lang = %s ORDER BY id DESC', (lang,))
         rows = cursor.fetchall()
         cursor.close()
         conn.close()
-        
-        if not rows:
-            return DEFAULT_ARTICLES.get(lang, DEFAULT_ARTICLES["ar"])
-            
         articles = []
         for row in rows:
             articles.append({
                 "id": row[0], "lang": row[1], "title": row[2], "summary": row[3],
-                "content": row[4], "category": row[5], "image": row[6], "time": row[7], "read_time": row[8]
+                "content": row[4], "category": row[5], "image": row[6], "time": row[7], "read_time": row[8], "created_at": row[9]
             })
         return articles
     except Exception as e:
         print(f"DB Fetch Error: {e}")
-        return DEFAULT_ARTICLES.get(lang, DEFAULT_ARTICLES["ar"])
+        return []
+
+# 🏢 نظام غرفة التحرير الذكية (المحسّن والسريع لتجنب الضغط)
+def fetch_and_process_news(lang="ar"):
+    articles = get_articles_from_db(lang)
+    
+    # إذا كانت الأخبار موجودة ولم تمضِ 30 دقيقة، نعرضها فوراً بدون إعادة الاتصال بالـ API لتوفير الوقت والسرعة
+    if articles and len(articles) > 0:
+        last_time = articles[0].get("created_at")
+        if last_time and (datetime.now() - last_time) < timedelta(minutes=30):
+            return articles
+
+    sources = SPECIALIZED_SOURCES.get(lang, SPECIALIZED_SOURCES["ar"])
+    all_raw_text = ""
+    for url in sources:
+        try:
+            feed = feedparser.parse(url)
+            if feed and hasattr(feed, 'entries'):
+                for entry in feed.entries[:3]:  # أخذ 3 أخبار فقط من كل مصدر لتجنب الضغط
+                    all_raw_text += f"- Title: {entry.get('title', '')} | Summary: {entry.get('summary', '')}\n"
+        except Exception:
+            pass
+
+    now_str = datetime.now().strftime("%Y-%m-%d | %H:%M")
+    day_str = datetime.now().strftime("%A")
+    used_images = set()
+
+    if API_KEY and all_raw_text:
+        try:
+            model = genai.GenerativeModel("gemini-1.5-flash")
+            # برومبت غرفة التحرير (يعمل بذكاء وبعدد محدود ومدروس لتجنب الانتظار الطويل)
+            prompt = f"""
+            You are the Chief Editor of a global news agency. Analyze these raw feeds, select the top 4 most important stories, and distribute them into categories: [world, politics, economy, tech, gaming, sports, science, culture].
+            Translate and format professionally in language '{lang}'.
+            
+            Feeds:
+            {all_raw_text}
+
+            Return strict JSON array:
+            [
+              {{"title": "...", "summary": "...", "content": "...", "category": "..."}}
+            ]
+            """
+            response = model.generate_content(prompt, request_options={"timeout": 6})
+            clean_text = response.text.replace("```json", "").replace("```", "").strip()
+            items = json.loads(clean_text)
+
+            for item in items:
+                cat = str(item.get("category", "world")).lower().strip()
+                if cat not in CATEGORY_NAMES:
+                    cat = "world"
+                
+                hd_image = get_dynamic_news_image(cat, used_images)
+                content_text = item.get("content", "تغطية إخبارية مستمرة.")
+                
+                art = {
+                    "lang": lang,
+                    "title": item.get("title", "خبر عاجل"),
+                    "summary": item.get("summary", "تغطية إخبارية مستمرة."),
+                    "content": content_text,
+                    "category": cat,
+                    "image": hd_image,
+                    "time": f"{day_str} - {now_str}",
+                    "read_time": calculate_read_time(content_text, lang)
+                }
+                save_article_to_db(art)
+        except Exception as e:
+            print(f"Newsroom Error: {e}")
+
+    return get_articles_from_db(lang)
 
 @app.route("/")
 def home():
     lang = request.args.get("lang", "ar")
     selected_category = request.args.get("cat", "all")
     
-    articles = get_articles_from_db(lang)
+    articles = fetch_and_process_news(lang)
     
     if selected_category != "all":
         display_articles = [a for a in articles if a["category"] == selected_category]
@@ -208,7 +265,6 @@ def home():
         </header>
 
         <main class="container mx-auto px-4 py-8 max-w-7xl">
-            <!-- Breaking News -->
             <div class="bg-blue-950/40 border border-blue-800/50 rounded-2xl p-4 mb-8 flex items-center gap-4 shadow-md">
                 <span class="bg-blue-600 text-white text-xs font-black px-3 py-1 rounded-full uppercase animate-pulse">🔥 عاجل</span>
                 <div class="overflow-hidden whitespace-nowrap">
@@ -269,9 +325,7 @@ def read_article(article_id):
     article = next((a for a in articles if a["id"] == article_id), None)
 
     if not article:
-        # Fallback to default if not found in db
-        defaults = DEFAULT_ARTICLES.get(lang, DEFAULT_ARTICLES["ar"])
-        article = next((a for a in defaults if a["id"] == article_id), defaults[0])
+        return "الخبر غير موجود / Article Not Found", 404
 
     recommended = [a for a in articles if a["category"] == article["category"] and a["id"] != article_id][:3]
 
