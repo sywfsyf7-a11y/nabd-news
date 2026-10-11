@@ -45,32 +45,24 @@ def calculate_read_time(text, lang):
     return f"{minutes} min read"
 
 def process_with_gemini(feed_entries, lang):
-    model = genai.GenerativeModel("gemini-1.5-flash")
     processed = []
-
-    for idx, entry in enumerate(feed_entries[:12]):
+    for idx, entry in enumerate(feed_entries[:6]):
         raw_title = entry.get("title", "")
         raw_summary = entry.get("summary", "")
         now_str = datetime.now().strftime("%Y-%m-%d | %H:%M")
         day_str = datetime.now().strftime("%A")
 
-        prompt = f"""
-        You are an expert news editor. Process this news entry for target language '{lang}':
-        Raw Title: {raw_title}
-        Raw Summary: {raw_summary}
-
-        Strict Instructions:
-        1. "title": Professional news headline in language '{lang}'.
-        2. "summary": Concise 2-sentence summary in '{lang}'.
-        3. "content": Write 3 detailed paragraphs providing deeper story context in '{lang}'. DO NOT repeat sentences from "summary".
-        4. "category": Pick ONE lowercase category from: [world, politics, economy, tech, gaming, sports, science, culture].
-
-        Output JSON strictly:
-        {{"id": {idx + 1}, "title": "...", "summary": "...", "content": "...", "category": "category_key"}}
-        """
-
         try:
-            response = model.generate_content(prompt, request_options={"timeout": 5})
+            model = genai.GenerativeModel("gemini-1.5-flash")
+            prompt = f"""
+            Process this news for '{lang}':
+            Title: {raw_title}
+            Summary: {raw_summary}
+
+            Return JSON:
+            {{"id": {idx + 1}, "title": "...", "summary": "...", "content": "...", "category": "world|politics|economy|tech|gaming|sports|science|culture"}}
+            """
+            response = model.generate_content(prompt, request_options={"timeout": 3})
             clean_text = response.text.replace("```json", "").replace("```", "").strip()
             data = json.loads(clean_text)
             data["time"] = f"{day_str} - {now_str}"
@@ -80,13 +72,12 @@ def process_with_gemini(feed_entries, lang):
             data["read_time"] = calculate_read_time(data.get("content", ""), lang)
             processed.append(data)
         except Exception:
-            # احتياطي متين في حال حدوث أي خطأ لمنع انقطاع الأخبار
             cat_default = "world"
             processed.append({
                 "id": idx + 1,
                 "title": raw_title,
                 "summary": raw_summary,
-                "content": f"تغطية إخبارية مستمرة ومحدثة عبر العالم اليوم.\n\n{raw_summary}",
+                "content": f"تغطية إخبارية مستمرة ومحدثة عبر شبكة العالم اليوم.\n\n{raw_summary}",
                 "category": cat_default,
                 "image": CATEGORY_IMAGES[cat_default],
                 "time": f"{day_str} - {now_str}",
@@ -97,16 +88,10 @@ def process_with_gemini(feed_entries, lang):
 
 def fetch_and_process_news(lang="ar"):
     now = datetime.now()
-    # ⏱️ ضبط التجديد التلقائي ليكون كل 30 دقيقة بالضبط
     if NEWS_CACHE[lang]["time"] and (now - NEWS_CACHE[lang]["time"]) < timedelta(minutes=30) and NEWS_CACHE[lang]["data"]:
         return NEWS_CACHE[lang]["data"]
 
-    sources = ["http://feeds.bbci.co.uk/arabic/rss.xml"] if lang == "ar" else [
-        "http://feeds.bbci.co.uk/news/world/rss.xml",
-        "http://feeds.bbci.co.uk/news/technology/rss.xml",
-        "http://feeds.bbci.co.uk/news/business/rss.xml",
-        "http://feeds.bbci.co.uk/news/science_and_environment/rss.xml"
-    ]
+    sources = ["http://feeds.bbci.co.uk/arabic/rss.xml"] if lang == "ar" else ["http://feeds.bbci.co.uk/news/world/rss.xml"]
 
     all_entries = []
     for url in sources:
