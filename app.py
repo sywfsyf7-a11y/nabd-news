@@ -3,12 +3,20 @@ import json
 import os
 import math
 import random
+import socket
 import psycopg2
 from flask import Flask, jsonify, render_template_string, request
 import feedparser
 import google.generativeai as genai
 
 app = Flask(__name__)
+
+# 🛠️ حل مشكلة Network is unreachable: إجبار الاتصال عبر IPv4 فقط
+old_getaddrinfo = socket.getaddrinfo
+def force_ipv4_getaddrinfo(*args, **kwargs):
+    responses = old_getaddrinfo(*args, **kwargs)
+    return [r for r in responses if r[0] == socket.AF_INET]
+socket.getaddrinfo = force_ipv4_getaddrinfo
 
 API_KEY = os.environ.get("GEMINI_API_KEY")
 if API_KEY:
@@ -26,9 +34,10 @@ def get_db_connection():
         url = DATABASE_URL
         if url.startswith("postgres://"):
             url = url.replace("postgres://", "postgresql://", 1)
-        return psycopg2.connect(url, sslmode='require', connect_timeout=3)
+        # رفع مهلة الاتصال وإضافة أمان للشبكة
+        return psycopg2.connect(url, sslmode='require', connect_timeout=10)
     except Exception as e:
-        print(f"DB Connection Error: {e}")
+        print(f"DB Connection Warning: {e}")
         return None
 
 def init_db():
@@ -38,7 +47,7 @@ def init_db():
             return
         cursor = conn.cursor()
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS ai_newsroom_pro_v8 (
+            CREATE TABLE IF NOT EXISTS ai_newsroom_pro_v9 (
                 id SERIAL PRIMARY KEY,
                 lang TEXT,
                 title TEXT,
@@ -56,7 +65,7 @@ def init_db():
         cursor.close()
         conn.close()
     except Exception as e:
-        print(f"Init DB Error: {e}")
+        print(f"Init DB Warning: {e}")
 
 try:
     init_db()
@@ -160,7 +169,7 @@ def save_article_to_db(art):
     try:
         cursor = conn.cursor()
         cursor.execute("""
-            INSERT INTO ai_newsroom_pro_v8 (lang, title, summary, content, category, image, time, read_time)
+            INSERT INTO ai_newsroom_pro_v9 (lang, title, summary, content, category, image, time, read_time)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (lang, title) DO NOTHING
         """, (art['lang'], art['title'], art['summary'], art['content'], art['category'], art['image'], art['time'], art['read_time']))
@@ -176,7 +185,6 @@ def fetch_and_process_news(lang="ar"):
         return DEFAULT_ARTICLES.get(lang, DEFAULT_ARTICLES["ar"])
     
     try:
-        # جلب الأخبار الحالية من الجدول الجديد
         sources = SPECIALIZED_SOURCES.get(lang, SPECIALIZED_SOURCES["ar"])
         now_str = datetime.now().strftime("%Y-%m-%d | %H:%M")
         day_str = datetime.now().strftime("%A")
@@ -228,7 +236,7 @@ def fetch_and_process_news(lang="ar"):
                 pass
 
         cursor = conn.cursor()
-        cursor.execute('SELECT id, lang, title, summary, content, category, image, time, read_time FROM ai_newsroom_pro_v8 WHERE lang = %s ORDER BY id DESC', (lang,))
+        cursor.execute('SELECT id, lang, title, summary, content, category, image, time, read_time FROM ai_newsroom_pro_v9 WHERE lang = %s ORDER BY id DESC', (lang,))
         rows = cursor.fetchall()
         cursor.close()
         conn.close()
