@@ -30,45 +30,29 @@ CATEGORY_NAMES = {
     "culture": {"ar": "🎬 ثقافة وفن وترفيه", "en": "🎬 Culture & Arts"}
 }
 
-# 🖼️ روابط صور مباشرة ومضمونة 100% لكل قسم لمنع ظهور الصورة المكسورة
-CATEGORY_IMAGES = {
-    "world": [
-        "https://images.unsplash.com/photo-1526778548025-fa2f459cd5c1?auto=format&fit=crop&w=1200&q=80",
-        "https://images.unsplash.com/photo-1521295121783-8a321d5d1ad2?auto=format&fit=crop&w=1200&q=80"
-    ],
-    "politics": [
-        "https://images.unsplash.com/photo-1540910419892-4a36d2c3266c?auto=format&fit=crop&w=1200&q=80",
-        "https://images.unsplash.com/photo-1529107386315-e1a2ed48a620?auto=format&fit=crop&w=1200&q=80"
-    ],
-    "economy": [
-        "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?auto=format&fit=crop&w=1200&q=80",
-        "https://images.unsplash.com/photo-1590283603385-17ffb3a7f29f?auto=format&fit=crop&w=1200&q=80"
-    ],
-    "tech": [
-        "https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=1200&q=80",
-        "https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&w=1200&q=80"
-    ],
-    "gaming": [
-        "https://images.unsplash.com/photo-1538481199705-c710c4e965fc?auto=format&fit=crop&w=1200&q=80",
-        "https://images.unsplash.com/photo-1511512578047-dfb367046420?auto=format&fit=crop&w=1200&q=80"
-    ],
-    "sports": [
-        "https://images.unsplash.com/photo-1508098682722-e99c43a406b2?auto=format&fit=crop&w=1200&q=80",
-        "https://images.unsplash.com/photo-1461896836934-ffe607ba8211?auto=format&fit=crop&w=1200&q=80"
-    ],
-    "science": [
-        "https://images.unsplash.com/photo-1507668077129-56e32842fceb?auto=format&fit=crop&w=1200&q=80",
-        "https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&w=1200&q=80"
-    ],
-    "culture": [
-        "https://images.unsplash.com/photo-1485846234645-a62644f84728?auto=format&fit=crop&w=1200&q=80",
-        "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&w=1200&q=80"
-    ]
-}
+# 🖼️ مكتبة واسعة من الصور الاحترافية المتنوعة لمنع تكرار أي صورة في الأخبار
+ALL_NEWS_IMAGES = [
+    "https://images.unsplash.com/photo-1526778548025-fa2f459cd5c1?auto=format&fit=crop&w=1200&q=80",
+    "https://images.unsplash.com/photo-1540910419892-4a36d2c3266c?auto=format&fit=crop&w=1200&q=80",
+    "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?auto=format&fit=crop&w=1200&q=80",
+    "https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=1200&q=80",
+    "https://images.unsplash.com/photo-1538481199705-c710c4e965fc?auto=format&fit=crop&w=1200&q=80",
+    "https://images.unsplash.com/photo-1508098682722-e99c43a406b2?auto=format&fit=crop&w=1200&q=80",
+    "https://images.unsplash.com/photo-1507668077129-56e32842fceb?auto=format&fit=crop&w=1200&q=80",
+    "https://images.unsplash.com/photo-1485846234645-a62644f84728?auto=format&fit=crop&w=1200&q=80",
+    "https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&w=1200&q=80",
+    "https://images.unsplash.com/photo-1529107386315-e1a2ed48a620?auto=format&fit=crop&w=1200&q=80",
+    "https://images.unsplash.com/photo-1590283603385-17ffb3a7f29f?auto=format&fit=crop&w=1200&q=80",
+    "https://images.unsplash.com/photo-1511512578047-dfb367046420?auto=format&fit=crop&w=1200&q=80"
+]
 
-def get_image_for_category(cat_key):
-    images = CATEGORY_IMAGES.get(cat_key, CATEGORY_IMAGES["world"])
-    return random.choice(images)
+def get_unique_image(used_images):
+    available = [img for img in ALL_NEWS_IMAGES if img not in used_images]
+    if not available:
+        available = ALL_NEWS_IMAGES
+    chosen = random.choice(available)
+    used_images.add(chosen)
+    return chosen
 
 def calculate_read_time(text, lang):
     words = len(text.split())
@@ -78,29 +62,32 @@ def calculate_read_time(text, lang):
     return f"{minutes} min read"
 
 def generate_detailed_fallback_content(raw_title, raw_summary, lang):
-    """بناء تفاصيل وتحليلات إضافية غير مكررة عن الملخص"""
     if lang == "ar":
-        return f"""تشهد الساحة الدولية متابعة مكثفة للتطورات المرتبطة بـ "{raw_title}"، حيث تسلط التغطيات الصحفية الضوء على أبعاد هذه القضية وتأثيراتها المباشرة والمستقبلية.
+        return f"""تتابع مختلف الدوائر الإخبارية تفاصيل التطورات الأخيرة المتعلقة بـ "{raw_title}"، في ظل اهتمام واسع بالتبعات المحتملة على الصعيدين المحلي والدولي.
 
-وتشير التقييمات الإخبارية إلى أن المفاوضات والتحركات الجارية تعكس تحولاً مهماً في طبيعة الأحداث، مما يدفع العديد من الأطراف الفاعلة والمحللين إلى إعادة بناء رؤيتهم تجاه التداعيات المرتقبة.
+وأفادت التقديرات بأن التحولات الجارية تتطلب قراءة دقيقة للموقف، لاسيما مع تعدد القراءات وتفاوت ردود الفعل بين الأطراف المعنية.
 
-من المتوقع أن تسفر المستجدات القادمة عن قرارات جديدة وتبعات أوسع نطاقاً، حيث تواصل الأوساط الإقليمية والدولية مراقبة الموقف للوقوف على التطورات لحظة بلحظة."""
+ومن المرتقب أن تحمل الساعات القادمة مستجدات إضافية ترسم ملامح المرحلة القادمة وتحدد مسارات التعامل مع هذا الملف."""
     else:
-        return f"""International observers are closely monitoring the latest developments surrounding "{raw_title}", as news outlets highlight the broader scope and potential long-term impacts of this ongoing story.
+        return f"""Global media outlets are closely tracking the unfolding events regarding "{raw_title}", focusing on the potential implications across regional and international levels.
 
-Analysis suggests that current movements and discussions mark a pivotal moment, urging analysts and key stakeholders to carefully evaluate the expected outcomes and strategic implications.
+Analysts point out that current developments demand a careful evaluation of the situation, especially amid varying perspectives from key stakeholders.
 
-Further updates are anticipated to unfold shortly, with global media continuing to provide continuous coverage as the situation develops."""
+Further updates are expected to emerge soon, shaping the trajectory of upcoming policy and public discourse."""
 
 def process_with_gemini(feed_entries, lang):
     processed = []
     now_str = datetime.now().strftime("%Y-%m-%d | %H:%M")
     day_str = datetime.now().strftime("%A")
+    used_images = set()
+    categories_list = ["world", "politics", "economy", "tech", "gaming", "sports", "science", "culture"]
 
     for idx, entry in enumerate(feed_entries[:6]):
         raw_title = entry.get("title", "خبر عاجل")
         raw_summary = entry.get("summary", "تغطية إخبارية مستمرة ومحدثة على مدار الساعة.")
         
+        assigned_cat = categories_list[idx % len(categories_list)]
+        assigned_image = get_unique_image(used_images)
         fallback_content = generate_detailed_fallback_content(raw_title, raw_summary, lang)
         
         fallback_item = {
@@ -108,8 +95,8 @@ def process_with_gemini(feed_entries, lang):
             "title": raw_title,
             "summary": raw_summary,
             "content": fallback_content,
-            "category": "world",
-            "image": get_image_for_category("world"),
+            "category": assigned_cat,
+            "image": assigned_image,
             "time": f"{day_str} - {now_str}",
             "read_time": calculate_read_time(fallback_content, lang)
         }
@@ -118,7 +105,7 @@ def process_with_gemini(feed_entries, lang):
             try:
                 model = genai.GenerativeModel("gemini-1.5-flash")
                 prompt = f"""
-                You are a professional journalist. Process this article for target language '{lang}':
+                You are a professional news editor. Process this article for target language '{lang}':
                 Raw Title: {raw_title}
                 Raw Summary: {raw_summary}
 
@@ -126,7 +113,7 @@ def process_with_gemini(feed_entries, lang):
                 1. "title": Catchy headline in '{lang}'.
                 2. "summary": Concise 2-sentence executive summary.
                 3. "content": Write 3 FULL detailed paragraphs providing deep background context in '{lang}'. Absolutely DO NOT copy or repeat sentences from "summary".
-                4. "category": Pick ONE lowercase key: [world, politics, economy, tech, gaming, sports, science, culture].
+                4. "category": Pick ONE lowercase key from this exact list: [world, politics, economy, tech, gaming, sports, science, culture].
 
                 Return JSON ONLY:
                 {{"id": {idx + 1}, "title": "...", "summary": "...", "content": "...", "category": "category_key"}}
@@ -135,10 +122,10 @@ def process_with_gemini(feed_entries, lang):
                 clean_text = response.text.replace("```json", "").replace("```", "").strip()
                 data = json.loads(clean_text)
                 
-                cat = str(data.get("category", "world")).lower().strip()
+                cat = str(data.get("category", assigned_cat)).lower().strip()
                 data["time"] = f"{day_str} - {now_str}"
-                data["category"] = cat if cat in CATEGORY_IMAGES else "world"
-                data["image"] = get_image_for_category(data["category"])
+                data["category"] = cat if cat in CATEGORY_NAMES else assigned_cat
+                data["image"] = assigned_image
                 data["read_time"] = calculate_read_time(data.get("content", ""), lang)
                 processed.append(data)
             except Exception:
@@ -208,7 +195,7 @@ def read_article(article_id):
 
     cat_key = str(article.get("category", "world")).lower().strip()
     cat_display = CATEGORY_NAMES.get(cat_key, {}).get(lang, CATEGORY_NAMES["world"][lang])
-    article_image = article.get("image", get_image_for_category(cat_key))
+    article_image = article.get("image", random.choice(ALL_NEWS_IMAGES))
     read_time = article.get("read_time", "2 min read")
     site_title = "العالم اليوم" if lang == "ar" else "Global Today"
 
