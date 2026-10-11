@@ -39,7 +39,7 @@ CATEGORY_IMAGES = {
 
 def calculate_read_time(text, lang):
     words = len(text.split())
-    minutes = math.ceil(words / 130) # متوسط القراءة بالدقيقة
+    minutes = math.ceil(words / 130)
     if lang == "ar":
         return f"{minutes} دقائق قراءة" if minutes > 1 else "دقيقة قراءة واحدة"
     return f"{minutes} min read"
@@ -70,7 +70,7 @@ def process_with_gemini(feed_entries, lang):
         """
 
         try:
-            response = model.generate_content(prompt, request_options={"timeout": 6})
+            response = model.generate_content(prompt, request_options={"timeout": 5})
             clean_text = response.text.replace("```json", "").replace("```", "").strip()
             data = json.loads(clean_text)
             data["time"] = f"{day_str} - {now_str}"
@@ -80,13 +80,25 @@ def process_with_gemini(feed_entries, lang):
             data["read_time"] = calculate_read_time(data.get("content", ""), lang)
             processed.append(data)
         except Exception:
-            continue
+            # احتياطي متين في حال حدوث أي خطأ لمنع انقطاع الأخبار
+            cat_default = "world"
+            processed.append({
+                "id": idx + 1,
+                "title": raw_title,
+                "summary": raw_summary,
+                "content": f"تغطية إخبارية مستمرة ومحدثة عبر العالم اليوم.\n\n{raw_summary}",
+                "category": cat_default,
+                "image": CATEGORY_IMAGES[cat_default],
+                "time": f"{day_str} - {now_str}",
+                "read_time": "دقيقة قراءة واحدة" if lang == "ar" else "1 min read"
+            })
 
     return processed
 
 def fetch_and_process_news(lang="ar"):
     now = datetime.now()
-    if NEWS_CACHE[lang]["time"] and (now - NEWS_CACHE[lang]["time"]) < timedelta(minutes=1) and NEWS_CACHE[lang]["data"]:
+    # ⏱️ ضبط التجديد التلقائي ليكون كل 30 دقيقة بالضبط
+    if NEWS_CACHE[lang]["time"] and (now - NEWS_CACHE[lang]["time"]) < timedelta(minutes=30) and NEWS_CACHE[lang]["data"]:
         return NEWS_CACHE[lang]["data"]
 
     sources = ["http://feeds.bbci.co.uk/arabic/rss.xml"] if lang == "ar" else [
@@ -169,7 +181,6 @@ def read_article(article_id):
     </head>
     <body class="bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 font-sans transition-colors duration-300">
         
-        <!-- 📊 Reading Progress Bar -->
         <div class="fixed top-0 left-0 right-0 h-1 bg-gray-200 dark:bg-slate-800 z-50">
             <div id="readingProgress" class="h-full bg-blue-600"></div>
         </div>
@@ -208,7 +219,6 @@ def read_article(article_id):
                             <span class="bg-blue-50 dark:bg-slate-800 text-blue-600 dark:text-blue-400 font-bold px-2.5 py-0.5 rounded-md">⏱️ {{ read_time }}</span>
                         </div>
                         
-                        <!-- 🔊 Text-To-Speech Button -->
                         <button onclick="toggleAudio()" id="audioBtn" class="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-1.5 rounded-full text-xs font-bold shadow transition">
                             <span id="audioIcon">🔊</span> <span id="audioText">{{ 'استمع للخبر' if lang == 'ar' else 'Listen Article' }}</span>
                         </button>
@@ -225,7 +235,6 @@ def read_article(article_id):
                         </div>
                     </div>
 
-                    <!-- 📤 Social Share Buttons -->
                     <div class="mt-12 pt-6 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-4">
                         <span class="text-xs font-bold text-slate-500 dark:text-slate-400">{{ 'شارك الخبر مع أصدقائك:' if lang == 'ar' else 'Share this story:' }}</span>
                         <div class="flex items-center gap-2">
@@ -307,7 +316,7 @@ def read_article(article_id):
 
             function copyArticleLink() {
                 navigator.clipboard.writeText(window.location.href);
-                alert(" تم نسخ رابط الخبر بنجاح!");
+                alert("تم نسخ رابط الخبر بنجاح!");
             }
         </script>
     </body>
