@@ -14,7 +14,6 @@ if API_KEY:
 NEWS_CACHE = {"ar": {"time": None, "data": []}, "en": {"time": None, "data": []}}
 NEWS_ARCHIVE = {"ar": [], "en": []}
 
-# أسماء الأقسام المترجمة والمحسنة
 CATEGORY_NAMES = {
     "world": {"ar": "🌍 أخبار العالم", "en": "🌍 World News"},
     "politics": {"ar": "🏛️ سياسة ودبلوماسية", "en": "🏛️ Politics"},
@@ -37,7 +36,6 @@ def process_with_gemini(feed_entries, lang):
     now_str = datetime.now().strftime("%Y-%m-%d | %H:%M")
     day_str = datetime.now().strftime("%A")
 
-    # Prompt متطور يمنع التكرار تماماً بين الملخص والمقال
     prompt = f"""
         You are an expert news writer. Process this article for target language '{lang}':
         Raw Title: {raw_title}
@@ -46,8 +44,8 @@ def process_with_gemini(feed_entries, lang):
         Strict Rules:
         1. "title": Catchy, professional news headline in language '{lang}'.
         2. "summary": A concise 2-sentence summary highlighting key facts.
-        3. "content": Write 3 FULL paragraphs of detailed background analysis and story context in '{lang}'. DO NOT repeat or copy the sentences used in "summary". Start the content directly with deeper details and geopolitical/economic context.
-        4. "category": Select ONLY ONE from: [world, politics, economy, tech, gaming, sports, science, culture].
+        3. "content": Write 3 FULL paragraphs of detailed background analysis and story context in '{lang}'. DO NOT repeat or copy sentences from summary. Dive straight into new details.
+        4. "category": Select ONLY ONE lowercase string from this exact list: [world, politics, economy, tech, gaming, sports, science, culture].
 
         Output ONLY valid JSON format:
         {{"id": {idx + 1}, "title": "Headline", "summary": "Short Summary", "content": "Paragraph 1\\n\\nParagraph 2\\n\\nParagraph 3", "category": "category_name"}}
@@ -62,6 +60,7 @@ def process_with_gemini(feed_entries, lang):
       )
       data = json.loads(clean_text)
       data["time"] = f"{day_str} - {now_str}"
+      data["category"] = data.get("category", "world").lower().strip()
       processed.append(data)
     except Exception:
       processed.append({
@@ -69,8 +68,7 @@ def process_with_gemini(feed_entries, lang):
           "title": raw_title,
           "summary": raw_summary,
           "content": (
-              f"تفاصيل إضافية وتحليل شامل للأحداث:\n\n{raw_summary}\n\nتغطية"
-              " مستمرة ومحدثة عبر شبكة العالم اليوم."
+              f"تحليل شامل وتفاصيل إضافية حول التطورات الأخيرة:\n\n{raw_summary}"
           ),
           "category": "world",
           "time": f"{day_str} - {now_str}",
@@ -81,7 +79,6 @@ def process_with_gemini(feed_entries, lang):
 
 def fetch_and_process_news(lang="ar"):
   now = datetime.now()
-  # تم تعديل الكاش ليصبح دقيقة واحدة فقط لتسريع التطوير والتجربة المباشرة
   if (
       NEWS_CACHE[lang]["time"]
       and (now - NEWS_CACHE[lang]["time"]) < timedelta(minutes=1)
@@ -103,7 +100,10 @@ def fetch_and_process_news(lang="ar"):
 
   if articles:
     if NEWS_CACHE[lang]["data"]:
-      NEWS_ARCHIVE[lang].extend(NEWS_CACHE[lang]["data"])
+      # حفظ الأخبار القديمة في الأرشيف قبل استبدالها
+      for old_art in NEWS_CACHE[lang]["data"]:
+        if old_art not in NEWS_ARCHIVE[lang]:
+          NEWS_ARCHIVE[lang].append(old_art)
     NEWS_CACHE[lang]["time"] = now
     NEWS_CACHE[lang]["data"] = articles
 
@@ -142,9 +142,10 @@ def read_article(article_id):
   if not article:
     return "الخبر غير موجود", 404
 
-  cat_key = article.get("category", "world")
+  # ضمان جلب اسم القسم بشكل صحيح ودقيق
+  cat_key = str(article.get("category", "world")).lower().strip()
   cat_display = CATEGORY_NAMES.get(cat_key, {}).get(
-      lang, cat_key.capitalize()
+      lang, CATEGORY_NAMES["world"][lang]
   )
 
   html_template = """
