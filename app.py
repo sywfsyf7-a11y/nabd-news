@@ -18,7 +18,6 @@ NEWS_CACHE = {"ar": {"time": None, "data": []}, "en": {"time": None, "data": []}
 
 def fetch_and_process_news(lang="ar"):
   now = datetime.now()
-  # إذا كان هناك أخبار مخزنة وأقل من 30 دقيقة، ارجعها فوراً دون انتظار Gemini
   if (
       NEWS_CACHE[lang]["time"]
       and (now - NEWS_CACHE[lang]["time"]) < timedelta(minutes=30)
@@ -27,7 +26,7 @@ def fetch_and_process_news(lang="ar"):
     return NEWS_CACHE[lang]["data"]
 
   feed_url = (
-      "http://feeds.bbci.co.uk/news/rss.xml"
+      "http://feeds.bbci.co.uk/news/world/rss.xml"
       if lang == "en"
       else "http://feeds.bbci.co.uk/arabic/rss.xml"
   )
@@ -36,13 +35,13 @@ def fetch_and_process_news(lang="ar"):
   articles = []
   model = genai.GenerativeModel("gemini-1.5-flash")
 
-  for idx, entry in enumerate(feed.entries[:10]):
+  for idx, entry in enumerate(feed.entries[:12]):
     raw_title = entry.get("title", "")
     raw_summary = entry.get("summary", "")
     published = entry.get("published", "منذ وقت قصير")
 
     prompt = f"""
-        أنت محرر إخباري ذكي لمنصة إخبارية عالمية. قم بتحليل الخبر التالي بـ اللغة '{lang}':
+        أنت محرر إخباري رئيسي لمنصة عالمية كبرى. قم بتحليل الخبر التالي باللغة '{lang}':
         العنوان: {raw_title}
         الملخص: {raw_summary}
 
@@ -50,10 +49,11 @@ def fetch_and_process_news(lang="ar"):
         1. صغ عنواناً احترافياً وجذاباً.
         2. اكتب ملخصاً واضحاً ومثيراً من سطرين.
         3. اكتب مقالاً كاملاً ومفصلاً ومصاغاً بأسلوب حصري من 3 فقرات بناءً على الخبر.
-        4. حدد التصنيف بدقة واختاره حصرياً من هذه القائمة:
-           [world, politics, sports, tech, economy, culture, gaming]
+        4. حدد التصنيف بدقة واختاره حصرياً وبدقة من هذه القائمة الشاملة:
+           [world, politics, economy, tech, gaming, sports, science, culture]
+           (توضيح: world للأخبار العامة، politics للسياسة، economy للاقتصاد والمال، tech للتكنولوجيا والذكاء الاصطناعي، gaming للألعاب والجيمنج، sports للرياضة، science للعلوم والفضاء والبيئة، culture للثقافة والفنون).
 
-        أرجع النتيجة بصيغة JSON نظيفة بدون أسطر إضافية:
+        أرجع النتيجة بصيغة JSON نظيفة بدون أسطر إضافية أو اكواد خارجية:
         {{"id": {idx + 1}, "title": "العنوان", "summary": "الملخص", "content": "المقال الكامل من 3 فقرات", "category": "التصنيف", "time": "{published}"}}
         """
 
@@ -70,8 +70,7 @@ def fetch_and_process_news(lang="ar"):
           "title": raw_title,
           "summary": raw_summary,
           "content": (
-              f"{raw_summary}\n\nهذا الخبر تم جلبه وتغطيته عبر شبكة العالم اليوم"
-              " الإخبارية بشكل آلي."
+              f"{raw_summary}\n\nتمت تغطية هذا الخبر عبر شبكة العالم اليوم الإخبارية."
           ),
           "category": "world",
           "time": published,
@@ -103,7 +102,6 @@ def read_article(article_id):
   if not article:
     return "الخبر غير موجود", 404
 
-  # صفحة قراءة الخبر الداخلية الفخمة
   html_template = """
     <!DOCTYPE html>
     <html lang="{{ lang }}" dir="{{ 'rtl' if lang == 'ar' else 'ltr' }}">
@@ -116,7 +114,7 @@ def read_article(article_id):
     <body class="bg-gray-100 font-sans text-gray-900">
         <header class="bg-slate-900 text-white p-4 border-b border-slate-800">
             <div class="container mx-auto flex justify-between items-center">
-                <a href="/" class="text-2xl font-black text-blue-500">العالم<span class="text-white">اليوم</span></a>
+                <a href="/" class="text-2xl font-black text-blue-500">العالم اليوم</a>
                 <a href="/" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-xs font-bold">
                     {{ '← العودة للرئيسية' if lang == 'ar' else '← Back to Home' }}
                 </a>
