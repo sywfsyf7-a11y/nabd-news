@@ -3,61 +3,59 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>العالم اليوم | شبكة إخبارية شاملة 🌐</title>
+    <title>Global Today | شبكة العالم اليوم</title>
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="bg-gray-100 font-sans text-gray-900">
 
-    <!-- شريط العاجل -->
+    <!-- 🔴 Breaking News Banner -->
     <div class="bg-red-700 text-white text-sm py-2 px-4 flex items-center justify-between shadow-inner">
         <div class="flex items-center space-x-2 space-x-reverse w-full">
-            <span class="bg-black text-white px-3 py-0.5 rounded font-bold animate-pulse text-xs">🔴 عاجل</span>
-            <marquee scrollamount="6" class="font-medium">
-                تحديثات فورية ومستمرة تغطي السياسة، الاقتصاد، التكنولوجيا، الجيمنج والعلوم عبر الذكاء الاصطناعي 24/7...
+            <span id="breakingBadge" class="bg-black text-white px-3 py-0.5 rounded font-bold animate-pulse text-xs">🔴 عاجل</span>
+            <marquee scrollamount="6" id="breakingText" class="font-medium">
+                Live continuous updates covering politics, economy, tech, gaming and science via AI 24/7...
             </marquee>
         </div>
     </div>
 
-    <!-- الهيدر الشامل -->
+    <!-- 🌐 Main Header -->
     <header class="bg-slate-900 text-white border-b border-slate-800 sticky top-0 z-50">
         <div class="container mx-auto px-4 py-4 flex flex-wrap justify-between items-center gap-4">
             <div>
-                <!-- الشعار مع المسافة الصحيحة -->
-                <h1 class="text-3xl font-black tracking-wide text-blue-500 cursor-pointer" onclick="filterCategory('all')">العالم اليوم</h1>
-                <p class="text-xs text-gray-400 mt-1">تغطية إخبارية عالمية شاملة على مدار الساعة</p>
+                <h1 class="text-3xl font-black tracking-wide text-blue-500 cursor-pointer" onclick="filterCategory('all')">Global Today</h1>
+                <p id="subHeader" class="text-xs text-gray-400 mt-1">Comprehensive global news coverage 24/7</p>
             </div>
             
             <div class="flex items-center gap-3">
                 <div class="flex items-center bg-slate-800 rounded-lg px-3 py-2 w-64 md:w-80 border border-slate-700">
-                    <input type="text" id="searchInput" onkeyup="searchNews()" placeholder="ابحث عن خبر..." class="bg-transparent border-none text-sm text-white focus:outline-none w-full placeholder-gray-400">
+                    <input type="text" id="searchInput" onkeyup="searchNews()" placeholder="Search news..." class="bg-transparent border-none text-sm text-white focus:outline-none w-full placeholder-gray-400">
                 </div>
                 <button onclick="switchLanguage()" id="langBtn" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-bold transition whitespace-nowrap">
-                    🌐 English
+                    🌐 العربية
                 </button>
             </div>
         </div>
 
-        <!-- قائمة الأقسام العالمية الشاملة -->
+        <!-- 📂 Navigation Categories -->
         <nav class="bg-slate-800 text-sm font-semibold border-t border-slate-700">
-            <div class="container mx-auto px-4 flex space-x-5 space-x-reverse overflow-x-auto py-3 no-scrollbar">
-                <button onclick="filterCategory('all')" class="hover:text-blue-400 transition whitespace-nowrap text-blue-400">الرئيسية</button>
-                <button onclick="filterCategory('world')" class="hover:text-blue-400 transition whitespace-nowrap">🌍 أخبار العالم</button>
-                <button onclick="filterCategory('politics')" class="hover:text-blue-400 transition whitespace-nowrap">🏛️ سياسة ودبلوماسية</button>
-                <button onclick="filterCategory('economy')" class="hover:text-blue-400 transition whitespace-nowrap">📈 اقتصاد وأسواق</button>
-                <button onclick="filterCategory('tech')" class="hover:text-blue-400 transition whitespace-nowrap">💻 تكنولوجيا وذكاء اصطناعي</button>
-                <button onclick="filterCategory('gaming')" class="hover:text-blue-400 transition whitespace-nowrap">🎮 ألعاب وجيمنج</button>
-                <button onclick="filterCategory('sports')" class="hover:text-blue-400 transition whitespace-nowrap">⚽ رياضة عالمية</button>
-                <button onclick="filterCategory('science')" class="hover:text-blue-400 transition whitespace-nowrap">🧬 علوم وفضاء</button>
-                <button onclick="filterCategory('culture')" class="hover:text-blue-400 transition whitespace-nowrap">🎬 ثقافة وفن</button>
+            <div id="navMenu" class="container mx-auto px-4 flex space-x-5 space-x-reverse overflow-x-auto py-3 no-scrollbar">
+                <button onclick="filterCategory('all')" data-cat="all" class="nav-btn text-blue-400 transition whitespace-nowrap">Home</button>
+                <button onclick="filterCategory('world')" data-cat="world" class="nav-btn hover:text-blue-400 transition whitespace-nowrap">🌍 World</button>
+                <button onclick="filterCategory('politics')" data-cat="politics" class="nav-btn hover:text-blue-400 transition whitespace-nowrap">🏛️ Politics</button>
+                <button onclick="filterCategory('economy')" data-cat="economy" class="nav-btn hover:text-blue-400 transition whitespace-nowrap">📈 Economy</button>
+                <button onclick="filterCategory('tech')" data-cat="tech" class="nav-btn hover:text-blue-400 transition whitespace-nowrap">💻 Tech</button>
+                <button onclick="filterCategory('gaming')" data-cat="gaming" class="nav-btn hover:text-blue-400 transition whitespace-nowrap">🎮 Gaming</button>
+                <button onclick="filterCategory('sports')" data-cat="sports" class="nav-btn hover:text-blue-400 transition whitespace-nowrap">⚽ Sports</button>
+                <button onclick="loadArchive()" id="archiveNavBtn" class="hover:text-blue-400 transition whitespace-nowrap text-amber-400">📂 Archive</button>
             </div>
         </nav>
     </header>
 
-    <!-- المحتوى الرئيسي -->
+    <!-- 📰 Main Content Area -->
     <main class="container mx-auto px-4 py-8">
         
         <div id="loading" class="text-center py-20 text-xl font-bold text-blue-600 animate-pulse">
-            ⏳ جاري سحب وتصنيف الأخبار العالمية بالذكاء الاصطناعي...
+            ⏳ Fetching and classifying global news via AI...
         </div>
 
         <div id="mainContent" class="hidden">
@@ -66,22 +64,22 @@
 
                 <div class="bg-white p-6 rounded-xl shadow-md border border-gray-200 flex flex-col justify-between">
                     <div>
-                        <h3 class="text-lg font-bold border-b pb-3 mb-4 flex items-center gap-2">🔥 الأكثر قراءة اليوم</h3>
+                        <h3 id="mostReadTitle" class="text-lg font-bold border-b pb-3 mb-4 flex items-center gap-2">🔥 Most Read Today</h3>
                         <div id="mostReadList" class="space-y-4"></div>
                     </div>
                 </div>
             </div>
 
-            <h3 id="sectionTitle" class="text-2xl font-bold mb-6 text-slate-800 border-r-4 border-blue-600 pr-3">📰 تغطيات شاملة</h3>
+            <h3 id="sectionTitle" class="text-2xl font-bold mb-6 text-slate-800 border-r-4 border-blue-600 pr-3">📰 Comprehensive Coverage</h3>
             <div id="categoriesGrid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-12"></div>
         </div>
 
     </main>
 
-    <!-- الفوتر -->
+    <!-- 📌 Footer -->
     <footer class="bg-slate-900 text-gray-400 text-sm py-10 border-t border-slate-800">
-        <div class="text-center text-xs text-gray-400">
-            جميع الحقوق محفوظة &copy; 2026 - شبكة العالم اليوم الإخبارية
+        <div id="footerText" class="text-center text-xs text-gray-400">
+            All Rights Reserved &copy; 2026 - Global Today News Network
         </div>
     </footer>
 
@@ -89,16 +87,62 @@
         let currentLang = 'ar';
         let allArticles = [];
 
-        const categoryNames = {
-            'world': '🌍 أخبار العالم',
-            'politics': '🏛️ سياسة ودبلوماسية',
-            'economy': '📈 اقتصاد وأسواق',
-            'tech': '💻 تكنولوجيا وذكاء اصطناعي',
-            'gaming': '🎮 ألعاب وجيمنج',
-            'sports': '⚽ رياضة عالمية',
-            'science': '🧬 علوم وفضاء',
-            'culture': '🎬 ثقافة وفن'
+        const translations = {
+            ar: {
+                sub: "تغطية إخبارية عالمية شاملة على مدار الساعة",
+                search: "ابحث عن خبر...",
+                breaking: "🔴 عاجل",
+                breakingText: "تحديثات فورية ومستمرة تغطي السياسة، الاقتصاد، التكنولوجيا، الجيمنج والعلوم عبر الذكاء الاصطناعي 24/7...",
+                nav: ["الرئيسية", "🌍 أخبار العالم", "🏛️ سياسة", "📈 اقتصاد", "💻 تكنولوجيا", "🎮 جيمنج", "⚽ رياضة", "📂 الأرشيف والتاريخ"],
+                mostRead: "🔥 الأكثر قراءة اليوم",
+                coverage: "📰 تغطيات شاملة",
+                readMore: "قراءة الخبر الكامل ←",
+                readMoreGrid: "قراءة المزيد ←",
+                footer: "جميع الحقوق محفوظة © 2026 - شبكة العالم اليوم الإخبارية",
+                loading: "⏳ جاري سحب وتصنيف الأخبار العالمية بالذكاء الاصطناعي..."
+            },
+            en: {
+                sub: "Comprehensive global news coverage 24/7",
+                search: "Search news...",
+                breaking: "🔴 BREAKING",
+                breakingText: "Live continuous updates covering politics, economy, tech, gaming and science via AI 24/7...",
+                nav: ["Home", "🌍 World", "🏛️ Politics", "📈 Economy", "💻 Tech", "🎮 Gaming", "⚽ Sports", "📂 Archive"],
+                mostRead: "🔥 Most Read Today",
+                coverage: "📰 Comprehensive Coverage",
+                readMore: "Read Full Article →",
+                readMoreGrid: "Read More →",
+                footer: "All Rights Reserved © 2026 - Global Today News Network",
+                loading: "⏳ Fetching and classifying global news via AI..."
+            }
         };
+
+        const categoryNames = {
+            'world': { ar: '🌍 أخبار العالم', en: '🌍 World News' },
+            'politics': { ar: '🏛️ سياسة', en: '🏛️ Politics' },
+            'economy': { ar: '📈 اقتصاد', en: '📈 Economy' },
+            'tech': { ar: '💻 تكنولوجيا', en: '💻 Tech' },
+            'gaming': { ar: '🎮 جيمنج', en: '🎮 Gaming' },
+            'sports': { ar: '⚽ رياضة', en: '⚽ Sports' },
+            'science': { ar: '🧬 علوم وفضاء', en: '🧬 Science' },
+            'culture': { ar: '🎬 ثقافة وفن', en: '🎬 Culture' }
+        };
+
+        function updateUIStrings() {
+            const t = translations[currentLang];
+            document.getElementById('subHeader').innerText = t.sub;
+            document.getElementById('searchInput').placeholder = t.search;
+            document.getElementById('breakingBadge').innerText = t.breaking;
+            document.getElementById('breakingText').innerText = t.breakingText;
+            document.getElementById('mostReadTitle').innerText = t.mostRead;
+            document.getElementById('sectionTitle').innerText = t.coverage;
+            document.getElementById('footerText').innerText = t.footer;
+            document.getElementById('loading').innerText = t.loading;
+
+            const navButtons = document.querySelectorAll('#navMenu button');
+            t.nav.forEach((name, idx) => {
+                if (navButtons[idx]) navButtons[idx].innerText = name;
+            });
+        }
 
         async function fetchNews() {
             document.getElementById('loading').classList.remove('hidden');
@@ -108,65 +152,91 @@
                 const res = await fetch(`/api/news?lang=${currentLang}`);
                 const data = await res.json();
                 allArticles = data.articles;
-
                 renderArticles(allArticles);
 
                 document.getElementById('loading').classList.add('hidden');
                 document.getElementById('mainContent').classList.remove('hidden');
             } catch (err) {
-                document.getElementById('loading').innerText = '❌ حدث خطأ أثناء تحميل الأخبار.';
+                document.getElementById('loading').innerText = '❌ Error loading news.';
             }
         }
 
-        function renderArticles(articles) {
+        async function loadArchive() {
+            document.getElementById('loading').classList.remove('hidden');
+            document.getElementById('mainContent').classList.add('hidden');
+            document.getElementById('mainArticleSection').classList.add('hidden');
+
+            try {
+                const res = await fetch(`/api/archive?lang=${currentLang}`);
+                const data = await res.json();
+                document.getElementById('sectionTitle').innerText = currentLang === 'ar' ? '📂 أرشيف الأخبار والتاريخ السابق' : '📂 News Archive & History';
+                renderArticles(data.archive, true);
+
+                document.getElementById('loading').classList.add('hidden');
+                document.getElementById('mainContent').classList.remove('hidden');
+            } catch (err) {
+                document.getElementById('loading').innerText = '❌ Error loading archive.';
+            }
+        }
+
+        function renderArticles(articles, isArchive = false) {
+            const t = translations[currentLang];
             if (!articles || articles.length === 0) {
-                document.getElementById('categoriesGrid').innerHTML = '<p class="text-gray-500 col-span-3 text-center py-10">لا توجد أخبار في هذا القسم حالياً.</p>';
+                document.getElementById('categoriesGrid').innerHTML = `<p class="text-gray-500 col-span-3 text-center py-10">${currentLang === 'ar' ? 'لا توجد أخبار متاحة حالياً.' : 'No news available currently.'}</p>`;
                 return;
             }
 
-            const main = articles[0];
-            document.getElementById('mainArticle').innerHTML = `
-                <img src="https://images.unsplash.com/photo-1585829365295-ab7cd400c167?w=1000" class="w-full h-80 object-cover" alt="خبر رئيسي">
-                <div class="p-6">
-                    <span class="bg-blue-100 text-blue-800 text-xs font-bold px-3 py-1 rounded-full">${categoryNames[main.category] || main.category}</span>
-                    <h2 class="text-2xl font-bold mt-3 mb-2 hover:text-blue-600 cursor-pointer">${main.title}</h2>
-                    <p class="text-gray-600 text-sm leading-relaxed mb-4">${main.summary}</p>
-                    <div class="flex justify-between items-center text-xs text-gray-500 border-t pt-4">
-                        <span>${main.time}</span>
-                        <a href="/article/${main.id}?lang=${currentLang}" class="bg-blue-600 text-white px-4 py-2 rounded-lg text-xs hover:bg-blue-700 transition">
-                            ${currentLang === 'ar' ? 'قراءة الخبر الكامل ←' : 'Read Full Article →'}
-                        </a>
+            if (!isArchive) {
+                document.getElementById('mainArticleSection').classList.remove('hidden');
+                const main = articles[0];
+                const catObj = categoryNames[main.category] || { ar: main.category, en: main.category };
+                document.getElementById('mainArticle').innerHTML = `
+                    <img src="https://images.unsplash.com/photo-1585829365295-ab7cd400c167?w=1000" class="w-full h-80 object-cover" alt="Main news">
+                    <div class="p-6">
+                        <span class="bg-blue-100 text-blue-800 text-xs font-bold px-3 py-1 rounded-full uppercase">${catObj[currentLang]}</span>
+                        <h2 class="text-2xl font-bold mt-3 mb-2 hover:text-blue-600 cursor-pointer">${main.title}</h2>
+                        <p class="text-gray-600 text-sm leading-relaxed mb-4">${main.summary}</p>
+                        <div class="flex justify-between items-center text-xs text-gray-500 border-t pt-4">
+                            <span>🕒 ${main.time}</span>
+                            <a href="/article/${main.id}?lang=${currentLang}" class="bg-blue-600 text-white px-4 py-2 rounded-lg text-xs hover:bg-blue-700 transition">
+                                ${t.readMore}
+                            </a>
+                        </div>
                     </div>
-                </div>
-            `;
-
-            const mostRead = document.getElementById('mostReadList');
-            mostRead.innerHTML = '';
-            articles.slice(1, 5).forEach(art => {
-                mostRead.innerHTML += `
-                    <article class="border-b pb-3 last:border-b-0">
-                        <span class="text-xs text-blue-600 font-bold">${categoryNames[art.category] || art.category}</span>
-                        <h4 class="font-bold text-sm text-gray-800 hover:text-blue-600 cursor-pointer mt-1">
-                            <a href="/article/${art.id}?lang=${currentLang}">${art.title}</a>
-                        </h4>
-                    </article>
                 `;
-            });
+
+                const mostRead = document.getElementById('mostReadList');
+                mostRead.innerHTML = '';
+                articles.slice(1, 5).forEach(art => {
+                    const c = categoryNames[art.category] || { ar: art.category, en: art.category };
+                    mostRead.innerHTML += `
+                        <article class="border-b pb-3 last:border-b-0">
+                            <span class="text-xs text-blue-600 font-bold">${c[currentLang]}</span>
+                            <h4 class="font-bold text-sm text-gray-800 hover:text-blue-600 cursor-pointer mt-1">
+                                <a href="/article/${art.id}?lang=${currentLang}">${art.title}</a>
+                            </h4>
+                        </article>
+                    `;
+                });
+            }
 
             const grid = document.getElementById('categoriesGrid');
             grid.innerHTML = '';
-            articles.slice(1).forEach(art => {
+            const targetList = isArchive ? articles : articles.slice(1);
+            
+            targetList.forEach(art => {
+                const c = categoryNames[art.category] || { ar: art.category, en: art.category };
                 grid.innerHTML += `
                     <div class="bg-white rounded-xl shadow border border-gray-200 overflow-hidden hover:shadow-lg transition flex flex-col justify-between">
                         <div class="p-5">
-                            <span class="text-xs font-bold text-blue-600 bg-blue-50 px-2.5 py-1 rounded-full">${categoryNames[art.category] || art.category}</span>
+                            <span class="text-xs font-bold text-blue-600 bg-blue-50 px-2.5 py-1 rounded-full uppercase">${c[currentLang]}</span>
                             <h4 class="font-bold text-lg mt-3 mb-2 text-gray-800">${art.title}</h4>
                             <p class="text-gray-500 text-xs leading-relaxed line-clamp-3 mb-4">${art.summary}</p>
                         </div>
                         <div class="p-5 pt-0 border-t border-gray-100 flex justify-between items-center mt-2">
-                            <span class="text-[10px] text-gray-400">${art.time}</span>
+                            <span class="text-[10px] text-gray-400">🕒 ${art.time}</span>
                             <a href="/article/${art.id}?lang=${currentLang}" class="text-blue-600 text-xs font-bold hover:underline">
-                                ${currentLang === 'ar' ? 'قراءة المزيد ←' : 'Read More →'}
+                                ${t.readMoreGrid}
                             </a>
                         </div>
                     </div>
@@ -175,13 +245,15 @@
         }
 
         function filterCategory(cat) {
+            document.getElementById('mainArticleSection').classList.remove('hidden');
+            const t = translations[currentLang];
             if (cat === 'all') {
-                document.getElementById('mainArticleSection').classList.remove('hidden');
-                document.getElementById('sectionTitle').innerText = currentLang === 'ar' ? '📰 تغطيات شاملة' : '📰 All News';
+                document.getElementById('sectionTitle').innerText = t.coverage;
                 renderArticles(allArticles);
             } else {
                 document.getElementById('mainArticleSection').classList.add('hidden');
-                document.getElementById('sectionTitle').innerText = categoryNames[cat] || cat;
+                const cObj = categoryNames[cat] || { ar: cat, en: cat };
+                document.getElementById('sectionTitle').innerText = cObj[currentLang];
                 const filtered = allArticles.filter(a => a.category === cat);
                 renderArticles(filtered);
             }
@@ -197,7 +269,9 @@
             currentLang = currentLang === 'ar' ? 'en' : 'ar';
             document.documentElement.lang = currentLang;
             document.documentElement.dir = currentLang === 'ar' ? 'rtl' : 'ltr';
-            document.getElementById('langBtn').innerText = currentLang === 'ar' ? '🌐 English' : '🌐 العربية';
+            document.getElementById('langBtn').innerText = currentLang === 'ar' ? '🌐 العربية' : '🌐 English';
+            
+            updateUIStrings();
             fetchNews();
         }
 
