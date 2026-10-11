@@ -31,43 +31,73 @@ CATEGORY_NAMES = {
     "culture": {"ar": "🎬 ثقافة وفن وترفيه", "en": "🎬 Culture & Arts"}
 }
 
-HD_FALLBACK_IMAGES = [
-    "https://images.unsplash.com/photo-1526778548025-fa2f459cd5c1?auto=format&fit=crop&w=1600&q=85",
-    "https://images.unsplash.com/photo-1540910419892-4a36d2c3266c?auto=format&fit=crop&w=1600&q=85",
-    "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?auto=format&fit=crop&w=1600&q=85",
-    "https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=1600&q=85",
-    "https://images.unsplash.com/photo-1538481199705-c710c4e965fc?auto=format&fit=crop&w=1600&q=85",
-    "https://images.unsplash.com/photo-1508098682722-e99c43a406b2?auto=format&fit=crop&w=1600&q=85",
-    "https://images.unsplash.com/photo-1507668077129-56e32842fceb?auto=format&fit=crop&w=1600&q=85",
-    "https://images.unsplash.com/photo-1485846234645-a62644f84728?auto=format&fit=crop&w=1600&q=85"
-]
+# 💎 صور HD عالية الدقة معتمدة عند الحاجة
+HD_FALLBACK_IMAGES = {
+    "politics": "https://images.unsplash.com/photo-1540910419892-4a36d2c3266c?auto=format&fit=crop&w=1600&q=90",
+    "world": "https://images.unsplash.com/photo-1526778548025-fa2f459cd5c1?auto=format&fit=crop&w=1600&q=90",
+    "economy": "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?auto=format&fit=crop&w=1600&q=90",
+    "tech": "https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=1600&q=90",
+    "gaming": "https://images.unsplash.com/photo-1538481199705-c710c4e965fc?auto=format&fit=crop&w=1600&q=90",
+    "sports": "https://images.unsplash.com/photo-1508098682722-e99c43a406b2?auto=format&fit=crop&w=1600&q=90",
+    "science": "https://images.unsplash.com/photo-1507668077129-56e32842fceb?auto=format&fit=crop&w=1600&q=90",
+    "culture": "https://images.unsplash.com/photo-1485846234645-a62644f84728?auto=format&fit=crop&w=1600&q=90"
+}
 
-def extract_image_from_html(html_text):
-    if not html_text:
+def upgrade_image_quality(img_url):
+    """رفع جودة دقة الصورة وتحويلها إلى HD"""
+    if not img_url:
         return None
-    match = re.search(r'<img[^>]+src=["\']([^"\']+)["\']', html_text)
-    if match:
-        return match.group(1)
-    return None
+    # استبدال مقاسات الصور المصغرة بالروابط بـ HD
+    img_url = re.sub(r'/(ichef|news)/[0-9_]+/cpsprodpb/', '/ichef/1024/cpsprodpb/', img_url)
+    img_url = re.sub(r'/[0-9]+x[0-9]+/', '/1024x576/', img_url)
+    img_url = re.sub(r'w=[0-9]+', 'w=1600', img_url)
+    return img_url
+
+def detect_category_smart(title, summary):
+    """تصنيف ذكي بناءً على الكلمات المفتاحية لمضمون الخبر"""
+    text = f"{title} {summary}".lower()
+    
+    politics_keywords = ["ترامب", "بوتين", "بايدن", "حكومة", "رئيس", "وزير", "انتخابات", "اتفاقية", "عسكري", "حرب", "عاجل", "سياسة", "مفاوضات", "حزب", "trump", "biden", "putin", "president", "election", "war", "minister", "politics"]
+    economy_keywords = ["اقتصاد", "دولار", "أسواق", "نفط", "تضخم", "أسهم", "بنك", "مالي", "تجارة", "فائدة", "economy", "market", "dollar", "stocks", "bank", "oil", "business"]
+    tech_keywords = ["تكنولوجيا", "ذكاء اصطناعي", "جوجل", "أبل", "مايكروسوفت", "هاتف", "تطبيق", "إنترنت", "tech", "ai", "google", "apple", "microsoft", "software"]
+    gaming_keywords = ["لعبة", "جيمنج", "بلايستيشن", "إكس بوكس", "بطولة ألعاب", "gaming", "playstation", "xbox", "game", "esports"]
+    sports_keywords = ["كرة", "مباراة", "دوري", "فريق", "لاعب", "بطولة", "ريال مدريد", "برشلونة", "sports", "football", "match", "league", "player"]
+    science_keywords = ["فضاء", "علماء", "كوكب", "طب", "علاج", "دراسة", "ناسا", "science", "space", "nasa", "health", "doctor"]
+    
+    if any(k in text for k in politics_keywords):
+        return "politics"
+    elif any(k in text for k in economy_keywords):
+        return "economy"
+    elif any(k in text for k in tech_keywords):
+        return "tech"
+    elif any(k in text for k in gaming_keywords):
+        return "gaming"
+    elif any(k in text for k in sports_keywords):
+        return "sports"
+    elif any(k in text for k in science_keywords):
+        return "science"
+    
+    return "world"
 
 def extract_rss_image(entry):
+    img_url = None
     if hasattr(entry, 'media_content') and entry.media_content:
         for mc in entry.media_content:
             if 'url' in mc:
-                return mc['url']
-    if hasattr(entry, 'media_thumbnail') and entry.media_thumbnail:
+                img_url = mc['url']
+                break
+    if not img_url and hasattr(entry, 'media_thumbnail') and entry.media_thumbnail:
         for mt in entry.media_thumbnail:
             if 'url' in mt:
-                return mt['url']
-    if hasattr(entry, 'enclosures') and entry.enclosures:
+                img_url = mt['url']
+                break
+    if not img_url and hasattr(entry, 'enclosures') and entry.enclosures:
         for enc in entry.enclosures:
             if 'url' in enc or 'href' in enc:
-                return enc.get('href') or enc.get('url')
-    summary = entry.get('summary', '')
-    img_url = extract_image_from_html(summary)
-    if img_url:
-        return img_url
-    return None
+                img_url = enc.get('href') or enc.get('url')
+                break
+    
+    return upgrade_image_quality(img_url)
 
 def calculate_read_time(text, lang):
     words = len(text.split())
@@ -78,36 +108,33 @@ def calculate_read_time(text, lang):
 
 def generate_detailed_fallback_content(raw_title, raw_summary, lang):
     if lang == "ar":
-        return f"""تتابع مختلف الدوائر الإخبارية تفاصيل التطورات الأخيرة المتعلقة بـ "{raw_title}"، في ظل اهتمام واسع بالتبعات المحتملة على الصعيدين المحلي والدولي.
+        return f"""تتابع وسائل الإعلام والتغطيات الصحفية عن كثب تفاصيل المستجدات المرتبطة بـ "{raw_title}".
 
-وأفادت التقديرات بأن التحولات الجارية تتطلب قراءة دقيقة للموقف، لاسيما مع تعدد القراءات وتفاوت ردود الفعل بين الأطراف المعنية.
+وتشير التقييمات الأولية إلى أن هذا الحدث يمثل تطوراً لافتاً ضمن سياق الأحداث الجارية، حيث يحظى باهتمام من المحللين والمتابعين للشأن الإقليمي والدولي.
 
-ومن المرتقب أن تحمل الساعات القادمة مستجدات إضافية ترسم ملامح المرحلة القادمة وتحدد مسارات التعامل مع هذا الملف."""
+ومن المتوقع نشر المزيد من التحديثات والتفاصيل الإضافية حول هذا الملف خلال الساعات القليلة القادمة."""
     else:
-        return f"""Global media outlets are closely tracking the unfolding events regarding "{raw_title}", focusing on the potential implications across regional and international levels.
+        return f"""Media outlets are closely following the unfolding details regarding "{raw_title}".
 
-Analysts point out that current developments demand a careful evaluation of the situation, especially amid varying perspectives from key stakeholders.
+Initial assessments indicate that this event marks a significant development within the current context, drawing interest from global observers and analysts.
 
-Further updates are expected to emerge soon, shaping the trajectory of upcoming policy and public discourse."""
+Further updates and detailed coverage are expected to follow in the coming hours."""
 
 def process_with_gemini(feed_entries, lang):
     processed = []
     now_str = datetime.now().strftime("%Y-%m-%d | %H:%M")
     day_str = datetime.now().strftime("%A")
-    used_images = set()
-    categories_list = ["world", "politics", "economy", "tech", "gaming", "sports", "science", "culture"]
 
     for idx, entry in enumerate(feed_entries[:6]):
         raw_title = entry.get("title", "خبر عاجل")
-        raw_summary = entry.get("summary", "تغطية إخبارية مستمرة ومحدثة على مدار الساعة.")
+        raw_summary = entry.get("summary", "تغطية إخبارية مستمرة على مدار الساعة.")
+        
+        smart_cat = detect_category_smart(raw_title, raw_summary)
         
         rss_image = extract_rss_image(entry)
-        if not rss_image or rss_image in used_images:
-            available_hd = [img for img in HD_FALLBACK_IMAGES if img not in used_images]
-            rss_image = random.choice(available_hd if available_hd else HD_FALLBACK_IMAGES)
-        used_images.add(rss_image)
+        if not rss_image:
+            rss_image = HD_FALLBACK_IMAGES.get(smart_cat, HD_FALLBACK_IMAGES["world"])
 
-        assigned_cat = categories_list[idx % len(categories_list)]
         fallback_content = generate_detailed_fallback_content(raw_title, raw_summary, lang)
         
         fallback_item = {
@@ -115,7 +142,7 @@ def process_with_gemini(feed_entries, lang):
             "title": raw_title,
             "summary": raw_summary,
             "content": fallback_content,
-            "category": assigned_cat,
+            "category": smart_cat,
             "image": rss_image,
             "time": f"{day_str} - {now_str}",
             "read_time": calculate_read_time(fallback_content, lang)
@@ -125,26 +152,26 @@ def process_with_gemini(feed_entries, lang):
             try:
                 model = genai.GenerativeModel("gemini-1.5-flash")
                 prompt = f"""
-                You are a professional news editor. Process this article for target language '{lang}':
-                Raw Title: {raw_title}
-                Raw Summary: {raw_summary}
+                You are a senior news editor. Process this article for target language '{lang}':
+                Title: {raw_title}
+                Summary: {raw_summary}
 
                 Strict Rules:
-                1. "title": Catchy headline in '{lang}'.
-                2. "summary": Concise 2-sentence executive summary.
-                3. "content": Write 3 FULL detailed paragraphs providing deep background context in '{lang}'. Absolutely DO NOT copy or repeat sentences from "summary".
-                4. "category": Pick ONE lowercase key from this exact list: [world, politics, economy, tech, gaming, sports, science, culture].
+                1. "title": Professional news headline in '{lang}'.
+                2. "summary": Executive 2-sentence summary in '{lang}'.
+                3. "content": Write 3 detailed paragraphs providing background context in '{lang}'. DO NOT repeat summary sentences.
+                4. "category": Choose the MOST ACCURATE term from: [world, politics, economy, tech, gaming, sports, science, culture].
 
                 Return JSON ONLY:
-                {{"id": {idx + 1}, "title": "...", "summary": "...", "content": "...", "category": "category_key"}}
+                {{"id": {idx + 1}, "title": "...", "summary": "...", "content": "...", "category": "{smart_cat}"}}
                 """
                 response = model.generate_content(prompt, request_options={"timeout": 4})
                 clean_text = response.text.replace("```json", "").replace("```", "").strip()
                 data = json.loads(clean_text)
                 
-                cat = str(data.get("category", assigned_cat)).lower().strip()
+                cat = str(data.get("category", smart_cat)).lower().strip()
                 data["time"] = f"{day_str} - {now_str}"
-                data["category"] = cat if cat in CATEGORY_NAMES else assigned_cat
+                data["category"] = cat if cat in CATEGORY_NAMES else smart_cat
                 data["image"] = rss_image
                 data["read_time"] = calculate_read_time(data.get("content", ""), lang)
                 processed.append(data)
@@ -215,7 +242,7 @@ def read_article(article_id):
 
     cat_key = str(article.get("category", "world")).lower().strip()
     cat_display = CATEGORY_NAMES.get(cat_key, {}).get(lang, CATEGORY_NAMES["world"][lang])
-    article_image = article.get("image", random.choice(HD_FALLBACK_IMAGES))
+    article_image = article.get("image", HD_FALLBACK_IMAGES["world"])
     read_time = article.get("read_time", "2 min read")
     site_title = "العالم اليوم" if lang == "ar" else "Global Today"
 
@@ -316,7 +343,6 @@ def read_article(article_id):
                 if (!voices || voices.length === 0) return null;
 
                 const langPrefix = targetLang === 'ar' ? 'ar' : 'en';
-                // إعطاء الأولوية للأصوات الطبيعية والممتازة مثل Natural أو Google أو Microsoft
                 const bestVoice = voices.find(v => v.lang.startsWith(langPrefix) && (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('Online')));
                 if (bestVoice) return bestVoice;
 
@@ -339,7 +365,7 @@ def read_article(article_id):
                         speechUtterance = new SpeechSynthesisUtterance(fullText);
                         const targetLang = "{{ 'ar' if lang == 'ar' else 'en' }}";
                         speechUtterance.lang = targetLang === 'ar' ? 'ar-SA' : 'en-US';
-                        speechUtterance.rate = 0.95; // سرعة متزنة ومريحة للأذن
+                        speechUtterance.rate = 0.95;
 
                         const bestVoice = getBestVoice(targetLang);
                         if (bestVoice) {
