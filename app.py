@@ -85,7 +85,45 @@ CATEGORY_HD_COLLECTIONS = {
     "culture": ["https://images.unsplash.com/photo-1485846234645-a62644f84728?auto=format&fit=crop&w=1200&q=80"]
 }
 
-# 🌟 أخبار افتراضية ذكية تظهر فوراً لضمان عدم بقاء الموقع فارغاً أبداً
+SPECIALIZED_SOURCES = {
+    "ar": [
+        "http://feeds.bbci.co.uk/arabic/rss.xml",
+        "https://www.aljazeera.net/aljazeerarss/a7c18663-7311-4224-b77e-d960b077f092/73d0e1b4-532f-45ef-b135-bfd3d2cf8712"
+    ],
+    "en": [
+        "http://feeds.bbci.co.uk/news/world/rss.xml",
+        "https://www.eurogamer.net/feed/news"
+    ]
+}
+
+def detect_category_smart(title, summary):
+    text = f"{title} {summary}".lower()
+    if any(k in text for k in ["ترامب", "بوتين", "بايدن", "حكومة", "رئيس", "وزير", "انتخابات", "حرب", "سياسة", "trump", "biden", "putin", "president", "election", "war", "politics"]):
+        return "politics"
+    if any(k in text for k in ["اقتصاد", "دولار", "أسواق", "نفط", "تضخم", "أسهم", "بنك", "economy", "market", "dollar", "stocks", "bank", "oil"]):
+        return "economy"
+    if any(k in text for k in ["تكنولوجيا", "ذكاء اصطناعي", "جوجل", "أبل", "مايكروسوفت", "هاتف", "tech", "ai", "google", "apple", "microsoft"]):
+        return "tech"
+    if any(k in text for k in ["لعبة", "جيمنج", "بلايستيشن", "إكس بوكس", "gaming", "playstation", "xbox", "game", "esports"]):
+        return "gaming"
+    if any(k in text for k in ["كرة", "مباراة", "دوري", "فريق", "لاعب", "sports", "football", "match", "league"]):
+        return "sports"
+    if any(k in text for k in ["فضاء", "علماء", "كوكب", "طب", "علاج", "science", "space", "nasa", "health"]):
+        return "science"
+    return "world"
+
+def calculate_read_time(text, lang):
+    words = len(text.split())
+    minutes = math.ceil(words / 130) if words > 0 else 1
+    return f"{minutes} دقائق قراءة" if lang == "ar" else f"{minutes} min read"
+
+def get_dynamic_news_image(cat_key, used_set):
+    collection = CATEGORY_HD_COLLECTIONS.get(cat_key, CATEGORY_HD_COLLECTIONS["world"])
+    available = [img for img in collection if img not in used_set]
+    if not available:
+        available = collection
+    return random.choice(available)
+
 DEFAULT_ARTICLES = {
     "ar": [
         {
@@ -97,26 +135,6 @@ DEFAULT_ARTICLES = {
             "image": "https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=1200&q=80",
             "time": "اليوم - 21:00",
             "read_time": "3 دقائق قراءة"
-        },
-        {
-            "id": 2,
-            "title": "تطورات الأسواق العالمية وأسعار العملات الرقمية والذهب",
-            "summary": "قراءة تحليلية لأحدث تحركات الأسواق المالية والاقتصادية وسط ترقب لقرارات البنوك المركزية.",
-            "content": "تواصل الأسواق العالمية تسجيل تقلبات ملحوظة وسط ترقب المستثمرين لبيانات التضخم وتقارير الفائدة الصادرة عن كبرى المؤسسات الاقتصادية الدولية. تشير التحليلات إلى أهمية تنوع المحافظ الاستثمارية في ظل المعطيات الجيوسياسية الراهنة.",
-            "category": "economy",
-            "image": "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?auto=format&fit=crop&w=1200&q=80",
-            "time": "اليوم - 20:30",
-            "read_time": "4 دقائق قراءة"
-        },
-        {
-            "id": 3,
-            "title": "الإعلان عن أقوى عناوين ألعاب الفيديو المرتقبة لهذا العام",
-            "summary": "استعراض لأبرز الإصدارات والتقنيات الرسومية الحديثة في عالم الألعاب الإلكترونية والجيمنج.",
-            "content": "كشفت استوديوهات تطوير الألعاب الكبرى عن تفاصيل مشوقة حول الإصدارات القادمة التي تستغل قدرات منصات الجيل الجديد وأجهزة الحواسيب الخارقة. تتضمن العناوين الجديدة عوالم مفتوحة ضخمة وتجارب لعب تفاعلية غير مسبوقة.",
-            "category": "gaming",
-            "image": "https://images.unsplash.com/photo-1538481199705-c710c4e965fc?auto=format&fit=crop&w=1200&q=80",
-            "time": "اليوم - 19:45",
-            "read_time": "3 دقائق قراءة"
         }
     ],
     "en": [
@@ -124,7 +142,7 @@ DEFAULT_ARTICLES = {
             "id": 1,
             "title": "Launch of the Fully Autonomous AI Newsroom Network",
             "summary": "Initiating live, AI-driven news operations with continuous round-the-clock coverage.",
-            "content": "Digital news platforms are undergoing a radical shift toward full automation and content curation using advanced AI algorithms. This system aims to deliver accurate, fast, and meticulously categorized coverage.",
+            "content": "Digital news platforms are undergoing a radical shift toward full automation and content curation using advanced AI algorithms.",
             "category": "tech",
             "image": "https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=1200&q=80",
             "time": "Today - 21:00",
@@ -133,20 +151,93 @@ DEFAULT_ARTICLES = {
     ]
 }
 
-def get_articles_from_db(lang):
+def save_article_to_db(art):
+    conn = get_db_connection()
+    if not conn:
+        return
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO ai_newsroom_pro_v4 (lang, title, summary, content, category, image, time, read_time)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (lang, title) DO NOTHING
+        """, (art['lang'], art['title'], art['summary'], art['content'], art['category'], art['image'], art['time'], art['read_time']))
+        conn.commit()
+        cursor.close()
+        conn.close()
+    except Exception as e:
+        print(f"DB Save Error: {e}")
+
+def fetch_and_process_news(lang="ar"):
     conn = get_db_connection()
     if not conn:
         return DEFAULT_ARTICLES.get(lang, DEFAULT_ARTICLES["ar"])
+    
     try:
+        cursor = conn.cursor()
+        cursor.execute('SELECT id, lang, title, summary, content, category, image, time, read_time, created_at FROM ai_newsroom_pro_v4 WHERE lang = %s ORDER BY id DESC', (lang,))
+        rows = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        
+        # إذا كانت القاعدة فارغة أو مضى وقت، نجلب أخبار جديدة من الـ RSS
+        should_fetch = False
+        if not rows:
+            should_fetch = True
+        else:
+            last_time = rows[0][9]
+            if last_time and (datetime.now() - last_time) > timedelta(minutes=30):
+                should_fetch = True
+
+        if should_fetch:
+            sources = SPECIALIZED_SOURCES.get(lang, SPECIALIZED_SOURCES["ar"])
+            now_str = datetime.now().strftime("%Y-%m-%d | %H:%M")
+            day_str = datetime.now().strftime("%A")
+            used_images = set()
+
+            for url in sources:
+                try:
+                    feed = feedparser.parse(url)
+                    if feed and hasattr(feed, 'entries'):
+                        for entry in feed.entries[:3]:
+                            raw_title = entry.get('title', 'خبر جديد')
+                            raw_summary = entry.get('summary', 'تغطية إخبارية مستمرة.')
+                            if "<" in raw_summary and ">" in raw_summary:
+                                import re
+                                raw_summary = re.sub('<[^<]+?>', '', raw_summary)
+                            
+                            smart_cat = detect_category_smart(raw_title, raw_summary)
+                            hd_image = get_dynamic_news_image(smart_cat, used_images)
+                            
+                            content = f"{raw_summary}\n\nتتابع المؤسسات الإخبارية عن كثب المستجدات المرتبطة بـ '{raw_title}' ضمن تغطيتها الحية والمستمرة."
+                            
+                            art = {
+                                "lang": lang,
+                                "title": raw_title,
+                                "summary": raw_summary,
+                                "content": content,
+                                "category": smart_cat,
+                                "image": hd_image,
+                                "time": f"{day_str} - {now_str}",
+                                "read_time": calculate_read_time(content, lang)
+                            }
+                            save_article_to_db(art)
+                except Exception:
+                    pass
+
+        # إعادة جلب الأخبار بعد التحديث
+        conn = get_db_connection()
+        if not conn:
+            return DEFAULT_ARTICLES.get(lang, DEFAULT_ARTICLES["ar"])
         cursor = conn.cursor()
         cursor.execute('SELECT id, lang, title, summary, content, category, image, time, read_time FROM ai_newsroom_pro_v4 WHERE lang = %s ORDER BY id DESC', (lang,))
         rows = cursor.fetchall()
         cursor.close()
         conn.close()
-        
+
         if not rows:
             return DEFAULT_ARTICLES.get(lang, DEFAULT_ARTICLES["ar"])
-            
+
         articles = []
         for row in rows:
             articles.append({
@@ -155,7 +246,7 @@ def get_articles_from_db(lang):
             })
         return articles
     except Exception as e:
-        print(f"DB Fetch Error: {e}")
+        print(f"Fetch Error: {e}")
         return DEFAULT_ARTICLES.get(lang, DEFAULT_ARTICLES["ar"])
 
 @app.route("/")
@@ -163,7 +254,7 @@ def home():
     lang = request.args.get("lang", "ar")
     selected_category = request.args.get("cat", "all")
     
-    articles = get_articles_from_db(lang)
+    articles = fetch_and_process_news(lang)
     
     if selected_category != "all":
         display_articles = [a for a in articles if a["category"] == selected_category]
@@ -208,7 +299,6 @@ def home():
         </header>
 
         <main class="container mx-auto px-4 py-8 max-w-7xl">
-            <!-- Breaking News -->
             <div class="bg-blue-950/40 border border-blue-800/50 rounded-2xl p-4 mb-8 flex items-center gap-4 shadow-md">
                 <span class="bg-blue-600 text-white text-xs font-black px-3 py-1 rounded-full uppercase animate-pulse">🔥 عاجل</span>
                 <div class="overflow-hidden whitespace-nowrap">
@@ -265,11 +355,10 @@ def home():
 @app.route("/article/<int:article_id>")
 def read_article(article_id):
     lang = request.args.get("lang", "ar")
-    articles = get_articles_from_db(lang)
+    articles = fetch_and_process_news(lang)
     article = next((a for a in articles if a["id"] == article_id), None)
 
     if not article:
-        # Fallback to default if not found in db
         defaults = DEFAULT_ARTICLES.get(lang, DEFAULT_ARTICLES["ar"])
         article = next((a for a in defaults if a["id"] == article_id), defaults[0])
 
