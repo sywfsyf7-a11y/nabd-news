@@ -3,8 +3,7 @@ import json
 import os
 import math
 import random
-import re
-import sqlite3
+import psycopg2
 from flask import Flask, jsonify, render_template_string, request, send_from_directory
 import feedparser
 import google.generativeai as genai
@@ -18,14 +17,25 @@ if API_KEY:
     except Exception:
         pass
 
-DB_NAME = "news_database.db"
+# 🌐 الاتصال بقاعدة بيانات Supabase الدائمة
+DATABASE_URL = os.environ.get("DATABASE_URL")
+
+def get_db_connection():
+    if not DATABASE_URL:
+        return None
+    url = DATABASE_URL
+    if url.startswith("postgres://"):
+        url = url.replace("postgres://", "postgresql://", 1)
+    return psycopg2.connect(url, sslmode='require')
 
 def init_db():
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_db_connection()
+    if not conn:
+        return
     cursor = conn.cursor()
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS articles (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             lang TEXT,
             title TEXT,
             summary TEXT,
@@ -38,6 +48,7 @@ def init_db():
         )
     ''')
     conn.commit()
+    cursor.close()
     conn.close()
 
 init_db()
@@ -51,6 +62,21 @@ CATEGORY_NAMES = {
     "sports": {"ar": "⚽ رياضة عالمية", "en": "⚽ Global Sports"},
     "science": {"ar": "🧬 علوم وفضاء", "en": "🧬 Science & Space"},
     "culture": {"ar": "🎬 ثقافة وفن وترفيه", "en": "🎬 Culture & Arts"}
+}
+
+# 📡 شبكة مصادر متعددة موزعة حسب التخصص واللغة
+MULTI_SOURCES = {
+    "ar": [
+        "http://feeds.bbci.co.uk/arabic/rss.xml",                  # BBC العربي (عالم وسياسة)
+        "https://www.aljazeera.net/aljazeerarss/a7c18663-7311-4224-b77e-d960b077f092/73d0e1b4-532f-45ef-b135-bfd3d2cf8712", # الجزيرة
+        "https://arabic.rt.com/rss/"                              # RT عربي
+    ],
+    "en": [
+        "http://feeds.bbci.co.uk/news/world/rss.xml",              # BBC World
+        "http://feeds.bbci.co.uk/news/technology/rss.xml",         # BBC Tech
+        "https://www.eurogamer.net/feed/news",                     # Eurogamer (Gaming)
+        "https://rss.nytimes.com/services/xml/rss/nyt/World.xml"    # NYT World
+    ]
 }
 
 CATEGORY_HD_COLLECTIONS = {
@@ -96,11 +122,11 @@ def detect_category_smart(title, summary):
         return "politics"
     if any(k in text for k in ["اقتصاد", "دولار", "أسواق", "نفط", "تضخم", "أسهم", "economy", "market", "dollar", "stocks", "oil"]):
         return "economy"
-    if any(k in text for k in ["تكنولوجيا", "ذكاء اصطناعي", "جوجل", "أبل", "هاتف", "tech", "ai", "google", "apple"]):
+    if any(k in text for k in ["تكنولوجيا", "ذكاء اصطناعي", "جوجل", "أبل", "هاتف", "tech", "ai", "google", "apple", "software"]):
         return "tech"
-    if any(k in text for k in ["لعبة", "جيمنج", "بلايستيشن", "gaming", "playstation", "xbox"]):
+    if any(k in text for k in ["لعبة", "جيمنج", "بلايستيشن", "gaming", "playstation", "xbox", "nintendo", "steam", "game"]):
         return "gaming"
-    if any(k in text for k in ["كرة", "مباراة", "دوري", "sports", "football", "match"]):
+    if any(k in text for k in ["كرة", "مباراة", "دوري", "sports", "football", "match", "league"]):
         return "sports"
     if any(k in text for k in ["فضاء", "علماء", "طب", "science", "space", "health"]):
         return "science"
@@ -115,56 +141,76 @@ def calculate_read_time(text, lang):
 
 def generate_detailed_fallback_content(raw_title, lang):
     if lang == "ar":
-        return f"""تتابع الصحافة العالمية باهتمام بالغ التطورات الأخيرة المرتبطة بـ "{raw_title}". وتشير التقارير الميدانية والتحليلات السياسية إلى أن هذا الحدث يفتح الباب أمام قراءات متعددة لتبعاته المستقبلية على الصعيد الإقليمي والدولي.
+        return f"""تتابع الصحافة العالمية باهتمام بالغ التطورات الأخيرة المرتبطة بـ "{raw_title}". وتشير التقارير الميدانية والتحليلات إلى أن هذا الحدث يفتح الباب أمام قراءات متعددة لتبعاته المستقبلية على الصعيد الإقليمي والدولي.
 
-وقد عبر المراقبون عن ضرورة رصد ردود الفعل الرسمية وغير الرسمية للوقوف على تداعيات الموقف بدقة. ومن المتقب أن تشهد الأيام القادمة مستجدات إضافية ترسم ملامح جديدة للتعامل مع هذا الملف."""
+وقد عبر المراقبون عن ضرورة رصد ردود الفعل الرسمية وغير الرسمية للوقوف على تداعيات الموقف بدقة. ومن المرتقب أن تشهد الأيام القادمة مستجدات إضافية ترسم ملامح جديدة للتعامل مع هذا الملف."""
     else:
-        return f"""Global media outlets are closely tracking the unfolding events regarding "{raw_title}". Field reports and political analysis indicate that this development opens the door for wide-ranging perspectives on its long-term regional and international impacts.
+        return f"""Global media outlets are closely tracking the unfolding events regarding "{raw_title}". Field reports and analysis indicate that this development opens the door for wide-ranging perspectives on its long-term impacts.
 
 Observers emphasize the necessity of monitoring official and unofficial reactions to accurately evaluate the situation. Further updates are expected in the coming days."""
 
 def save_article_to_db(art):
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_db_connection()
+    if not conn:
+        return
     cursor = conn.cursor()
     try:
         cursor.execute('''
-            INSERT OR IGNORE INTO articles (lang, title, summary, content, category, image, time, read_time)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO articles (lang, title, summary, content, category, image, time, read_time)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (lang, title) DO NOTHING
         ''', (art['lang'], art['title'], art['summary'], art['content'], art['category'], art['image'], art['time'], art['read_time']))
         conn.commit()
-    except Exception:
-        pass
-    conn.close()
+    except Exception as e:
+        print(f"DB Error: {e}")
+    finally:
+        cursor.close()
+        conn.close()
 
 def get_articles_from_db(lang):
-    conn = sqlite3.connect(DB_NAME)
-    conn.row_factory = sqlite3.Row
+    conn = get_db_connection()
+    if not conn:
+        return []
     cursor = conn.cursor()
-    cursor.execute('SELECT * FROM articles WHERE lang = ? ORDER BY id DESC', (lang,))
+    cursor.execute('SELECT id, lang, title, summary, content, category, image, time, read_time FROM articles WHERE lang = %s ORDER BY id DESC', (lang,))
     rows = cursor.fetchall()
+    cursor.close()
     conn.close()
-    return [dict(row) for row in rows]
+    
+    articles = []
+    for row in rows:
+        articles.append({
+            "id": row[0],
+            "lang": row[1],
+            "title": row[2],
+            "summary": row[3],
+            "content": row[4],
+            "category": row[5],
+            "image": row[6],
+            "time": row[7],
+            "read_time": row[8]
+        })
+    return articles
 
 def fetch_and_process_news(lang="ar"):
     existing = get_articles_from_db(lang)
-    # إذا كانت قاعدة البيانات تحتوي على أخبار مسبقة، نرجعها مباشرة (أرشيف دائم للأبد)
-    if existing and len(existing) >= 6:
+    if existing and len(existing) >= 8:
         return existing
 
-    sources = ["http://feeds.bbci.co.uk/arabic/rss.xml"] if lang == "ar" else ["http://feeds.bbci.co.uk/news/world/rss.xml"]
+    sources = MULTI_SOURCES.get(lang, MULTI_SOURCES["ar"])
     all_entries = []
     for url in sources:
         try:
             feed = feedparser.parse(url)
             if feed and hasattr(feed, 'entries'):
-                all_entries.extend(feed.entries)
+                all_entries.extend(feed.entries[:5])
         except Exception:
             pass
 
     now_str = datetime.now().strftime("%Y-%m-%d | %H:%M")
     day_str = datetime.now().strftime("%A")
 
-    for entry in all_entries[:10]:
+    for entry in all_entries[:15]:
         raw_title = entry.get("title", "خبر عاجل")
         raw_summary = entry.get("summary", "تغطية إخبارية مستمرة.")
         smart_cat = detect_category_smart(raw_title, raw_summary)
@@ -227,17 +273,30 @@ def get_archive():
 @app.route("/article/<int:article_id>")
 def read_article(article_id):
     lang = request.args.get("lang", "ar")
-    conn = sqlite3.connect(DB_NAME)
-    conn.row_factory = sqlite3.Row
+    conn = get_db_connection()
+    if not conn:
+        return "Database Error", 500
     cursor = conn.cursor()
-    cursor.execute('SELECT * FROM articles WHERE id = ?', (article_id,))
+    cursor.execute('SELECT id, lang, title, summary, content, category, image, time, read_time FROM articles WHERE id = %s', (article_id,))
     row = cursor.fetchone()
+    cursor.close()
     conn.close()
 
     if not row:
         return "الخبر غير موجود / Article Not Found", 404
 
-    article = dict(row)
+    article = {
+        "id": row[0],
+        "lang": row[1],
+        "title": row[2],
+        "summary": row[3],
+        "content": row[4],
+        "category": row[5],
+        "image": row[6],
+        "time": row[7],
+        "read_time": row[8]
+    }
+    
     cat_key = str(article.get("category", "world")).lower().strip()
     cat_display = CATEGORY_NAMES.get(cat_key, {}).get(lang, CATEGORY_NAMES["world"][lang])
     site_title = "العالم اليوم" if lang == "ar" else "Global Today"
