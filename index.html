@@ -118,11 +118,11 @@
 
         const categoryNames = {
             'world': { ar: '🌍 أخبار العالم', en: '🌍 World News' },
-            'politics': { ar: '🏛️ سياسة', en: '🏛️ Politics' },
-            'economy': { ar: '📈 اقتصاد', en: '📈 Economy' },
-            'tech': { ar: '💻 تكنولوجيا', en: '💻 Tech' },
-            'gaming': { ar: '🎮 جيمنج', en: '🎮 Gaming' },
-            'sports': { ar: '⚽ رياضة', en: '⚽ Sports' },
+            'politics': { ar: '🏛️ سياسة ودبلوماسية', en: '🏛️ Politics' },
+            'economy': { ar: '📈 اقتصاد وأسواق', en: '📈 Economy' },
+            'tech': { ar: '💻 تكنولوجيا وذكاء اصطناعي', en: '💻 Tech & AI' },
+            'gaming': { ar: '🎮 ألعاب وجيمنج', en: '🎮 Gaming' },
+            'sports': { ar: '⚽ رياضة عالمية', en: '⚽ Sports' },
             'science': { ar: '🧬 علوم وفضاء', en: '🧬 Science' },
             'culture': { ar: '🎬 ثقافة وفن', en: '🎬 Culture' }
         };
@@ -169,13 +169,63 @@
             try {
                 const res = await fetch(`/api/archive?lang=${currentLang}`);
                 const data = await res.json();
-                document.getElementById('sectionTitle').innerText = currentLang === 'ar' ? '📂 أرشيف الأخبار والتاريخ السابق' : '📂 News Archive & History';
-                renderArticles(data.archive, true);
+                document.getElementById('sectionTitle').innerText = currentLang === 'ar' ? '📂 أرشيف الأخبار المصنف حسب الأقسام' : '📂 Classified News Archive';
+                
+                // عرض الأرشيف مصنفاً حسب الأقسام
+                renderArchiveGrouped(data.archive);
 
                 document.getElementById('loading').classList.add('hidden');
                 document.getElementById('mainContent').classList.remove('hidden');
             } catch (err) {
                 document.getElementById('loading').innerText = '❌ Error loading archive.';
+            }
+        }
+
+        function renderArchiveGrouped(archiveArticles) {
+            const grid = document.getElementById('categoriesGrid');
+            grid.innerHTML = '';
+
+            if (!archiveArticles || archiveArticles.length === 0) {
+                grid.innerHTML = `<p class="text-gray-500 col-span-3 text-center py-10">${currentLang === 'ar' ? 'الأرشيف فارغ حالياً. ستبدأ الأخبار بالتراكم هنا تباعاً.' : 'Archive is currently empty.'}</p>`;
+                return;
+            }
+
+            // تجميع الأخبار حسب القسم
+            const grouped = {};
+            archiveArticles.forEach(art => {
+                const cat = (art.category || 'world').toLowerCase().trim();
+                if (!grouped[cat]) grouped[cat] = [];
+                grouped[cat].push(art);
+            });
+
+            // بناء واجهة الأرشيف مقسمة حسب الأقسام
+            for (const [catKey, arts] of Object.entries(grouped)) {
+                const cObj = categoryNames[catKey] || { ar: catKey, en: catKey };
+                const catTitle = cObj[currentLang];
+
+                grid.innerHTML += `
+                    <div class="col-span-full mt-6 mb-2 border-b-2 border-blue-600 pb-2">
+                        <h4 class="text-xl font-black text-slate-800">${catTitle} (${arts.length})</h4>
+                    </div>
+                `;
+
+                arts.forEach(art => {
+                    grid.innerHTML += `
+                        <div class="bg-white rounded-xl shadow border border-gray-200 overflow-hidden hover:shadow-lg transition flex flex-col justify-between">
+                            <div class="p-5">
+                                <span class="text-xs font-bold text-blue-600 bg-blue-50 px-2.5 py-1 rounded-full uppercase">${catTitle}</span>
+                                <h4 class="font-bold text-lg mt-3 mb-2 text-gray-800">${art.title}</h4>
+                                <p class="text-gray-500 text-xs leading-relaxed line-clamp-3 mb-4">${art.summary}</p>
+                            </div>
+                            <div class="p-5 pt-0 border-t border-gray-100 flex justify-between items-center mt-2">
+                                <span class="text-[10px] text-gray-400">🕒 ${art.time}</span>
+                                <a href="/article/${art.id}?lang=${currentLang}" class="text-blue-600 text-xs font-bold hover:underline">
+                                    ${currentLang === 'ar' ? 'قراءة المزيد ←' : 'Read More →'}
+                                </a>
+                            </div>
+                        </div>
+                    `;
+                });
             }
         }
 
@@ -189,7 +239,8 @@
             if (!isArchive) {
                 document.getElementById('mainArticleSection').classList.remove('hidden');
                 const main = articles[0];
-                const catObj = categoryNames[main.category] || { ar: main.category, en: main.category };
+                const catKey = (main.category || 'world').toLowerCase().trim();
+                const catObj = categoryNames[catKey] || { ar: catKey, en: catKey };
                 document.getElementById('mainArticle').innerHTML = `
                     <img src="https://images.unsplash.com/photo-1585829365295-ab7cd400c167?w=1000" class="w-full h-80 object-cover" alt="Main news">
                     <div class="p-6">
@@ -208,7 +259,8 @@
                 const mostRead = document.getElementById('mostReadList');
                 mostRead.innerHTML = '';
                 articles.slice(1, 5).forEach(art => {
-                    const c = categoryNames[art.category] || { ar: art.category, en: art.category };
+                    const ck = (art.category || 'world').toLowerCase().trim();
+                    const c = categoryNames[ck] || { ar: ck, en: ck };
                     mostRead.innerHTML += `
                         <article class="border-b pb-3 last:border-b-0">
                             <span class="text-xs text-blue-600 font-bold">${c[currentLang]}</span>
@@ -225,7 +277,8 @@
             const targetList = isArchive ? articles : articles.slice(1);
             
             targetList.forEach(art => {
-                const c = categoryNames[art.category] || { ar: art.category, en: art.category };
+                const ck = (art.category || 'world').toLowerCase().trim();
+                const c = categoryNames[ck] || { ar: ck, en: ck };
                 grid.innerHTML += `
                     <div class="bg-white rounded-xl shadow border border-gray-200 overflow-hidden hover:shadow-lg transition flex flex-col justify-between">
                         <div class="p-5">
@@ -254,13 +307,13 @@
                 document.getElementById('mainArticleSection').classList.add('hidden');
                 const cObj = categoryNames[cat] || { ar: cat, en: cat };
                 document.getElementById('sectionTitle').innerText = cObj[currentLang];
-                const filtered = allArticles.filter(a => a.category === cat);
+                const filtered = allArticles.filter(a => (a.category || '').toLowerCase().trim() === cat);
                 renderArticles(filtered);
             }
         }
 
         function searchNews() {
-            const query = document.getElementById('searchInput').value.toLowerCase();
+            const query = document.getElementById('searchInput'].value.toLowerCase();
             const filtered = allArticles.filter(a => a.title.toLowerCase().includes(query) || a.summary.toLowerCase().includes(query));
             renderArticles(filtered);
         }
