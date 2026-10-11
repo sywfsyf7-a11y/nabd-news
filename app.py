@@ -3,20 +3,12 @@ import json
 import os
 import math
 import random
-import socket
 import psycopg2
 from flask import Flask, jsonify, render_template_string, request
 import feedparser
 import google.generativeai as genai
 
 app = Flask(__name__)
-
-# إجبار بروتوكول الاتصال على IPv4 لمنع مشاكل Network is unreachable في سحابة الاستضافة
-old_getaddrinfo = socket.getaddrinfo
-def new_getaddrinfo(*args, **kwargs):
-    responses = old_getaddrinfo(*args, **kwargs)
-    return [r for r in responses if r[0] == socket.AF_INET]
-socket.getaddrinfo = new_getaddrinfo
 
 API_KEY = os.environ.get("GEMINI_API_KEY")
 if API_KEY:
@@ -34,7 +26,7 @@ def get_db_connection():
         url = DATABASE_URL
         if url.startswith("postgres://"):
             url = url.replace("postgres://", "postgresql://", 1)
-        return psycopg2.connect(url, sslmode='require', connect_timeout=5)
+        return psycopg2.connect(url, sslmode='require', connect_timeout=3)
     except Exception as e:
         print(f"DB Connection Error: {e}")
         return None
@@ -46,7 +38,7 @@ def init_db():
             return
         cursor = conn.cursor()
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS ai_newsroom_pro_v6 (
+            CREATE TABLE IF NOT EXISTS ai_newsroom_pro_v5 (
                 id SERIAL PRIMARY KEY,
                 lang TEXT,
                 title TEXT,
@@ -123,7 +115,7 @@ def save_article_to_db(art):
     try:
         cursor = conn.cursor()
         cursor.execute("""
-            INSERT INTO ai_newsroom_pro_v6 (lang, title, summary, content, category, image, time, read_time)
+            INSERT INTO ai_newsroom_pro_v5 (lang, title, summary, content, category, image, time, read_time)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (lang, title) DO NOTHING
         """, (art['lang'], art['title'], art['summary'], art['content'], art['category'], art['image'], art['time'], art['read_time']))
@@ -139,7 +131,7 @@ def get_articles_from_db(lang):
         return []
     try:
         cursor = conn.cursor()
-        cursor.execute('SELECT id, lang, title, summary, content, category, image, time, read_time, created_at FROM ai_newsroom_pro_v6 WHERE lang = %s ORDER BY id DESC', (lang,))
+        cursor.execute('SELECT id, lang, title, summary, content, category, image, time, read_time, created_at FROM ai_newsroom_pro_v5 WHERE lang = %s ORDER BY id DESC', (lang,))
         rows = cursor.fetchall()
         cursor.close()
         conn.close()
@@ -154,9 +146,11 @@ def get_articles_from_db(lang):
         print(f"DB Fetch Error: {e}")
         return []
 
+# 🏢 نظام غرفة التحرير الذكية (المحسّن والسريع لتجنب الضغط)
 def fetch_and_process_news(lang="ar"):
     articles = get_articles_from_db(lang)
     
+    # إذا كانت الأخبار موجودة ولم تمضِ 30 دقيقة، نعرضها فوراً بدون إعادة الاتصال بالـ API لتوفير الوقت والسرعة
     if articles and len(articles) > 0:
         last_time = articles[0].get("created_at")
         if last_time and (datetime.now() - last_time) < timedelta(minutes=30):
@@ -168,7 +162,7 @@ def fetch_and_process_news(lang="ar"):
         try:
             feed = feedparser.parse(url)
             if feed and hasattr(feed, 'entries'):
-                for entry in feed.entries[:3]:
+                for entry in feed.entries[:3]:  # أخذ 3 أخبار فقط من كل مصدر لتجنب الضغط
                     all_raw_text += f"- Title: {entry.get('title', '')} | Summary: {entry.get('summary', '')}\n"
         except Exception:
             pass
@@ -180,6 +174,7 @@ def fetch_and_process_news(lang="ar"):
     if API_KEY and all_raw_text:
         try:
             model = genai.GenerativeModel("gemini-1.5-flash")
+            # برومبت غرفة التحرير (يعمل بذكاء وبعدد محدود ومدروس لتجنب الانتظار الطويل)
             prompt = f"""
             You are the Chief Editor of a global news agency. Analyze these raw feeds, select the top 4 most important stories, and distribute them into categories: [world, politics, economy, tech, gaming, sports, science, culture].
             Translate and format professionally in language '{lang}'.
