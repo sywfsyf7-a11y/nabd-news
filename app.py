@@ -31,7 +31,6 @@ CATEGORY_NAMES = {
     "culture": {"ar": "🎬 ثقافة وفن وترفيه", "en": "🎬 Culture & Arts"}
 }
 
-# 💎 مكتبة صور HD عالية الدقة احتياطية لكل قسم
 HD_FALLBACK_IMAGES = [
     "https://images.unsplash.com/photo-1526778548025-fa2f459cd5c1?auto=format&fit=crop&w=1600&q=85",
     "https://images.unsplash.com/photo-1540910419892-4a36d2c3266c?auto=format&fit=crop&w=1600&q=85",
@@ -40,9 +39,7 @@ HD_FALLBACK_IMAGES = [
     "https://images.unsplash.com/photo-1538481199705-c710c4e965fc?auto=format&fit=crop&w=1600&q=85",
     "https://images.unsplash.com/photo-1508098682722-e99c43a406b2?auto=format&fit=crop&w=1600&q=85",
     "https://images.unsplash.com/photo-1507668077129-56e32842fceb?auto=format&fit=crop&w=1600&q=85",
-    "https://images.unsplash.com/photo-1485846234645-a62644f84728?auto=format&fit=crop&w=1600&q=85",
-    "https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&w=1600&q=85",
-    "https://images.unsplash.com/photo-1529107386315-e1a2ed48a620?auto=format&fit=crop&w=1600&q=85"
+    "https://images.unsplash.com/photo-1485846234645-a62644f84728?auto=format&fit=crop&w=1600&q=85"
 ]
 
 def extract_image_from_html(html_text):
@@ -54,7 +51,6 @@ def extract_image_from_html(html_text):
     return None
 
 def extract_rss_image(entry):
-    # 1. البحث في وسائط RSS المباشرة (media_content / media_thumbnail)
     if hasattr(entry, 'media_content') and entry.media_content:
         for mc in entry.media_content:
             if 'url' in mc:
@@ -63,24 +59,14 @@ def extract_rss_image(entry):
         for mt in entry.media_thumbnail:
             if 'url' in mt:
                 return mt['url']
-    # 2. البحث في الروابط المرفقة (enclosures)
     if hasattr(entry, 'enclosures') and entry.enclosures:
         for enc in entry.enclosures:
             if 'url' in enc or 'href' in enc:
                 return enc.get('href') or enc.get('url')
-    # 3. استخراج الصورة من محتوى HTML للخبر
     summary = entry.get('summary', '')
     img_url = extract_image_from_html(summary)
     if img_url:
         return img_url
-    
-    content = entry.get('content', [])
-    if content and isinstance(content, list):
-        for c in content:
-            img_url = extract_image_from_html(c.get('value', ''))
-            if img_url:
-                return img_url
-                
     return None
 
 def calculate_read_time(text, lang):
@@ -115,7 +101,6 @@ def process_with_gemini(feed_entries, lang):
         raw_title = entry.get("title", "خبر عاجل")
         raw_summary = entry.get("summary", "تغطية إخبارية مستمرة ومحدثة على مدار الساعة.")
         
-        # استخراج الصورة الحقيقية من الـ RSS أو استخدام صورة بديلة عالية الدقة
         rss_image = extract_rss_image(entry)
         if not rss_image or rss_image in used_images:
             available_hd = [img for img in HD_FALLBACK_IMAGES if img not in used_images]
@@ -326,6 +311,18 @@ def read_article(article_id):
             let speechUtterance = null;
             let isSpeaking = false;
 
+            function getBestVoice(targetLang) {
+                const voices = window.speechSynthesis.getVoices();
+                if (!voices || voices.length === 0) return null;
+
+                const langPrefix = targetLang === 'ar' ? 'ar' : 'en';
+                // إعطاء الأولوية للأصوات الطبيعية والممتازة مثل Natural أو Google أو Microsoft
+                const bestVoice = voices.find(v => v.lang.startsWith(langPrefix) && (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('Online')));
+                if (bestVoice) return bestVoice;
+
+                return voices.find(v => v.lang.startsWith(langPrefix)) || null;
+            }
+
             function toggleAudio() {
                 if ('speechSynthesis' in window) {
                     if (isSpeaking) {
@@ -340,7 +337,15 @@ def read_article(article_id):
                         const fullText = `${title}. ${summary}. ${content}`;
 
                         speechUtterance = new SpeechSynthesisUtterance(fullText);
-                        speechUtterance.lang = "{{ 'ar-SA' if lang == 'ar' else 'en-US' }}";
+                        const targetLang = "{{ 'ar' if lang == 'ar' else 'en' }}";
+                        speechUtterance.lang = targetLang === 'ar' ? 'ar-SA' : 'en-US';
+                        speechUtterance.rate = 0.95; // سرعة متزنة ومريحة للأذن
+
+                        const bestVoice = getBestVoice(targetLang);
+                        if (bestVoice) {
+                            speechUtterance.voice = bestVoice;
+                        }
+
                         speechUtterance.onend = () => {
                             isSpeaking = false;
                             document.getElementById('audioText').innerText = "{{ 'استمع للخبر' if lang == 'ar' else 'Listen Article' }}";
@@ -355,6 +360,12 @@ def read_article(article_id):
                 } else {
                     alert("المتصفح لا يدعم القراءة الصوتية.");
                 }
+            }
+
+            if ('speechSynthesis' in window) {
+                window.speechSynthesis.onvoiceschanged = () => {
+                    getBestVoice("{{ 'ar' if lang == 'ar' else 'en' }}");
+                };
             }
 
             window.onscroll = function() {
