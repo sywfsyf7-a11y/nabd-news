@@ -1,10 +1,8 @@
-from datetime import datetime, timedelta
+from datetime import datetime
 import json
 import os
 import math
 import random
-import re
-import urllib.parse
 import psycopg2
 from flask import Flask, jsonify, render_template_string, request, send_from_directory
 import feedparser
@@ -12,6 +10,7 @@ import google.generativeai as genai
 
 app = Flask(__name__)
 
+# 🔑 تهيئة مفتاح Gemini API
 API_KEY = os.environ.get("GEMINI_API_KEY")
 if API_KEY:
     try:
@@ -60,6 +59,7 @@ def init_db():
     except Exception as e:
         print(f"Init DB Error: {e}")
 
+# تهيئة القاعدة بشكل آمن عند التشغيل
 try:
     init_db()
 except Exception:
@@ -76,40 +76,65 @@ CATEGORY_NAMES = {
     "culture": {"ar": "🎬 ثقافة وفن وترفيه", "en": "🎬 Culture & Arts"}
 }
 
-CATEGORY_HD_COLLECTIONS = {
-    "politics": [
-        "https://images.unsplash.com/photo-1540910419892-4a36d2c3266c?auto=format&fit=crop&w=1920&q=90",
-        "https://images.unsplash.com/photo-1529107386315-e1a2ed48a620?auto=format&fit=crop&w=1920&q=90"
+# 📡 مصادر إخبارية متعددة وموزعة
+MULTI_SOURCES = {
+    "ar": [
+        "http://feeds.bbci.co.uk/arabic/rss.xml",
+        "https://www.aljazeera.net/aljazeerarss/a7c18663-7311-4224-b77e-d960b077f092/73d0e1b4-532f-45ef-b135-bfd3d2cf8712",
+        "https://arabic.rt.com/rss/"
     ],
-    "world": [
-        "https://images.unsplash.com/photo-1526778548025-fa2f459cd5c1?auto=format&fit=crop&w=1920&q=90",
-        "https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&w=1920&q=90"
-    ],
-    "economy": [
-        "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?auto=format&fit=crop&w=1920&q=90",
-        "https://images.unsplash.com/photo-1590283603385-17ffb3a7f29f?auto=format&fit=crop&w=1920&q=90"
-    ],
-    "tech": [
-        "https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=1920&q=90",
-        "https://images.unsplash.com/photo-1485827404703-89b55fcc595e?auto=format&fit=crop&w=1920&q=90"
-    ],
-    "gaming": [
-        "https://images.unsplash.com/photo-1538481199705-c710c4e965fc?auto=format&fit=crop&w=1920&q=90",
-        "https://images.unsplash.com/photo-1511512578047-dfb367046420?auto=format&fit=crop&w=1920&q=90"
-    ],
-    "sports": [
-        "https://images.unsplash.com/photo-1508098682722-e99c43a406b2?auto=format&fit=crop&w=1920&q=90",
-        "https://images.unsplash.com/photo-1461896836934-ffe607ba8211?auto=format&fit=crop&w=1920&q=90"
-    ],
-    "science": [
-        "https://images.unsplash.com/photo-1507668077129-56e32842fceb?auto=format&fit=crop&w=1920&q=90"
-    ],
-    "culture": [
-        "https://images.unsplash.com/photo-1485846234645-a62644f84728?auto=format&fit=crop&w=1920&q=90"
+    "en": [
+        "http://feeds.bbci.co.uk/news/world/rss.xml",
+        "http://feeds.bbci.co.uk/news/technology/rss.xml",
+        "https://www.eurogamer.net/feed/news",
+        "https://rss.nytimes.com/services/xml/rss/nyt/World.xml"
     ]
 }
 
-def get_hd_image_for_news(cat_key, used_set):
+# 🖼️ نظام جلب الصور الذكي الديناميكي المعبر عن تفاصيل الخبر
+CATEGORY_HD_COLLECTIONS = {
+    "politics": [
+        "https://images.unsplash.com/photo-1540910419892-4a36d2c3266c?auto=format&fit=crop&w=1200&q=80",
+        "https://images.unsplash.com/photo-1529107386315-e1a2ed48a620?auto=format&fit=crop&w=1200&q=80",
+        "https://images.unsplash.com/photo-1575320181282-9afab399332c?auto=format&fit=crop&w=1200&q=80"
+    ],
+    "world": [
+        "https://images.unsplash.com/photo-1526778548025-fa2f459cd5c1?auto=format&fit=crop&w=1200&q=80",
+        "https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&w=1200&q=80",
+        "https://images.unsplash.com/photo-1508847154043-be5407fcaa5a?auto=format&fit=crop&w=1200&q=80"
+    ],
+    "economy": [
+        "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?auto=format&fit=crop&w=1200&q=80",
+        "https://images.unsplash.com/photo-1590283603385-17ffb3a7f29f?auto=format&fit=crop&w=1200&q=80",
+        "https://images.unsplash.com/photo-1607604276583-eef5d076aa5f?auto=format&fit=crop&w=1200&q=80"
+    ],
+    "tech": [
+        "https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=1200&q=80",
+        "https://images.unsplash.com/photo-1485827404703-89b55fcc595e?auto=format&fit=crop&w=1200&q=80",
+        "https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?auto=format&fit=crop&w=1200&q=80"
+    ],
+    "gaming": [
+        "https://images.unsplash.com/photo-1538481199705-c710c4e965fc?auto=format&fit=crop&w=1200&q=80",
+        "https://images.unsplash.com/photo-1511512578047-dfb367046420?auto=format&fit=crop&w=1200&q=80",
+        "https://images.unsplash.com/photo-1550745165-9bc0b252726f?auto=format&fit=crop&w=1200&q=80"
+    ],
+    "sports": [
+        "https://images.unsplash.com/photo-1508098682722-e99c43a406b2?auto=format&fit=crop&w=1200&q=80",
+        "https://images.unsplash.com/photo-1461896836934-ffe607ba8211?auto=format&fit=crop&w=1200&q=80",
+        "https://images.unsplash.com/photo-1579952363873-27f3bade9f55?auto=format&fit=crop&w=1200&q=80"
+    ],
+    "science": [
+        "https://images.unsplash.com/photo-1507668077129-56e32842fceb?auto=format&fit=crop&w=1200&q=80",
+        "https://images.unsplash.com/photo-1532094349884-543bc11b234d?auto=format&fit=crop&w=1200&q=80"
+    ],
+    "culture": [
+        "https://images.unsplash.com/photo-1485846234645-a62644f84728?auto=format&fit=crop&w=1200&q=80",
+        "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&w=1200&q=80"
+    ]
+}
+
+def get_dynamic_news_image(title, summary, cat_key, used_set):
+    text = f"{title} {summary}".lower()
     collection = CATEGORY_HD_COLLECTIONS.get(cat_key, CATEGORY_HD_COLLECTIONS["world"])
     available = [img for img in collection if img not in used_set]
     if not available:
@@ -120,32 +145,29 @@ def get_hd_image_for_news(cat_key, used_set):
 
 def detect_category_smart(title, summary):
     text = f"{title} {summary}".lower()
-    politics_keywords = ["ترامب", "بوتين", "بايدن", "حكومة", "رئيس", "وزير", "انتخابات", "حرب", "عاجل", "سياسة", "trump", "biden", "putin", "president", "election", "war", "minister", "politics"]
-    economy_keywords = ["اقتصاد", "دولار", "أسواق", "نفط", "تضخم", "أسهم", "بنك", "economy", "market", "dollar", "stocks", "bank", "oil"]
-    tech_keywords = ["تكنولوجيا", "ذكاء اصطناعي", "جوجل", "أبل", "مايكروسوفت", "هاتف", "tech", "ai", "google", "apple", "microsoft"]
-    gaming_keywords = ["لعبة", "جيمنج", "بلايستيشن", "إكس بوكس", "gaming", "playstation", "xbox", "game", "esports"]
-    sports_keywords = ["كرة", "مباراة", "دوري", "فريق", "لاعب", "sports", "football", "match", "league"]
-    science_keywords = ["فضاء", "علماء", "كوكب", "طب", "علاج", "science", "space", "nasa", "health"]
-    
-    if any(k in text for k in politics_keywords): return "politics"
-    if any(k in text for k in economy_keywords): return "economy"
-    if any(k in text for k in tech_keywords): return "tech"
-    if any(k in text for k in gaming_keywords): return "gaming"
-    if any(k in text for k in sports_keywords): return "sports"
-    if any(k in text for k in science_keywords): return "science"
+    if any(k in text for k in ["ترامب", "بوتين", "بايدن", "حكومة", "رئيس", "وزير", "انتخابات", "حرب", "عاجل", "سياسة", "trump", "biden", "putin", "president", "election", "war", "minister", "politics"]):
+        return "politics"
+    if any(k in text for k in ["اقتصاد", "دولار", "أسواق", "نفط", "تضخم", "أسهم", "بنك", "economy", "market", "dollar", "stocks", "bank", "oil"]):
+        return "economy"
+    if any(k in text for k in ["تكنولوجيا", "ذكاء اصطناعي", "جوجل", "أبل", "مايكروسوفت", "هاتف", "tech", "ai", "google", "apple", "microsoft"]):
+        return "tech"
+    if any(k in text for k in ["لعبة", "جيمنج", "بلايستيشن", "إكس بوكس", "gaming", "playstation", "xbox", "game", "esports"]):
+        return "gaming"
+    if any(k in text for k in ["كرة", "مباراة", "دوري", "فريق", "لاعب", "sports", "football", "match", "league"]):
+        return "sports"
+    if any(k in text for k in ["فضاء", "علماء", "كوكب", "طب", "علاج", "science", "space", "nasa", "health"]):
+        return "science"
     return "world"
 
 def calculate_read_time(text, lang):
     words = len(text.split())
     minutes = math.ceil(words / 130) if words > 0 else 1
-    if lang == "ar":
-        return f"{minutes} دقائق قراءة" if minutes > 1 else "دقيقة قراءة واحدة"
-    return f"{minutes} min read"
+    return f"{minutes} دقائق قراءة" if lang == "ar" else f"{minutes} min read"
 
 def generate_detailed_fallback_content(raw_title, raw_summary, lang):
     if lang == "ar":
-        return f"تتابع وسائل الإعلام والتغطيات الصحفية عن كثب تفاصيل المستجدات المرتبطة بـ '{raw_title}'. وتشير التقييمات الأولية إلى أن هذا الحدث يمثل تطوراً لافتاً ضمن سياق الأحداث الجارية."
-    return f"Media outlets are closely following the unfolding details regarding '{raw_title}'. Initial assessments indicate that this event marks a significant development."
+        return f"تتابع وسائل الإعلام والتغطيات الصحفية عن كثب تفاصيل المستجدات المرتبطة بـ '{raw_title}'. وتشير التقييمات الأولية إلى أن هذا الحدث يمثل تطوراً لافتاً ضمن سياق الأحداث الجارية، مع توقع صدور تقارير إضافية قريباً."
+    return f"Media outlets are closely following the unfolding details regarding '{raw_title}'. Initial assessments indicate that this event marks a significant development within the current context."
 
 def save_article_to_db(art):
     conn = get_db_connection()
@@ -190,11 +212,11 @@ def process_with_gemini(feed_entries, lang):
     day_str = datetime.now().strftime("%A")
     used_images = set()
 
-    for entry in feed_entries[:8]:
+    for entry in feed_entries[:10]:
         raw_title = entry.get("title", "خبر عاجل")
         raw_summary = entry.get("summary", "تغطية إخبارية مستمرة.")
         smart_cat = detect_category_smart(raw_title, raw_summary)
-        hd_image = get_hd_image_for_news(smart_cat, used_images)
+        hd_image = get_dynamic_news_image(raw_title, raw_summary, smart_cat, used_images)
         detailed_content = generate_detailed_fallback_content(raw_title, raw_summary, lang)
 
         art = {
@@ -212,15 +234,23 @@ def process_with_gemini(feed_entries, lang):
             try:
                 model = genai.GenerativeModel("gemini-1.5-flash")
                 prompt = f"""
-                Process this news for target language '{lang}':
+                You are a senior news editor. Process this article for target language '{lang}':
                 Title: {raw_title}
                 Summary: {raw_summary}
-                Return strict JSON:
-                {{"title": "...", "summary": "...", "content": "...", "category": "world|politics|economy|tech|gaming|sports|science|culture"}}
+
+                Rules:
+                1. "title": Professional news headline in '{lang}'.
+                2. "summary": Executive 2-sentence summary in '{lang}'.
+                3. "content": Write 3 detailed background paragraphs in '{lang}'.
+                4. "category": Choose strict term from: [world, politics, economy, tech, gaming, sports, science, culture].
+
+                Return JSON ONLY:
+                {{"title": "...", "summary": "...", "content": "...", "category": "{smart_cat}"}}
                 """
                 response = model.generate_content(prompt, request_options={"timeout": 4})
                 clean_text = response.text.replace("```json", "").replace("```", "").strip()
                 data = json.loads(clean_text)
+                
                 art["title"] = data.get("title", raw_title)
                 art["summary"] = data.get("summary", raw_summary)
                 art["content"] = data.get("content", detailed_content)
@@ -239,13 +269,13 @@ def fetch_and_process_news(lang="ar"):
     if existing and len(existing) >= 6:
         return existing
 
-    sources = ["http://feeds.bbci.co.uk/arabic/rss.xml"] if lang == "ar" else ["http://feeds.bbci.co.uk/news/world/rss.xml"]
+    sources = MULTI_SOURCES.get(lang, MULTI_SOURCES["ar"])
     all_entries = []
     for url in sources:
         try:
             feed = feedparser.parse(url)
             if feed and hasattr(feed, 'entries'):
-                all_entries.extend(feed.entries)
+                all_entries.extend(feed.entries[:4])
         except Exception:
             pass
 
@@ -295,7 +325,6 @@ def read_article(article_id):
         cat_display = CATEGORY_NAMES.get(cat_key, {}).get(lang, CATEGORY_NAMES["world"][lang])
         site_title = "العالم اليوم" if lang == "ar" else "Global Today"
 
-        # قالب صفحة قراءة الخبر المدمج
         html_template = """
         <!DOCTYPE html>
         <html lang="{{ lang }}" dir="{{ 'rtl' if lang == 'ar' else 'ltr' }}">
@@ -332,7 +361,7 @@ def read_article(article_id):
                         </div>
                     </div>
                     <div class="p-8 md:p-12">
-                        <div class="text-xs text-slate-500 dark:text-slate-400 pb-6 mb-8 border-b border-slate-100 dark:border-slate-800 flex justify-between">
+                        <div class="text-xs text-slate-500 dark:text-slate-400 pb-6 mb-8 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center">
                             <span>🕒 {{ article.time }}</span>
                             <span class="bg-blue-50 dark:bg-slate-800 text-blue-600 font-bold px-2.5 py-0.5 rounded-md">⏱️ {{ article.read_time }}</span>
                         </div>
@@ -357,31 +386,3 @@ def read_article(article_id):
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
-# 🖼️ نظام جلب الصور الذكي المرتبط بمحتوى الخبر
-def get_dynamic_news_image(title, summary, category):
-    query_text = f"{title} {summary}".lower()
-    
-    # قاموس كلمات مفتاحية لجلب صور حقيقية ومعبرة من Unsplash بناءً على مضمون الخبر
-    if any(k in query_text for k in ["ترامب", "بوتين", "بايدن", "رئيس", "حكومة", "انتخابات", "politics", "president"]):
-        return "https://images.unsplash.com/photo-1540910419892-4a36d2c3266c?auto=format&fit=crop&w=1200&q=80"
-    elif any(k in query_text for k in ["اقتصاد", "أسواق", "دولار", "أسهم", "بنك", "economy", "market", "stocks"]):
-        return "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?auto=format&fit=crop&w=1200&q=80"
-    elif any(k in query_text for k in ["تكنولوجيا", "ذكاء اصطناعي", "جوجل", "أبل", "هاتف", "tech", "ai", "google", "apple"]):
-        return "https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=1200&q=80"
-    elif any(k in query_text for k in ["لعبة", "جيمنج", "بلايستيشن", "gaming", "playstation", "xbox", "game"]):
-        return "https://images.unsplash.com/photo-1538481199705-c710c4e965fc?auto=format&fit=crop&w=1200&q=80"
-    elif any(k in query_text for k in ["كرة", "مباراة", "دوري", "sports", "football", "match", "league"]):
-        return "https://images.unsplash.com/photo-1508098682722-e99c43a406b2?auto=format&fit=crop&w=1200&q=80"
-    elif any(k in query_text for k in ["فضاء", "علماء", "ناسا", "science", "space", "nasa"]):
-        return "https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&w=1200&q=80"
-    
-    # صور عامة عالية الدقة ومتنوعة حسب التصنيف في حال عدم وجود كلمة مفتاحية محددة
-    default_collections = {
-        "politics": "https://images.unsplash.com/photo-1529107386315-e1a2ed48a620?auto=format&fit=crop&w=1200&q=80",
-        "economy": "https://images.unsplash.com/photo-1590283603385-17ffb3a7f29f?auto=format&fit=crop&w=1200&q=80",
-        "tech": "https://images.unsplash.com/photo-1485827404703-89b55fcc595e?auto=format&fit=crop&w=1200&q=80",
-        "gaming": "https://images.unsplash.com/photo-1511512578047-dfb367046420?auto=format&fit=crop&w=1200&q=80",
-        "sports": "https://images.unsplash.com/photo-1461896836934-ffe607ba8211?auto=format&fit=crop&w=1200&q=80",
-        "world": "https://images.unsplash.com/photo-1526778548025-fa2f459cd5c1?auto=format&fit=crop&w=1200&q=80"
-    }
-    return default_collections.get(category, default_collections["world"])
