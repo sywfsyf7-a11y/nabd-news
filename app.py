@@ -10,7 +10,10 @@ app = Flask(__name__)
 
 API_KEY = os.environ.get("GEMINI_API_KEY")
 if API_KEY:
-    genai.configure(api_key=API_KEY)
+    try:
+        genai.configure(api_key=API_KEY)
+    except Exception:
+        pass
 
 NEWS_CACHE = {"ar": {"time": None, "data": []}, "en": {"time": None, "data": []}}
 NEWS_ARCHIVE = {"ar": [], "en": []}
@@ -39,50 +42,57 @@ CATEGORY_IMAGES = {
 
 def calculate_read_time(text, lang):
     words = len(text.split())
-    minutes = math.ceil(words / 130)
+    minutes = math.ceil(words / 130) if words > 0 else 1
     if lang == "ar":
         return f"{minutes} دقائق قراءة" if minutes > 1 else "دقيقة قراءة واحدة"
     return f"{minutes} min read"
 
 def process_with_gemini(feed_entries, lang):
     processed = []
+    now_str = datetime.now().strftime("%Y-%m-%d | %H:%M")
+    day_str = datetime.now().strftime("%A")
+
     for idx, entry in enumerate(feed_entries[:6]):
-        raw_title = entry.get("title", "")
-        raw_summary = entry.get("summary", "")
-        now_str = datetime.now().strftime("%Y-%m-%d | %H:%M")
-        day_str = datetime.now().strftime("%A")
+        raw_title = entry.get("title", "خبر عاجل")
+        raw_summary = entry.get("summary", "تغطية إخبارية مستمرة ومحدثة على مدار الساعة.")
+        
+        # تحضير مقال افتراضي سريع ومباشر ضماناً لعدم توقف الخدمة
+        fallback_item = {
+            "id": idx + 1,
+            "title": raw_title,
+            "summary": raw_summary,
+            "content": f"تفاصيل وتغطية إخبارية شاملة حول التطورات الأخيرة:\n\n{raw_summary}",
+            "category": "world",
+            "image": CATEGORY_IMAGES["world"],
+            "time": f"{day_str} - {now_str}",
+            "read_time": "دقيقة قراءة واحدة" if lang == "ar" else "1 min read"
+        }
 
-        try:
-            model = genai.GenerativeModel("gemini-1.5-flash")
-            prompt = f"""
-            Process this news for '{lang}':
-            Title: {raw_title}
-            Summary: {raw_summary}
+        if API_KEY:
+            try:
+                model = genai.GenerativeModel("gemini-1.5-flash")
+                prompt = f"""
+                Process this news for target language '{lang}':
+                Title: {raw_title}
+                Summary: {raw_summary}
 
-            Return JSON:
-            {{"id": {idx + 1}, "title": "...", "summary": "...", "content": "...", "category": "world|politics|economy|tech|gaming|sports|science|culture"}}
-            """
-            response = model.generate_content(prompt, request_options={"timeout": 3})
-            clean_text = response.text.replace("```json", "").replace("```", "").strip()
-            data = json.loads(clean_text)
-            data["time"] = f"{day_str} - {now_str}"
-            cat = str(data.get("category", "world")).lower().strip()
-            data["category"] = cat if cat in CATEGORY_IMAGES else "world"
-            data["image"] = CATEGORY_IMAGES[data["category"]]
-            data["read_time"] = calculate_read_time(data.get("content", ""), lang)
-            processed.append(data)
-        except Exception:
-            cat_default = "world"
-            processed.append({
-                "id": idx + 1,
-                "title": raw_title,
-                "summary": raw_summary,
-                "content": f"تغطية إخبارية مستمرة ومحدثة عبر شبكة العالم اليوم.\n\n{raw_summary}",
-                "category": cat_default,
-                "image": CATEGORY_IMAGES[cat_default],
-                "time": f"{day_str} - {now_str}",
-                "read_time": "دقيقة قراءة واحدة" if lang == "ar" else "1 min read"
-            })
+                Output strictly JSON:
+                {{"id": {idx + 1}, "title": "...", "summary": "...", "content": "...", "category": "world|politics|economy|tech|gaming|sports|science|culture"}}
+                """
+                response = model.generate_content(prompt, request_options={"timeout": 3})
+                clean_text = response.text.replace("```json", "").replace("```", "").strip()
+                data = json.loads(clean_text)
+                
+                cat = str(data.get("category", "world")).lower().strip()
+                data["time"] = f"{day_str} - {now_str}"
+                data["category"] = cat if cat in CATEGORY_IMAGES else "world"
+                data["image"] = CATEGORY_IMAGES[data["category"]]
+                data["read_time"] = calculate_read_time(data.get("content", ""), lang)
+                processed.append(data)
+            except Exception:
+                processed.append(fallback_item)
+        else:
+            processed.append(fallback_item)
 
     return processed
 
@@ -97,15 +107,16 @@ def fetch_and_process_news(lang="ar"):
     for url in sources:
         try:
             feed = feedparser.parse(url)
-            all_entries.extend(feed.entries)
+            if feed and hasattr(feed, 'entries'):
+                all_entries.extend(feed.entries)
         except Exception:
             pass
 
-    try:
+    articles = []
+    if all_entries:
         articles = process_with_gemini(all_entries, lang)
-    except Exception:
-        articles = NEWS_CACHE[lang]["data"] or []
 
+    # حماية إضافية: إذا كانت المصفوفة فارغة نرجع آخر كاش موجود بدلاً من مصفوفة فارغة
     if articles:
         if NEWS_CACHE[lang]["data"]:
             for old_art in NEWS_CACHE[lang]["data"]:
@@ -113,8 +124,9 @@ def fetch_and_process_news(lang="ar"):
                     NEWS_ARCHIVE[lang].append(old_art)
         NEWS_CACHE[lang]["time"] = now
         NEWS_CACHE[lang]["data"] = articles
+        return articles
 
-    return articles
+    return NEWS_CACHE[lang]["data"] or []
 
 @app.route("/")
 def home():
