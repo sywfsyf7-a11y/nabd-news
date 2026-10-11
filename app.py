@@ -3,6 +3,7 @@ import json
 import os
 import math
 import random
+import re
 from flask import Flask, jsonify, render_template_string, request, send_from_directory
 import feedparser
 import google.generativeai as genai
@@ -30,10 +31,57 @@ CATEGORY_NAMES = {
     "culture": {"ar": "🎬 ثقافة وفن وترفيه", "en": "🎬 Culture & Arts"}
 }
 
-def get_keyword_image(keyword):
-    """جلب صورة مطابقة تماماً للكلمة المفتاحية للخبر"""
-    clean_kw = keyword.strip().replace(" ", ",") if keyword else "news"
-    return f"https://loremflickr.com/1200/800/{clean_kw}"
+# 💎 مكتبة صور HD عالية الدقة احتياطية لكل قسم
+HD_FALLBACK_IMAGES = [
+    "https://images.unsplash.com/photo-1526778548025-fa2f459cd5c1?auto=format&fit=crop&w=1600&q=85",
+    "https://images.unsplash.com/photo-1540910419892-4a36d2c3266c?auto=format&fit=crop&w=1600&q=85",
+    "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?auto=format&fit=crop&w=1600&q=85",
+    "https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=1600&q=85",
+    "https://images.unsplash.com/photo-1538481199705-c710c4e965fc?auto=format&fit=crop&w=1600&q=85",
+    "https://images.unsplash.com/photo-1508098682722-e99c43a406b2?auto=format&fit=crop&w=1600&q=85",
+    "https://images.unsplash.com/photo-1507668077129-56e32842fceb?auto=format&fit=crop&w=1600&q=85",
+    "https://images.unsplash.com/photo-1485846234645-a62644f84728?auto=format&fit=crop&w=1600&q=85",
+    "https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&w=1600&q=85",
+    "https://images.unsplash.com/photo-1529107386315-e1a2ed48a620?auto=format&fit=crop&w=1600&q=85"
+]
+
+def extract_image_from_html(html_text):
+    if not html_text:
+        return None
+    match = re.search(r'<img[^>]+src=["\']([^"\']+)["\']', html_text)
+    if match:
+        return match.group(1)
+    return None
+
+def extract_rss_image(entry):
+    # 1. البحث في وسائط RSS المباشرة (media_content / media_thumbnail)
+    if hasattr(entry, 'media_content') and entry.media_content:
+        for mc in entry.media_content:
+            if 'url' in mc:
+                return mc['url']
+    if hasattr(entry, 'media_thumbnail') and entry.media_thumbnail:
+        for mt in entry.media_thumbnail:
+            if 'url' in mt:
+                return mt['url']
+    # 2. البحث في الروابط المرفقة (enclosures)
+    if hasattr(entry, 'enclosures') and entry.enclosures:
+        for enc in entry.enclosures:
+            if 'url' in enc or 'href' in enc:
+                return enc.get('href') or enc.get('url')
+    # 3. استخراج الصورة من محتوى HTML للخبر
+    summary = entry.get('summary', '')
+    img_url = extract_image_from_html(summary)
+    if img_url:
+        return img_url
+    
+    content = entry.get('content', [])
+    if content and isinstance(content, list):
+        for c in content:
+            img_url = extract_image_from_html(c.get('value', ''))
+            if img_url:
+                return img_url
+                
+    return None
 
 def calculate_read_time(text, lang):
     words = len(text.split())
@@ -44,31 +92,38 @@ def calculate_read_time(text, lang):
 
 def generate_detailed_fallback_content(raw_title, raw_summary, lang):
     if lang == "ar":
-        return f"""تتابع الدوائر الإخبارية العالمية التطورات الأخيرة المتعلقة بـ "{raw_title}"، وسط اهتمام مكثف من المحللين والمراقبين لمعرفة التداعيات والمسارات المحتملة لهذا الملف.
+        return f"""تتابع مختلف الدوائر الإخبارية تفاصيل التطورات الأخيرة المتعلقة بـ "{raw_title}"، في ظل اهتمام واسع بالتبعات المحتملة على الصعيدين المحلي والدولي.
 
-وتشير التقارير الواردة إلى أن التحركات الجارية تحمل دلالات استراتيجية مهمة قد تساهم في إعادة تشكيل بعض التحالفات أو القرارات على الصعيدين الإقليمي والدولي.
+وأفادت التقديرات بأن التحولات الجارية تتطلب قراءة دقيقة للموقف، لاسيما مع تعدد القراءات وتفاوت ردود الفعل بين الأطراف المعنية.
 
-ومن المرتقب أن تشهد الأيام القادمة مستجدات متسارعة تكشف عن مزيد من التفاصيل والنتائج المترتبة على هذه الأحداث."""
+ومن المرتقب أن تحمل الساعات القادمة مستجدات إضافية ترسم ملامح المرحلة القادمة وتحدد مسارات التعامل مع هذا الملف."""
     else:
-        return f"""International news organizations are closely monitoring recent developments regarding "{raw_title}", amid intensive focus from analysts and observers tracking potential implications and future trajectories.
+        return f"""Global media outlets are closely tracking the unfolding events regarding "{raw_title}", focusing on the potential implications across regional and international levels.
 
-Reports indicate that ongoing actions carry significant strategic weight that could reshape policy decisions and dynamics across regional and international stages.
+Analysts point out that current developments demand a careful evaluation of the situation, especially amid varying perspectives from key stakeholders.
 
-Further fast-paced updates are expected in the coming days, shedding more light on the unfolding outcomes of these events."""
+Further updates are expected to emerge soon, shaping the trajectory of upcoming policy and public discourse."""
 
 def process_with_gemini(feed_entries, lang):
     processed = []
     now_str = datetime.now().strftime("%Y-%m-%d | %H:%M")
     day_str = datetime.now().strftime("%A")
+    used_images = set()
     categories_list = ["world", "politics", "economy", "tech", "gaming", "sports", "science", "culture"]
 
     for idx, entry in enumerate(feed_entries[:6]):
         raw_title = entry.get("title", "خبر عاجل")
         raw_summary = entry.get("summary", "تغطية إخبارية مستمرة ومحدثة على مدار الساعة.")
         
+        # استخراج الصورة الحقيقية من الـ RSS أو استخدام صورة بديلة عالية الدقة
+        rss_image = extract_rss_image(entry)
+        if not rss_image or rss_image in used_images:
+            available_hd = [img for img in HD_FALLBACK_IMAGES if img not in used_images]
+            rss_image = random.choice(available_hd if available_hd else HD_FALLBACK_IMAGES)
+        used_images.add(rss_image)
+
         assigned_cat = categories_list[idx % len(categories_list)]
         fallback_content = generate_detailed_fallback_content(raw_title, raw_summary, lang)
-        fallback_image = get_keyword_image(assigned_cat)
         
         fallback_item = {
             "id": idx + 1,
@@ -76,7 +131,7 @@ def process_with_gemini(feed_entries, lang):
             "summary": raw_summary,
             "content": fallback_content,
             "category": assigned_cat,
-            "image": fallback_image,
+            "image": rss_image,
             "time": f"{day_str} - {now_str}",
             "read_time": calculate_read_time(fallback_content, lang)
         }
@@ -85,30 +140,27 @@ def process_with_gemini(feed_entries, lang):
             try:
                 model = genai.GenerativeModel("gemini-1.5-flash")
                 prompt = f"""
-                You are a professional journalist. Process this news article for target language '{lang}':
+                You are a professional news editor. Process this article for target language '{lang}':
                 Raw Title: {raw_title}
                 Raw Summary: {raw_summary}
 
                 Strict Rules:
-                1. "title": Engaging headline in '{lang}'.
+                1. "title": Catchy headline in '{lang}'.
                 2. "summary": Concise 2-sentence executive summary.
                 3. "content": Write 3 FULL detailed paragraphs providing deep background context in '{lang}'. Absolutely DO NOT copy or repeat sentences from "summary".
-                4. "category": Pick ONE lowercase key from: [world, politics, economy, tech, gaming, sports, science, culture].
-                5. "image_keyword": Provide ONE precise 1-2 word English keyword describing the visual subject of this news (e.g., politics, economy, technology, football, protest, diplomacy, science) for matching image generation.
+                4. "category": Pick ONE lowercase key from this exact list: [world, politics, economy, tech, gaming, sports, science, culture].
 
                 Return JSON ONLY:
-                {{"id": {idx + 1}, "title": "...", "summary": "...", "content": "...", "category": "category_key", "image_keyword": "keyword"}}
+                {{"id": {idx + 1}, "title": "...", "summary": "...", "content": "...", "category": "category_key"}}
                 """
                 response = model.generate_content(prompt, request_options={"timeout": 4})
                 clean_text = response.text.replace("```json", "").replace("```", "").strip()
                 data = json.loads(clean_text)
                 
                 cat = str(data.get("category", assigned_cat)).lower().strip()
-                img_kw = data.get("image_keyword", cat)
-                
                 data["time"] = f"{day_str} - {now_str}"
                 data["category"] = cat if cat in CATEGORY_NAMES else assigned_cat
-                data["image"] = get_keyword_image(img_kw)
+                data["image"] = rss_image
                 data["read_time"] = calculate_read_time(data.get("content", ""), lang)
                 processed.append(data)
             except Exception:
@@ -178,7 +230,7 @@ def read_article(article_id):
 
     cat_key = str(article.get("category", "world")).lower().strip()
     cat_display = CATEGORY_NAMES.get(cat_key, {}).get(lang, CATEGORY_NAMES["world"][lang])
-    article_image = article.get("image", get_keyword_image(cat_key))
+    article_image = article.get("image", random.choice(HD_FALLBACK_IMAGES))
     read_time = article.get("read_time", "2 min read")
     site_title = "العالم اليوم" if lang == "ar" else "Global Today"
 
