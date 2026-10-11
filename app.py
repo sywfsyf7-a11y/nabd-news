@@ -38,7 +38,7 @@ def init_db():
             return
         cursor = conn.cursor()
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS ai_newsroom_pro_v7 (
+            CREATE TABLE IF NOT EXISTS ai_newsroom_pro_v8 (
                 id SERIAL PRIMARY KEY,
                 lang TEXT,
                 title TEXT,
@@ -88,11 +88,13 @@ CATEGORY_HD_COLLECTIONS = {
 SPECIALIZED_SOURCES = {
     "ar": [
         "http://feeds.bbci.co.uk/arabic/rss.xml",
-        "https://www.aljazeera.net/aljazeerarss/a7c18663-7311-4224-b77e-d960b077f092/73d0e1b4-532f-45ef-b135-bfd3d2cf8712"
+        "https://www.aljazeera.net/aljazeerarss/a7c18663-7311-4224-b77e-d960b077f092/73d0e1b4-532f-45ef-b135-bfd3d2cf8712",
+        "https://arabic.rt.com/rss/"
     ],
     "en": [
         "http://feeds.bbci.co.uk/news/world/rss.xml",
-        "https://www.eurogamer.net/feed/news"
+        "https://www.eurogamer.net/feed/news",
+        "https://rss.nytimes.com/services/xml/rss/nyt/World.xml"
     ]
 }
 
@@ -158,7 +160,7 @@ def save_article_to_db(art):
     try:
         cursor = conn.cursor()
         cursor.execute("""
-            INSERT INTO ai_newsroom_pro_v7 (lang, title, summary, content, category, image, time, read_time)
+            INSERT INTO ai_newsroom_pro_v8 (lang, title, summary, content, category, image, time, read_time)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (lang, title) DO NOTHING
         """, (art['lang'], art['title'], art['summary'], art['content'], art['category'], art['image'], art['time'], art['read_time']))
@@ -174,77 +176,59 @@ def fetch_and_process_news(lang="ar"):
         return DEFAULT_ARTICLES.get(lang, DEFAULT_ARTICLES["ar"])
     
     try:
+        # جلب الأخبار الحالية من الجدول الجديد
+        sources = SPECIALIZED_SOURCES.get(lang, SPECIALIZED_SOURCES["ar"])
+        now_str = datetime.now().strftime("%Y-%m-%d | %H:%M")
+        day_str = datetime.now().strftime("%A")
+        used_images = set()
+
+        for url in sources:
+            try:
+                feed = feedparser.parse(url)
+                if feed and hasattr(feed, 'entries'):
+                    for entry in feed.entries[:3]:
+                        raw_title = entry.get('title', 'خبر جديد')
+                        raw_summary = entry.get('summary', 'تغطية إخبارية مستمرة.')
+                        if "<" in raw_summary and ">" in raw_summary:
+                            import re
+                            raw_summary = re.sub('<[^<]+?>', '', raw_summary)
+                        
+                        smart_cat = detect_category_smart(raw_title, raw_summary)
+                        hd_image = get_dynamic_news_image(smart_cat, used_images)
+                        
+                        final_title = raw_title
+                        final_summary = raw_summary
+                        final_content = f"{raw_summary}\n\nتتابع غرفة التحرير الذكية تفاصيل هذا الحدث ضمن تغطيتها الحية المستمرة على مدار الساعة لضمان إحاطة القارئ بكافة الأبعاد والتحليلات المرتبطة به."
+                        
+                        if API_KEY:
+                            try:
+                                model = genai.GenerativeModel("gemini-1.5-flash")
+                                prompt = f"Act as Chief Editor. Rewrite and format this news professionally in '{lang}'. Title: {raw_title}. Summary: {raw_summary}. Return strict JSON with keys: title, summary, content."
+                                response = model.generate_content(prompt, request_options={"timeout": 3})
+                                clean_text = response.text.replace("```json", "").replace("```", "").strip()
+                                data = json.loads(clean_text)
+                                final_title = data.get("title", raw_title)
+                                final_summary = data.get("summary", raw_summary)
+                                final_content = data.get("content", final_content)
+                            except Exception:
+                                pass
+
+                        art = {
+                            "lang": lang,
+                            "title": final_title,
+                            "summary": final_summary,
+                            "content": final_content,
+                            "category": smart_cat,
+                            "image": hd_image,
+                            "time": f"{day_str} - {now_str}",
+                            "read_time": calculate_read_time(final_content, lang)
+                        }
+                        save_article_to_db(art)
+            except Exception:
+                pass
+
         cursor = conn.cursor()
-        cursor.execute('SELECT id, lang, title, summary, content, category, image, time, read_time, created_at FROM ai_newsroom_pro_v7 WHERE lang = %s ORDER BY id DESC', (lang,))
-        rows = cursor.fetchall()
-        cursor.close()
-        conn.close()
-        
-        should_fetch = False
-        if not rows or len(rows) < 3:
-            should_fetch = True
-        else:
-            last_time = rows[0][9]
-            if last_time and (datetime.now() - last_time) > timedelta(minutes=30):
-                should_fetch = True
-
-        if should_fetch:
-            sources = SPECIALIZED_SOURCES.get(lang, SPECIALIZED_SOURCES["ar"])
-            now_str = datetime.now().strftime("%Y-%m-%d | %H:%M")
-            day_str = datetime.now().strftime("%A")
-            used_images = set()
-
-            for url in sources:
-                try:
-                    feed = feedparser.parse(url)
-                    if feed and hasattr(feed, 'entries'):
-                        for entry in feed.entries[:2]:
-                            raw_title = entry.get('title', 'خبر جديد')
-                            raw_summary = entry.get('summary', 'تغطية إخبارية مستمرة.')
-                            if "<" in raw_summary and ">" in raw_summary:
-                                import re
-                                raw_summary = re.sub('<[^<]+?>', '', raw_summary)
-                            
-                            smart_cat = detect_category_smart(raw_title, raw_summary)
-                            hd_image = get_dynamic_news_image(smart_cat, used_images)
-                            
-                            # 💡 محاولة صياغة الخبر بذكاء عبر Gemini إذا توفر المفتاح
-                            final_title = raw_title
-                            final_summary = raw_summary
-                            final_content = f"{raw_summary}\n\nتتابع غرفة التحرير الذكية تفاصيل هذا الحدث ضمن تغطيتها الحية المستمرة."
-                            
-                            if API_KEY:
-                                try:
-                                    model = genai.GenerativeModel("gemini-1.5-flash")
-                                    prompt = f"Act as Chief Editor. Rewrite and format this news professionally in '{lang}'. Title: {raw_title}. Summary: {raw_summary}. Return strict JSON with keys: title, summary, content."
-                                    response = model.generate_content(prompt, request_options={"timeout": 4})
-                                    clean_text = response.text.replace("```json", "").replace("```", "").strip()
-                                    data = json.loads(clean_text)
-                                    final_title = data.get("title", raw_title)
-                                    final_summary = data.get("summary", raw_summary)
-                                    final_content = data.get("content", final_content)
-                                except Exception:
-                                    pass
-
-                            art = {
-                                "lang": lang,
-                                "title": final_title,
-                                "summary": final_summary,
-                                "content": final_content,
-                                "category": smart_cat,
-                                "image": hd_image,
-                                "time": f"{day_str} - {now_str}",
-                                "read_time": calculate_read_time(final_content, lang)
-                            }
-                            save_article_to_db(art)
-                except Exception:
-                    pass
-
-        conn = get_db_connection()
-        if not conn:
-            return DEFAULT_ARTICLES.get(lang, DEFAULT_ARTICLES["ar"])
-        cursor = conn.cursor()
-        cursor.execute('SELECT id, lang, title, summary, content, category, image, time, read_time FROM ai_newsroom_pro_v7 WHERE lang = %s ORDER BY id DESC', (lang,))
+        cursor.execute('SELECT id, lang, title, summary, content, category, image, time, read_time FROM ai_newsroom_pro_v8 WHERE lang = %s ORDER BY id DESC', (lang,))
         rows = cursor.fetchall()
         cursor.close()
         conn.close()
