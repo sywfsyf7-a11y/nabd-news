@@ -14,6 +14,22 @@ if API_KEY:
 NEWS_CACHE = {"ar": {"time": None, "data": []}, "en": {"time": None, "data": []}}
 NEWS_ARCHIVE = {"ar": [], "en": []}
 
+# 🌐 مصادر RSS متعددة ومتخصصة لتغطية (السياسة، الاقتصاد، التكنولوجيا، الجيمنج، والعلوم)
+RSS_SOURCES = {
+    "ar": [
+        "http://feeds.bbci.co.uk/arabic/rss.xml",  # أخبار عامة وسياسة واقتصاد
+    ],
+    "en": [
+        "http://feeds.bbci.co.uk/news/world/rss.xml",  # أخبار العالم
+        "http://feeds.bbci.co.uk/news/technology/rss.xml",  # تكنولوجيا وذكاء اصطناعي
+        "http://feeds.bbci.co.uk/news/business/rss.xml",  # مال وأعمال واقتصاد
+        "http://feeds.bbci.co.uk/news/science_and_environment/rss.xml",  # علوم وفضاء وبيئة
+        (
+            "http://feeds.bbci.co.uk/news/entertainment_and_arts/rss.xml"
+        ),  # فن وثقافة وترفيه
+    ],
+}
+
 CATEGORY_NAMES = {
     "world": {"ar": "🌍 أخبار العالم", "en": "🌍 World News"},
     "politics": {"ar": "🏛️ سياسة ودبلوماسية", "en": "🏛️ Politics"},
@@ -30,14 +46,15 @@ def process_with_gemini(feed_entries, lang):
   model = genai.GenerativeModel("gemini-1.5-flash")
   processed = []
 
-  for idx, entry in enumerate(feed_entries[:8]):
+  # نأخذ عينة من الأخبار المتنوعة من كل المصادر
+  for idx, entry in enumerate(feed_entries[:12]):
     raw_title = entry.get("title", "")
     raw_summary = entry.get("summary", "")
     now_str = datetime.now().strftime("%Y-%m-%d | %H:%M")
     day_str = datetime.now().strftime("%A")
 
     prompt = f"""
-        You are an expert news writer. Process this article for target language '{lang}':
+        You are an expert news editor and classifier. Process this article for target language '{lang}':
         Raw Title: {raw_title}
         Raw Summary: {raw_summary}
 
@@ -45,7 +62,9 @@ def process_with_gemini(feed_entries, lang):
         1. "title": Catchy, professional news headline in language '{lang}'.
         2. "summary": A concise 2-sentence summary highlighting key facts.
         3. "content": Write 3 FULL paragraphs of detailed background analysis and story context in '{lang}'. DO NOT repeat or copy sentences from summary. Dive straight into new details.
-        4. "category": Select ONLY ONE lowercase string from this exact list: [world, politics, economy, tech, gaming, sports, science, culture].
+        4. "category": Select the MOST ACCURATE single lowercase category from this exact list based on the article topic: 
+           [world, politics, economy, tech, gaming, sports, science, culture]. 
+           (Note: Assign tech/AI to 'tech', video games/gaming to 'gaming', art/movies/entertainment to 'culture', space/science to 'science', money/business to 'economy').
 
         Output ONLY valid JSON format:
         {{"id": {idx + 1}, "title": "Headline", "summary": "Short Summary", "content": "Paragraph 1\\n\\nParagraph 2\\n\\nParagraph 3", "category": "category_name"}}
@@ -63,16 +82,7 @@ def process_with_gemini(feed_entries, lang):
       data["category"] = data.get("category", "world").lower().strip()
       processed.append(data)
     except Exception:
-      processed.append({
-          "id": idx + 1,
-          "title": raw_title,
-          "summary": raw_summary,
-          "content": (
-              f"تحليل شامل وتفاصيل إضافية حول التطورات الأخيرة:\n\n{raw_summary}"
-          ),
-          "category": "world",
-          "time": f"{day_str} - {now_str}",
-      })
+      continue  # تخطي أي خبر يواجه خطأ بالمعالجة لضمان سرعة السيرفر
 
   return processed
 
@@ -86,21 +96,22 @@ def fetch_and_process_news(lang="ar"):
   ):
     return NEWS_CACHE[lang]["data"]
 
-  feed_url = (
-      "http://feeds.bbci.co.uk/news/world/rss.xml"
-      if lang == "en"
-      else "http://feeds.bbci.co.uk/arabic/rss.xml"
-  )
+  all_entries = []
+  # سحب الأخبار من جميع المصادر المتاحة للغة المحددة
+  for url in RSS_SOURCES.get(lang, RSS_SOURCES["ar"]):
+    try:
+      feed = feedparser.parse(url)
+      all_entries.extend(feed.entries)
+    except Exception:
+      pass
 
   try:
-    feed = feedparser.parse(feed_url)
-    articles = process_with_gemini(feed.entries, lang)
+    articles = process_with_gemini(all_entries, lang)
   except Exception:
     articles = NEWS_CACHE[lang]["data"] or []
 
   if articles:
     if NEWS_CACHE[lang]["data"]:
-      # حفظ الأخبار القديمة في الأرشيف قبل استبدالها
       for old_art in NEWS_CACHE[lang]["data"]:
         if old_art not in NEWS_ARCHIVE[lang]:
           NEWS_ARCHIVE[lang].append(old_art)
@@ -142,7 +153,6 @@ def read_article(article_id):
   if not article:
     return "الخبر غير موجود", 404
 
-  # ضمان جلب اسم القسم بشكل صحيح ودقيق
   cat_key = str(article.get("category", "world")).lower().strip()
   cat_display = CATEGORY_NAMES.get(cat_key, {}).get(
       lang, CATEGORY_NAMES["world"][lang]
