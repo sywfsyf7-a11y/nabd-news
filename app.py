@@ -4,6 +4,7 @@ import os
 import math
 import random
 import re
+import urllib.parse
 from flask import Flask, jsonify, render_template_string, request, send_from_directory
 import feedparser
 import google.generativeai as genai
@@ -31,30 +32,59 @@ CATEGORY_NAMES = {
     "culture": {"ar": "🎬 ثقافة وفن وترفيه", "en": "🎬 Culture & Arts"}
 }
 
-# 💎 صور HD عالية الدقة معتمدة عند الحاجة
-HD_FALLBACK_IMAGES = {
-    "politics": "https://images.unsplash.com/photo-1540910419892-4a36d2c3266c?auto=format&fit=crop&w=1600&q=90",
-    "world": "https://images.unsplash.com/photo-1526778548025-fa2f459cd5c1?auto=format&fit=crop&w=1600&q=90",
-    "economy": "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?auto=format&fit=crop&w=1600&q=90",
-    "tech": "https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=1600&q=90",
-    "gaming": "https://images.unsplash.com/photo-1538481199705-c710c4e965fc?auto=format&fit=crop&w=1600&q=90",
-    "sports": "https://images.unsplash.com/photo-1508098682722-e99c43a406b2?auto=format&fit=crop&w=1600&q=90",
-    "science": "https://images.unsplash.com/photo-1507668077129-56e32842fceb?auto=format&fit=crop&w=1600&q=90",
-    "culture": "https://images.unsplash.com/photo-1485846234645-a62644f84728?auto=format&fit=crop&w=1600&q=90"
+# 🌟 مكتبة صور Ultra-HD / 1080p عالية الجودة ومضمونة لكل تصنيف
+CATEGORY_HD_COLLECTIONS = {
+    "politics": [
+        "https://images.unsplash.com/photo-1540910419892-4a36d2c3266c?auto=format&fit=crop&w=1920&q=90",
+        "https://images.unsplash.com/photo-1529107386315-e1a2ed48a620?auto=format&fit=crop&w=1920&q=90",
+        "https://images.unsplash.com/photo-1575320181282-9afab399332c?auto=format&fit=crop&w=1920&q=90"
+    ],
+    "world": [
+        "https://images.unsplash.com/photo-1526778548025-fa2f459cd5c1?auto=format&fit=crop&w=1920&q=90",
+        "https://images.unsplash.com/photo-1508847154043-be5407fcaa5a?auto=format&fit=crop&w=1920&q=90",
+        "https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&w=1920&q=90"
+    ],
+    "economy": [
+        "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?auto=format&fit=crop&w=1920&q=90",
+        "https://images.unsplash.com/photo-1590283603385-17ffb3a7f29f?auto=format&fit=crop&w=1920&q=90",
+        "https://images.unsplash.com/photo-1607604276583-eef5d076aa5f?auto=format&fit=crop&w=1920&q=90"
+    ],
+    "tech": [
+        "https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=1920&q=90",
+        "https://images.unsplash.com/photo-1485827404703-89b55fcc595e?auto=format&fit=crop&w=1920&q=90",
+        "https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?auto=format&fit=crop&w=1920&q=90"
+    ],
+    "gaming": [
+        "https://images.unsplash.com/photo-1538481199705-c710c4e965fc?auto=format&fit=crop&w=1920&q=90",
+        "https://images.unsplash.com/photo-1511512578047-dfb367046420?auto=format&fit=crop&w=1920&q=90",
+        "https://images.unsplash.com/photo-1550745165-9bc0b252726f?auto=format&fit=crop&w=1920&q=90"
+    ],
+    "sports": [
+        "https://images.unsplash.com/photo-1508098682722-e99c43a406b2?auto=format&fit=crop&w=1920&q=90",
+        "https://images.unsplash.com/photo-1461896836934-ffe607ba8211?auto=format&fit=crop&w=1920&q=90",
+        "https://images.unsplash.com/photo-1579952363873-27f3bade9f55?auto=format&fit=crop&w=1920&q=90"
+    ],
+    "science": [
+        "https://images.unsplash.com/photo-1507668077129-56e32842fceb?auto=format&fit=crop&w=1920&q=90",
+        "https://images.unsplash.com/photo-1532094349884-543bc11b234d?auto=format&fit=crop&w=1920&q=90"
+    ],
+    "culture": [
+        "https://images.unsplash.com/photo-1485846234645-a62644f84728?auto=format&fit=crop&w=1920&q=90",
+        "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&w=1920&q=90"
+    ]
 }
 
-def upgrade_image_quality(img_url):
-    """رفع جودة دقة الصورة وتحويلها إلى HD"""
-    if not img_url:
-        return None
-    # استبدال مقاسات الصور المصغرة بالروابط بـ HD
-    img_url = re.sub(r'/(ichef|news)/[0-9_]+/cpsprodpb/', '/ichef/1024/cpsprodpb/', img_url)
-    img_url = re.sub(r'/[0-9]+x[0-9]+/', '/1024x576/', img_url)
-    img_url = re.sub(r'w=[0-9]+', 'w=1600', img_url)
-    return img_url
+def get_hd_image_for_news(cat_key, used_set):
+    """توليد صورة HD حادة وواضحة جداً وتجنب التكرار"""
+    collection = CATEGORY_HD_COLLECTIONS.get(cat_key, CATEGORY_HD_COLLECTIONS["world"])
+    available = [img for img in collection if img not in used_set]
+    if not available:
+        available = collection
+    chosen = random.choice(available)
+    used_set.add(chosen)
+    return chosen
 
 def detect_category_smart(title, summary):
-    """تصنيف ذكي بناءً على الكلمات المفتاحية لمضمون الخبر"""
     text = f"{title} {summary}".lower()
     
     politics_keywords = ["ترامب", "بوتين", "بايدن", "حكومة", "رئيس", "وزير", "انتخابات", "اتفاقية", "عسكري", "حرب", "عاجل", "سياسة", "مفاوضات", "حزب", "trump", "biden", "putin", "president", "election", "war", "minister", "politics"]
@@ -78,26 +108,6 @@ def detect_category_smart(title, summary):
         return "science"
     
     return "world"
-
-def extract_rss_image(entry):
-    img_url = None
-    if hasattr(entry, 'media_content') and entry.media_content:
-        for mc in entry.media_content:
-            if 'url' in mc:
-                img_url = mc['url']
-                break
-    if not img_url and hasattr(entry, 'media_thumbnail') and entry.media_thumbnail:
-        for mt in entry.media_thumbnail:
-            if 'url' in mt:
-                img_url = mt['url']
-                break
-    if not img_url and hasattr(entry, 'enclosures') and entry.enclosures:
-        for enc in entry.enclosures:
-            if 'url' in enc or 'href' in enc:
-                img_url = enc.get('href') or enc.get('url')
-                break
-    
-    return upgrade_image_quality(img_url)
 
 def calculate_read_time(text, lang):
     words = len(text.split())
@@ -124,16 +134,14 @@ def process_with_gemini(feed_entries, lang):
     processed = []
     now_str = datetime.now().strftime("%Y-%m-%d | %H:%M")
     day_str = datetime.now().strftime("%A")
+    used_images = set()
 
     for idx, entry in enumerate(feed_entries[:6]):
         raw_title = entry.get("title", "خبر عاجل")
         raw_summary = entry.get("summary", "تغطية إخبارية مستمرة على مدار الساعة.")
         
         smart_cat = detect_category_smart(raw_title, raw_summary)
-        
-        rss_image = extract_rss_image(entry)
-        if not rss_image:
-            rss_image = HD_FALLBACK_IMAGES.get(smart_cat, HD_FALLBACK_IMAGES["world"])
+        hd_image = get_hd_image_for_news(smart_cat, used_images)
 
         fallback_content = generate_detailed_fallback_content(raw_title, raw_summary, lang)
         
@@ -143,7 +151,7 @@ def process_with_gemini(feed_entries, lang):
             "summary": raw_summary,
             "content": fallback_content,
             "category": smart_cat,
-            "image": rss_image,
+            "image": hd_image,
             "time": f"{day_str} - {now_str}",
             "read_time": calculate_read_time(fallback_content, lang)
         }
@@ -172,7 +180,7 @@ def process_with_gemini(feed_entries, lang):
                 cat = str(data.get("category", smart_cat)).lower().strip()
                 data["time"] = f"{day_str} - {now_str}"
                 data["category"] = cat if cat in CATEGORY_NAMES else smart_cat
-                data["image"] = rss_image
+                data["image"] = hd_image
                 data["read_time"] = calculate_read_time(data.get("content", ""), lang)
                 processed.append(data)
             except Exception:
@@ -242,7 +250,7 @@ def read_article(article_id):
 
     cat_key = str(article.get("category", "world")).lower().strip()
     cat_display = CATEGORY_NAMES.get(cat_key, {}).get(lang, CATEGORY_NAMES["world"][lang])
-    article_image = article.get("image", HD_FALLBACK_IMAGES["world"])
+    article_image = article.get("image", CATEGORY_HD_COLLECTIONS["world"][0])
     read_time = article.get("read_time", "2 min read")
     site_title = "العالم اليوم" if lang == "ar" else "Global Today"
 
