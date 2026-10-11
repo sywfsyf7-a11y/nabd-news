@@ -3,6 +3,7 @@ import json
 import os
 import math
 import random
+import re
 from flask import Flask, jsonify, render_template_string, request, send_from_directory
 import feedparser
 import google.generativeai as genai
@@ -30,8 +31,8 @@ CATEGORY_NAMES = {
     "culture": {"ar": "🎬 ثقافة وفن وترفيه", "en": "🎬 Culture & Arts"}
 }
 
-# 🖼️ مكتبة واسعة من الصور الاحترافية المتنوعة لمنع تكرار أي صورة في الأخبار
-ALL_NEWS_IMAGES = [
+# مكتبة احتياطية للصور في حال لم تتوفر صورة في الـ RSS
+BACKUP_IMAGES = [
     "https://images.unsplash.com/photo-1526778548025-fa2f459cd5c1?auto=format&fit=crop&w=1200&q=80",
     "https://images.unsplash.com/photo-1540910419892-4a36d2c3266c?auto=format&fit=crop&w=1200&q=80",
     "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?auto=format&fit=crop&w=1200&q=80",
@@ -39,20 +40,30 @@ ALL_NEWS_IMAGES = [
     "https://images.unsplash.com/photo-1538481199705-c710c4e965fc?auto=format&fit=crop&w=1200&q=80",
     "https://images.unsplash.com/photo-1508098682722-e99c43a406b2?auto=format&fit=crop&w=1200&q=80",
     "https://images.unsplash.com/photo-1507668077129-56e32842fceb?auto=format&fit=crop&w=1200&q=80",
-    "https://images.unsplash.com/photo-1485846234645-a62644f84728?auto=format&fit=crop&w=1200&q=80",
-    "https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&w=1200&q=80",
-    "https://images.unsplash.com/photo-1529107386315-e1a2ed48a620?auto=format&fit=crop&w=1200&q=80",
-    "https://images.unsplash.com/photo-1590283603385-17ffb3a7f29f?auto=format&fit=crop&w=1200&q=80",
-    "https://images.unsplash.com/photo-1511512578047-dfb367046420?auto=format&fit=crop&w=1200&q=80"
+    "https://images.unsplash.com/photo-1485846234645-a62644f84728?auto=format&fit=crop&w=1200&q=80"
 ]
 
-def get_unique_image(used_images):
-    available = [img for img in ALL_NEWS_IMAGES if img not in used_images]
-    if not available:
-        available = ALL_NEWS_IMAGES
-    chosen = random.choice(available)
-    used_images.add(chosen)
-    return chosen
+def extract_image_from_entry(entry):
+    """استخراج الصورة الحقيقية المرتبطة بالخبر من الـ RSS Feed"""
+    if hasattr(entry, 'media_content') and entry.media_content:
+        for media in entry.media_content:
+            if 'url' in media:
+                return media['url']
+    if hasattr(entry, 'media_thumbnail') and entry.media_thumbnail:
+        for thumb in entry.media_thumbnail:
+            if 'url' in thumb:
+                return thumb['url']
+    if hasattr(entry, 'enclosures') and entry.enclosures:
+        for enc in entry.enclosures:
+            if 'href' in enc:
+                return enc['href']
+    
+    summary = entry.get('summary', '') or entry.get('description', '')
+    match = re.search(r'<img[^>]+src="([^">]+)"', summary)
+    if match:
+        return match.group(1)
+        
+    return None
 
 def calculate_read_time(text, lang):
     words = len(text.split())
@@ -79,15 +90,17 @@ def process_with_gemini(feed_entries, lang):
     processed = []
     now_str = datetime.now().strftime("%Y-%m-%d | %H:%M")
     day_str = datetime.now().strftime("%A")
-    used_images = set()
     categories_list = ["world", "politics", "economy", "tech", "gaming", "sports", "science", "culture"]
 
     for idx, entry in enumerate(feed_entries[:6]):
         raw_title = entry.get("title", "خبر عاجل")
         raw_summary = entry.get("summary", "تغطية إخبارية مستمرة ومحدثة على مدار الساعة.")
         
+        # استخراج الصورة الحقيقية للخبر من المصدر
+        feed_image = extract_image_from_entry(entry)
+        article_image = feed_image if feed_image else random.choice(BACKUP_IMAGES)
+
         assigned_cat = categories_list[idx % len(categories_list)]
-        assigned_image = get_unique_image(used_images)
         fallback_content = generate_detailed_fallback_content(raw_title, raw_summary, lang)
         
         fallback_item = {
@@ -96,7 +109,7 @@ def process_with_gemini(feed_entries, lang):
             "summary": raw_summary,
             "content": fallback_content,
             "category": assigned_cat,
-            "image": assigned_image,
+            "image": article_image,
             "time": f"{day_str} - {now_str}",
             "read_time": calculate_read_time(fallback_content, lang)
         }
@@ -125,7 +138,7 @@ def process_with_gemini(feed_entries, lang):
                 cat = str(data.get("category", assigned_cat)).lower().strip()
                 data["time"] = f"{day_str} - {now_str}"
                 data["category"] = cat if cat in CATEGORY_NAMES else assigned_cat
-                data["image"] = assigned_image
+                data["image"] = article_image  # الاعتماد على الصورة الحقيقية المستخرجة
                 data["read_time"] = calculate_read_time(data.get("content", ""), lang)
                 processed.append(data)
             except Exception:
@@ -195,7 +208,7 @@ def read_article(article_id):
 
     cat_key = str(article.get("category", "world")).lower().strip()
     cat_display = CATEGORY_NAMES.get(cat_key, {}).get(lang, CATEGORY_NAMES["world"][lang])
-    article_image = article.get("image", random.choice(ALL_NEWS_IMAGES))
+    article_image = article.get("image", random.choice(BACKUP_IMAGES))
     read_time = article.get("read_time", "2 min read")
     site_title = "العالم اليوم" if lang == "ar" else "Global Today"
 
