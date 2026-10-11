@@ -7,56 +7,60 @@ import google.generativeai as genai
 
 app = Flask(__name__)
 
-# إعداد مفتاح Gemini API
 API_KEY = os.environ.get("GEMINI_API_KEY")
 if API_KEY:
   genai.configure(api_key=API_KEY)
 
 NEWS_CACHE = {"ar": {"time": None, "data": []}, "en": {"time": None, "data": []}}
+NEWS_ARCHIVE = {"ar": [], "en": []}
 
 
 def process_with_gemini(feed_entries, lang):
-  """معالجة خفيفة ومباشرة لمنع بطء السيرفر"""
   model = genai.GenerativeModel("gemini-1.5-flash")
   processed = []
 
-  # أخذ أول 8 أخبار فقط لضمان السرعة وعدم استهلاك الخادم
   for idx, entry in enumerate(feed_entries[:8]):
     raw_title = entry.get("title", "")
     raw_summary = entry.get("summary", "")
-    published = entry.get("published", "منذ وقت قصير")
+    now_str = datetime.now().strftime("%Y-%m-%d | %H:%M")
+    day_str = datetime.now().strftime("%A")
 
+    # Prompt 100% in English for maximum accuracy and speed
     prompt = f"""
-        تحليل خبر سريع للغة '{lang}':
-        العنوان: {raw_title}
-        الملخص: {raw_summary}
+        You are a professional global news editor. Analyze and process this news article for language '{lang}':
+        Title: {raw_title}
+        Summary: {raw_summary}
 
-        المطلوب بصيغة JSON فقط:
-        {{"id": {idx + 1}, "title": "عنوان جذاب مختصر", "summary": "ملخص ممتاظ من سطرين", "content": "مقال من فقرتين مفصلتين", "category": "اختر واحد فقط: [world, politics, economy, tech, gaming, sports, science, culture]"}}
+        Requirements:
+        1. Formulate an engaging and professional title in language '{lang}'.
+        2. Write a clear, exciting two-line summary.
+        3. Write a detailed two-paragraph article body based on the news.
+        4. Choose strictly one category from this exact list: [world, politics, economy, tech, gaming, sports, science, culture].
+
+        Return ONLY a clean JSON object without markdown formatting blocks:
+        {{"id": {idx + 1}, "title": "Generated Title", "summary": "Generated Summary", "content": "Generated 2-paragraph content", "category": "selected_category"}}
         """
 
     try:
-      # تحديد وقت استجابة سريع جداً
       response = model.generate_content(
-          prompt, request_options={"timeout": 5}
+          prompt, request_options={"timeout": 6}
       )
       clean_text = (
           response.text.replace("```json", "").replace("```", "").strip()
       )
       data = json.loads(clean_text)
-      data["time"] = published
+      data["time"] = f"{day_str} - {now_str}"
       processed.append(data)
     except Exception:
-      # نظام حماية: إذا تأخر الذكاء الاصطناعي يتم اعتماد الخبر فوراً دون إيقاف الخادم
       processed.append({
           "id": idx + 1,
           "title": raw_title,
           "summary": raw_summary,
           "content": (
-              f"{raw_summary}\n\nتغطية إخبارية مستمرة عبر شبكة العالم اليوم."
+              f"{raw_summary}\n\nContinuous news coverage by Global Today network."
           ),
           "category": "world",
-          "time": published,
+          "time": f"{day_str} - {now_str}",
       })
 
   return processed
@@ -64,8 +68,6 @@ def process_with_gemini(feed_entries, lang):
 
 def fetch_and_process_news(lang="ar"):
   now = datetime.now()
-
-  # كاش لمدة ساعة كاملة لراحة السيرفر
   if (
       NEWS_CACHE[lang]["time"]
       and (now - NEWS_CACHE[lang]["time"]) < timedelta(hours=1)
@@ -86,6 +88,8 @@ def fetch_and_process_news(lang="ar"):
     articles = NEWS_CACHE[lang]["data"] or []
 
   if articles:
+    if NEWS_CACHE[lang]["data"]:
+      NEWS_ARCHIVE[lang].extend(NEWS_CACHE[lang]["data"])
     NEWS_CACHE[lang]["time"] = now
     NEWS_CACHE[lang]["data"] = articles
 
@@ -104,14 +108,25 @@ def get_news():
   return jsonify({"lang": lang, "articles": articles})
 
 
+@app.route("/api/archive")
+def get_archive():
+  lang = request.args.get("lang", "ar")
+  return jsonify({"lang": lang, "archive": NEWS_ARCHIVE[lang]})
+
+
 @app.route("/article/<int:article_id>")
 def read_article(article_id):
   lang = request.args.get("lang", "ar")
   articles = fetch_and_process_news(lang)
-
   article = next((a for a in articles if a["id"] == article_id), None)
+
   if not article:
-    return "الخبر غير موجود حالياً", 404
+    article = next(
+        (a for a in NEWS_ARCHIVE[lang] if a["id"] == article_id), None
+    )
+
+  if not article:
+    return "Article not found", 404
 
   html_template = """
     <!DOCTYPE html>
@@ -119,13 +134,13 @@ def read_article(article_id):
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>{{ article.title }} | العالم اليوم</title>
+        <title>{{ article.title }} | Global Today</title>
         <script src="https://cdn.tailwindcss.com"></script>
     </head>
     <body class="bg-gray-100 font-sans text-gray-900">
         <header class="bg-slate-900 text-white p-4 border-b border-slate-800">
             <div class="container mx-auto flex justify-between items-center">
-                <a href="/" class="text-2xl font-black text-blue-500">العالم اليوم</a>
+                <a href="/" class="text-2xl font-black text-blue-500">Global Today</a>
                 <a href="/" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-xs font-bold">
                     {{ '← العودة للرئيسية' if lang == 'ar' else '← Back to Home' }}
                 </a>
@@ -136,7 +151,7 @@ def read_article(article_id):
                 <span class="bg-blue-100 text-blue-800 text-xs font-bold px-3 py-1 rounded-full uppercase">{{ article.category }}</span>
                 <h1 class="text-3xl font-black mt-4 mb-4 text-slate-900 leading-snug">{{ article.title }}</h1>
                 <div class="text-xs text-gray-500 pb-6 mb-6 border-b border-gray-100 flex items-center gap-2">
-                    <span>🕒 {{ article.time }}</span> • <span>الفريق الإخباري</span>
+                    <span>🕒 {{ article.time }}</span> • <span>Editorial Team</span>
                 </div>
                 <div class="text-gray-700 text-lg leading-relaxed space-y-6">
                     <p class="font-semibold text-gray-900 bg-blue-50 p-4 rounded-xl border-r-4 border-blue-600">{{ article.summary }}</p>
