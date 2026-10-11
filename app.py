@@ -12,15 +12,63 @@ API_KEY = os.environ.get("GEMINI_API_KEY")
 if API_KEY:
   genai.configure(api_key=API_KEY)
 
-# ذاكرة تخزين مؤقت لتسريع الموقع
 NEWS_CACHE = {"ar": {"time": None, "data": []}, "en": {"time": None, "data": []}}
+
+
+def process_with_gemini(feed_entries, lang):
+  """معالجة خفيفة ومباشرة لمنع بطء السيرفر"""
+  model = genai.GenerativeModel("gemini-1.5-flash")
+  processed = []
+
+  # أخذ أول 8 أخبار فقط لضمان السرعة وعدم استهلاك الخادم
+  for idx, entry in enumerate(feed_entries[:8]):
+    raw_title = entry.get("title", "")
+    raw_summary = entry.get("summary", "")
+    published = entry.get("published", "منذ وقت قصير")
+
+    prompt = f"""
+        تحليل خبر سريع للغة '{lang}':
+        العنوان: {raw_title}
+        الملخص: {raw_summary}
+
+        المطلوب بصيغة JSON فقط:
+        {{"id": {idx + 1}, "title": "عنوان جذاب مختصر", "summary": "ملخص ممتاظ من سطرين", "content": "مقال من فقرتين مفصلتين", "category": "اختر واحد فقط: [world, politics, economy, tech, gaming, sports, science, culture]"}}
+        """
+
+    try:
+      # تحديد وقت استجابة سريع جداً
+      response = model.generate_content(
+          prompt, request_options={"timeout": 5}
+      )
+      clean_text = (
+          response.text.replace("```json", "").replace("```", "").strip()
+      )
+      data = json.loads(clean_text)
+      data["time"] = published
+      processed.append(data)
+    except Exception:
+      # نظام حماية: إذا تأخر الذكاء الاصطناعي يتم اعتماد الخبر فوراً دون إيقاف الخادم
+      processed.append({
+          "id": idx + 1,
+          "title": raw_title,
+          "summary": raw_summary,
+          "content": (
+              f"{raw_summary}\n\nتغطية إخبارية مستمرة عبر شبكة العالم اليوم."
+          ),
+          "category": "world",
+          "time": published,
+      })
+
+  return processed
 
 
 def fetch_and_process_news(lang="ar"):
   now = datetime.now()
+
+  # كاش لمدة ساعة كاملة لراحة السيرفر
   if (
       NEWS_CACHE[lang]["time"]
-      and (now - NEWS_CACHE[lang]["time"]) < timedelta(minutes=30)
+      and (now - NEWS_CACHE[lang]["time"]) < timedelta(hours=1)
       and NEWS_CACHE[lang]["data"]
   ):
     return NEWS_CACHE[lang]["data"]
@@ -30,54 +78,17 @@ def fetch_and_process_news(lang="ar"):
       if lang == "en"
       else "http://feeds.bbci.co.uk/arabic/rss.xml"
   )
-  feed = feedparser.parse(feed_url)
 
-  articles = []
-  model = genai.GenerativeModel("gemini-1.5-flash")
+  try:
+    feed = feedparser.parse(feed_url)
+    articles = process_with_gemini(feed.entries, lang)
+  except Exception:
+    articles = NEWS_CACHE[lang]["data"] or []
 
-  for idx, entry in enumerate(feed.entries[:12]):
-    raw_title = entry.get("title", "")
-    raw_summary = entry.get("summary", "")
-    published = entry.get("published", "منذ وقت قصير")
+  if articles:
+    NEWS_CACHE[lang]["time"] = now
+    NEWS_CACHE[lang]["data"] = articles
 
-    prompt = f"""
-        أنت محرر إخباري رئيسي لمنصة عالمية كبرى. قم بتحليل الخبر التالي باللغة '{lang}':
-        العنوان: {raw_title}
-        الملخص: {raw_summary}
-
-        المطلوب:
-        1. صغ عنواناً احترافياً وجذاباً.
-        2. اكتب ملخصاً واضحاً ومثيراً من سطرين.
-        3. اكتب مقالاً كاملاً ومفصلاً ومصاغاً بأسلوب حصري من 3 فقرات بناءً على الخبر.
-        4. حدد التصنيف بدقة واختاره حصرياً وبدقة من هذه القائمة الشاملة:
-           [world, politics, economy, tech, gaming, sports, science, culture]
-           (توضيح: world للأخبار العامة، politics للسياسة، economy للاقتصاد والمال، tech للتكنولوجيا والذكاء الاصطناعي، gaming للألعاب والجيمنج، sports للرياضة، science للعلوم والفضاء والبيئة، culture للثقافة والفنون).
-
-        أرجع النتيجة بصيغة JSON نظيفة بدون أسطر إضافية أو اكواد خارجية:
-        {{"id": {idx + 1}, "title": "العنوان", "summary": "الملخص", "content": "المقال الكامل من 3 فقرات", "category": "التصنيف", "time": "{published}"}}
-        """
-
-    try:
-      response = model.generate_content(prompt)
-      clean_text = (
-          response.text.replace("```json", "").replace("```", "").strip()
-      )
-      data = json.loads(clean_text)
-      articles.append(data)
-    except Exception:
-      articles.append({
-          "id": idx + 1,
-          "title": raw_title,
-          "summary": raw_summary,
-          "content": (
-              f"{raw_summary}\n\nتمت تغطية هذا الخبر عبر شبكة العالم اليوم الإخبارية."
-          ),
-          "category": "world",
-          "time": published,
-      })
-
-  NEWS_CACHE[lang]["time"] = now
-  NEWS_CACHE[lang]["data"] = articles
   return articles
 
 
@@ -100,7 +111,7 @@ def read_article(article_id):
 
   article = next((a for a in articles if a["id"] == article_id), None)
   if not article:
-    return "الخبر غير موجود", 404
+    return "الخبر غير موجود حالياً", 404
 
   html_template = """
     <!DOCTYPE html>
@@ -120,24 +131,16 @@ def read_article(article_id):
                 </a>
             </div>
         </header>
-
         <main class="container mx-auto px-4 py-10 max-w-4xl">
-            <div class="bg-white rounded-2xl shadow-lg overflow-hidden border border-gray-200 p-8">
-                <span class="bg-blue-100 text-blue-800 text-xs font-bold px-3 py-1 rounded-full uppercase">
-                    {{ article.category }}
-                </span>
+            <div class="bg-white rounded-2xl shadow-lg border border-gray-200 p-8">
+                <span class="bg-blue-100 text-blue-800 text-xs font-bold px-3 py-1 rounded-full uppercase">{{ article.category }}</span>
                 <h1 class="text-3xl font-black mt-4 mb-4 text-slate-900 leading-snug">{{ article.title }}</h1>
                 <div class="text-xs text-gray-500 pb-6 mb-6 border-b border-gray-100 flex items-center gap-2">
-                    <span>🕒 {{ article.time }}</span> • <span>بواسطة الفريق الإخباري الذكي</span>
+                    <span>🕒 {{ article.time }}</span> • <span>الفريق الإخباري</span>
                 </div>
-                
                 <div class="text-gray-700 text-lg leading-relaxed space-y-6">
-                    <p class="font-semibold text-gray-900 bg-blue-50 p-4 rounded-xl border-r-4 border-blue-600">
-                        {{ article.summary }}
-                    </p>
-                    <div class="whitespace-pre-line text-slate-800 leading-8">
-                        {{ article.content }}
-                    </div>
+                    <p class="font-semibold text-gray-900 bg-blue-50 p-4 rounded-xl border-r-4 border-blue-600">{{ article.summary }}</p>
+                    <div class="whitespace-pre-line text-slate-800 leading-8">{{ article.content }}</div>
                 </div>
             </div>
         </main>
