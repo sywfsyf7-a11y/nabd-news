@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>العالم اليوم | شبكة إخبارية شاملة 🌐</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 font-sans text-gray-900">
+
+    <!-- 1. شريط الإشعارات والعاجل -->
+    <div class="bg-red-700 text-white text-sm py-2 px-4 flex items-center justify-between shadow-inner">
+        <div class="flex items-center space-x-2 space-x-reverse w-full">
+            <span class="bg-black text-white px-3 py-0.5 rounded font-bold animate-pulse text-xs">🔴 عاجل</span>
+            <marquee scrollamount="6" class="font-medium">
+                قيمة أسهم التكنولوجيا تسجل أرقاماً قياسية • القمة العالمية للمناخ تبدأ جلساتها اليوم • نتائج الحسم في الدوريات الأوروبية وتأهل مستحق للأبطال • انطلاق أكبر معرض للذكاء الاصطناعي في المنطقة...
+            </marquee>
+        </div>
+    </div>
+
+    <!-- 2. الهيدر الرئيسي والشعار -->
+    <header class="bg-slate-900 text-white border-b border-slate-800">
+        <div class="container mx-auto px-4 py-5 flex flex-wrap justify-between items-center gap-4">
+            <div>
+                <h1 class="text-3xl font-black tracking-wide text-blue-500">العالم<span class="text-white">اليوم</span></h1>
+                <p class="text-xs text-gray-400 mt-1">تغطية إخبارية شاملة على مدار الساعة 24/7</p>
+            </div>
+            
+            <!-- محرك البحث -->
+            <div class="flex items-center bg-slate-800 rounded-lg px-3 py-2 w-full md:w-80 border border-slate-700">
+                <input type="text" placeholder="ابحث عن خبر، دولة، أو موضوع..." class="bg-transparent border-none text-sm text-white focus:outline-none w-full placeholder-gray-400">
+                <button class="text-blue-400 font-bold text-sm hover:text-blue-300">بحث</button>
+            </div>
+        </div>
+
+        <!-- 3. قائمة التصنيفات الشاملة -->
+        <nav class="bg-slate-800 text-sm font-semibold border-t border-slate-700">
+            <div class="container mx-auto px-4 flex space-x-6 space-x-reverse overflow-x-auto py-3 no-scrollbar">
+                <a href="#all" class="text-blue-400 border-b-2 border-blue-400 pb-1 whitespace-nowrap">الرئيسية</a>
+                <a href="#world" class="hover:text-blue-400 transition whitespace-nowrap">🌍 أخبار العالم</a>
+                <a href="#politics" class="hover:text-blue-400 transition whitespace-nowrap">🏛️ سياسة</a>
+                <a href="#sports" class="hover:text-blue-400 transition whitespace-nowrap">⚽ رياضة</a>
+                <a href="#tech" class="hover:text-blue-400 transition whitespace-nowrap">💻 تكنولوجيا وعلوم</a>
+                <a href="#economy" class="hover:text-blue-400 transition whitespace-nowrap">📈 اقتصاد وأعمال</a>
+                <a href="#culture" class="hover:text-blue-400 transition whitespace-nowrap">🎬 ثقافة وفن</a>
+            </div>
+        </nav>
+    </header>
+
+    <!-- 4. المحتوى الرئيسي -->
+    <main class="container mx-auto px-4 py-8">
+        
+        <!-- قسم الأخبار الرئيسية والرائدة -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-12">
+            
+            <!-- الخبر الرئيسي الأول (ضخم) -->
+            <div class="lg:col-span-2 bg-white rounded-xl shadow-md overflow-hidden border border-gray-200">
+                <img src="https://images.unsplash.com/photo-1585829365295-ab7cd400c167?w=1000" class="w-full h-80 object-cover" alt="خبر عالمي">
+                <div class="p-6">
+                    <span class="bg-blue-100 text-blue-800 text-xs font-bold px-3 py-1 rounded-full">🌍 أخبار العالم</span>
+                    <h2 class="text-2xl font-bold mt-3 mb-2 hover:text-blue-600 cursor-pointer">قمة دولية بارزة لمناقشة التطورات السياسية والاقتصادية الراهنة</h2>
+                    <p class="text-gray-600 text-sm leading-relaxed mb-4">انطلقت اليوم أعمال القمة العالمية بحضور قادة وممثلين من مختلف دول العالم لبحث ملفات الطاقة والأمن الإقليمي وتعزيز التعاون الاقتصادي الدولي...</p>
+                    <div class="flex justify-between items-center text-xs text-gray-500 border-t pt-4">
+                        <span>منذ 25 دقيقة • بواسطة الفريق الإخباري</span>
+                        <button class="bg-blue-600 text-white px-4 py-2 rounded-lg text-xs hover:bg-blue-700 transition">قراءة الخبر الكامل</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- قائمة الأخبار السريعة والأكثر قراءة -->
+            <div class="bg-white p-6 rounded-xl shadow-md border border-gray-200 flex flex-col justify-between">
+                <div>
+                    <h3 class="text-lg font-bold border-b pb-3 mb-4 flex items-center gap-2">
+                        🔥 الأكثر قراءة اليوم
+                    </h3>
+                    
+                    <div class="space-y-4">
+                        <article class="border-b pb-3">
+                            <span class="text-xs text-red-600 font-bold">⚽ رياضة</span>
+                            <h4 class="font-bold text-sm text-gray-800 hover:text-blue-600 cursor-pointer mt-1">مباراة حاسمة الليلة تحدد بطل الدوري وسط تطلع الملايين.</h4>
+                        </article>
+
+                        <article class="border-b pb-3">
+                            <span class="text-xs text-purple-600 font-bold">💻 تكنولوجيا</span>
+                            <h4 class="font-bold text-sm text-gray-800 hover:text-blue-600 cursor-pointer mt-1">إطلاق معالجات جديدة فائقة السرعة للألعاب والذكاء الاصطناعي.</h4>
+                        </article>
+
+                        <article class="border-b pb-3">
+                            <span class="text-xs text-green-600 font-bold">📈 اقتصاد</span>
+                            <h4 class="font-bold text-sm text-gray-800 hover:text-blue-600 cursor-pointer mt-1">ارتفاع مؤشرات الأسواق العالمية وتقارير إيجابية للنمو.</h4>
+                        </article>
+
+                        <article>
+                            <span class="text-xs text-amber-600 font-bold">🎬 ثقافة</span>
+                            <h4 class="font-bold text-sm text-gray-800 hover:text-blue-600 cursor-pointer mt-1">افتتاح مهرجان السينما الدولي بحضور نخب إعلامية وفنية.</h4>
+                        </article>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- 5. قسم التغطيات الخاصة بحسب التصنيف (شبكة كروت) -->
+        <h3 class="text-2xl font-bold mb-6 text-slate-800 border-r-4 border-blue-600 pr-3">📰 تغطيات شاملة حسب الأقسام</h3>
+        
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
+            
+            <!-- كرت الرياضة -->
+            <div class="bg-white rounded-xl shadow border border-gray-200 overflow-hidden hover:shadow-lg transition">
+                <img src="https://images.unsplash.com/photo-1508098682722-e99c43a406b2?w=500" class="w-full h-44 object-cover">
+                <div class="p-4">
+                    <span class="text-xs font-bold text-red-600 bg-red-50 px-2 py-1 rounded">⚽ الرياضة العالمية</span>
+                    <h4 class="font-bold text-base mt-2 mb-2 text-gray-800">تحضيرات مكثفة للبطولات القارية الكبرى</h4>
+                    <p class="text-gray-500 text-xs line-clamp-2">استعدادات الأندية للجلولات القادمة وتصريحات نارية للمدربين قبل المواجهات المرتقبة...</p>
+                </div>
+            </div>
+
+            <!-- كرت التكنولوجيا -->
+            <div class="bg-white rounded-xl shadow border border-gray-200 overflow-hidden hover:shadow-lg transition">
+                <img src="https://images.unsplash.com/photo-1518770660439-4636190af475?w=500" class="w-full h-44 object-cover">
+                <div class="p-4">
+                    <span class="text-xs font-bold text-purple-600 bg-purple-50 px-2 py-1 rounded">💻 العلوم والتكنولوجيا</span>
+                    <h4 class="font-bold text-base mt-2 mb-2 text-gray-800">تحديثات الأمان الرقمي وحماية البيانات</h4>
+                    <p class="text-gray-500 text-xs line-clamp-2">خبراء الأمن السيبراني يوصون ببروتوكولات جديدة لحماية الحسابات الشخصية والأنظمة...</p>
+                </div>
+            </div>
+
+            <!-- كرت السياسة والاقتصاد -->
+            <div class="bg-white rounded-xl shadow border border-gray-200 overflow-hidden hover:shadow-lg transition">
+                <img src="https://images.unsplash.com/photo-1526304640581-d334cdbbf45e?w=500" class="w-full h-44 object-cover">
+                <div class="p-4">
+                    <span class="text-xs font-bold text-green-600 bg-green-50 px-2 py-1 rounded">📈 المال والأعمال</span>
+                    <h4 class="font-bold text-base mt-2 mb-2 text-gray-800">اتجاهات أسواق المال والعملات الرقمية</h4>
+                    <p class="text-gray-500 text-xs line-clamp-2">تحليل لحركة التداول اليومية واستعراض لأبرز المكاسب في قطاع الاستثمار...</p>
+                </div>
+            </div>
+
+            <!-- كرت الثقافة والفنون -->
+            <div class="bg-white rounded-xl shadow border border-gray-200 overflow-hidden hover:shadow-lg transition">
+                <img src="https://images.unsplash.com/photo-1478720568477-152d9b164e26?w=500" class="w-full h-44 object-cover">
+                <div class="p-4">
+                    <span class="text-xs font-bold text-amber-600 bg-amber-50 px-2 py-1 rounded">🎬 الترفيه والسينما</span>
+                    <h4 class="font-bold text-base mt-2 mb-2 text-gray-800">إصدارات الأفلام المرتقبة في صالات العرض</h4>
+                    <p class="text-gray-500 text-xs line-clamp-2">مراجعات أولية لأحدث الأعمال السينمائية وتقييم النقاد للإنتاجات الجديدة...</p>
+                </div>
+            </div>
+
+        </div>
+
+    </main>
+
+    <!-- 6. الفوتر الشامل -->
+    <footer class="bg-slate-900 text-gray-400 text-sm py-10 border-t border-slate-800">
+        <div class="container mx-auto px-4 grid grid-cols-1 md:grid-cols-4 gap-8">
+            <div>
+                <h4 class="text-white font-bold text-lg mb-3">العالم اليوم</h4>
+                <p class="text-xs text-gray-400 leading-relaxed">شبكة إخبارية مستقلة تنقل الأخبار بكل مصداقية وموضوعية من قلب الحدث حول العالم.</p>
+            </div>
+            <div>
+                <h5 class="text-white font-bold mb-3">الأقسام</h5>
+                <ul class="space-y-2 text-xs">
+                    <li><a href="#" class="hover:text-white">الأخبار العالمية</a></li>
+                    <li><a href="#" class="hover:text-white">السياسة والتحليلات</a></li>
+                    <li><a href="#" class="hover:text-white">الرياضة والألعاب</a></li>
+                    <li><a href="#" class="hover:text-white">التكنولوجيا والأمن الرقمي</a></li>
+                </ul>
+            </div>
+            <div>
+                <h5 class="text-white font-bold mb-3">روابط هامة</h5>
+                <ul class="space-y-2 text-xs">
+                    <li><a href="#" class="hover:text-white">عن الشبكة</a></li>
+                    <li><a href="#" class="hover:text-white">اتصل بنا</a></li>
+                    <li><a href="#" class="hover:text-white">سياسة الخصوصية</a></li>
+                </ul>
+            </div>
+            <div>
+                <h5 class="text-white font-bold mb-3">النشرة البريدية</h5>
+                <p class="text-xs mb-3">اشترك للحصول على أهم الأخبار اليومية مباشرة في بريدك.</p>
+                <input type="email" placeholder="بريدك الإلكتروني" class="w-full p-2 rounded text-black text-xs mb-2">
+                <button class="w-full bg-blue-600 text-white py-1.5 rounded text-xs hover:bg-blue-700">اشتراك</button>
+            </div>
+        </div>
+        <div class="text-center text-xs mt-8 pt-6 border-t border-slate-800">
+            جميع الحقوق محفوظة &copy; 2026 - شبكة العالم اليوم الإخبارية
+        </div>
+    </footer>
+
+</body>
+</html>
