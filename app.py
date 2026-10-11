@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 import json
 import os
 import math
@@ -10,7 +10,6 @@ import google.generativeai as genai
 
 app = Flask(__name__)
 
-# 🔑 تهيئة مفتاح Gemini API
 API_KEY = os.environ.get("GEMINI_API_KEY")
 if API_KEY:
     try:
@@ -18,7 +17,6 @@ if API_KEY:
     except Exception:
         pass
 
-# 🌐 الاتصال بقاعدة بيانات Supabase الدائمة
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
 def get_db_connection():
@@ -40,7 +38,7 @@ def init_db():
             return
         cursor = conn.cursor()
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS articles_v2 (
+            CREATE TABLE IF NOT EXISTS articles_v3 (
                 id SERIAL PRIMARY KEY,
                 lang TEXT,
                 title TEXT,
@@ -50,6 +48,7 @@ def init_db():
                 image TEXT,
                 time TEXT,
                 read_time TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE(lang, title)
             )
         """)
@@ -59,7 +58,6 @@ def init_db():
     except Exception as e:
         print(f"Init DB Error: {e}")
 
-# تهيئة القاعدة بشكل آمن عند التشغيل
 try:
     init_db()
 except Exception:
@@ -76,7 +74,6 @@ CATEGORY_NAMES = {
     "culture": {"ar": "🎬 ثقافة وفن وترفيه", "en": "🎬 Culture & Arts"}
 }
 
-# 📡 مصادر إخبارية متعددة وموزعة
 MULTI_SOURCES = {
     "ar": [
         "http://feeds.bbci.co.uk/arabic/rss.xml",
@@ -91,50 +88,18 @@ MULTI_SOURCES = {
     ]
 }
 
-# 🖼️ نظام جلب الصور الذكي الديناميكي المعبر عن تفاصيل الخبر
 CATEGORY_HD_COLLECTIONS = {
-    "politics": [
-        "https://images.unsplash.com/photo-1540910419892-4a36d2c3266c?auto=format&fit=crop&w=1200&q=80",
-        "https://images.unsplash.com/photo-1529107386315-e1a2ed48a620?auto=format&fit=crop&w=1200&q=80",
-        "https://images.unsplash.com/photo-1575320181282-9afab399332c?auto=format&fit=crop&w=1200&q=80"
-    ],
-    "world": [
-        "https://images.unsplash.com/photo-1526778548025-fa2f459cd5c1?auto=format&fit=crop&w=1200&q=80",
-        "https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&w=1200&q=80",
-        "https://images.unsplash.com/photo-1508847154043-be5407fcaa5a?auto=format&fit=crop&w=1200&q=80"
-    ],
-    "economy": [
-        "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?auto=format&fit=crop&w=1200&q=80",
-        "https://images.unsplash.com/photo-1590283603385-17ffb3a7f29f?auto=format&fit=crop&w=1200&q=80",
-        "https://images.unsplash.com/photo-1607604276583-eef5d076aa5f?auto=format&fit=crop&w=1200&q=80"
-    ],
-    "tech": [
-        "https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=1200&q=80",
-        "https://images.unsplash.com/photo-1485827404703-89b55fcc595e?auto=format&fit=crop&w=1200&q=80",
-        "https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?auto=format&fit=crop&w=1200&q=80"
-    ],
-    "gaming": [
-        "https://images.unsplash.com/photo-1538481199705-c710c4e965fc?auto=format&fit=crop&w=1200&q=80",
-        "https://images.unsplash.com/photo-1511512578047-dfb367046420?auto=format&fit=crop&w=1200&q=80",
-        "https://images.unsplash.com/photo-1550745165-9bc0b252726f?auto=format&fit=crop&w=1200&q=80"
-    ],
-    "sports": [
-        "https://images.unsplash.com/photo-1508098682722-e99c43a406b2?auto=format&fit=crop&w=1200&q=80",
-        "https://images.unsplash.com/photo-1461896836934-ffe607ba8211?auto=format&fit=crop&w=1200&q=80",
-        "https://images.unsplash.com/photo-1579952363873-27f3bade9f55?auto=format&fit=crop&w=1200&q=80"
-    ],
-    "science": [
-        "https://images.unsplash.com/photo-1507668077129-56e32842fceb?auto=format&fit=crop&w=1200&q=80",
-        "https://images.unsplash.com/photo-1532094349884-543bc11b234d?auto=format&fit=crop&w=1200&q=80"
-    ],
-    "culture": [
-        "https://images.unsplash.com/photo-1485846234645-a62644f84728?auto=format&fit=crop&w=1200&q=80",
-        "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&w=1200&q=80"
-    ]
+    "politics": ["https://images.unsplash.com/photo-1540910419892-4a36d2c3266c?auto=format&fit=crop&w=1200&q=80", "https://images.unsplash.com/photo-1529107386315-e1a2ed48a620?auto=format&fit=crop&w=1200&q=80"],
+    "world": ["https://images.unsplash.com/photo-1526778548025-fa2f459cd5c1?auto=format&fit=crop&w=1200&q=80", "https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&w=1200&q=80"],
+    "economy": ["https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?auto=format&fit=crop&w=1200&q=80", "https://images.unsplash.com/photo-1590283603385-17ffb3a7f29f?auto=format&fit=crop&w=1200&q=80"],
+    "tech": ["https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=1200&q=80", "https://images.unsplash.com/photo-1485827404703-89b55fcc595e?auto=format&fit=crop&w=1200&q=80"],
+    "gaming": ["https://images.unsplash.com/photo-1538481199705-c710c4e965fc?auto=format&fit=crop&w=1200&q=80", "https://images.unsplash.com/photo-1511512578047-dfb367046420?auto=format&fit=crop&w=1200&q=80"],
+    "sports": ["https://images.unsplash.com/photo-1508098682722-e99c43a406b2?auto=format&fit=crop&w=1200&q=80", "https://images.unsplash.com/photo-1461896836934-ffe607ba8211?auto=format&fit=crop&w=1200&q=80"],
+    "science": ["https://images.unsplash.com/photo-1507668077129-56e32842fceb?auto=format&fit=crop&w=1200&q=80"],
+    "culture": ["https://images.unsplash.com/photo-1485846234645-a62644f84728?auto=format&fit=crop&w=1200&q=80"]
 }
 
-def get_dynamic_news_image(title, summary, cat_key, used_set):
-    text = f"{title} {summary}".lower()
+def get_dynamic_news_image(cat_key, used_set):
     collection = CATEGORY_HD_COLLECTIONS.get(cat_key, CATEGORY_HD_COLLECTIONS["world"])
     available = [img for img in collection if img not in used_set]
     if not available:
@@ -143,9 +108,10 @@ def get_dynamic_news_image(title, summary, cat_key, used_set):
     used_set.add(chosen)
     return chosen
 
+# 🧠 الخوارزمية الذكية لتصنيف وتحليل المحتوى
 def detect_category_smart(title, summary):
     text = f"{title} {summary}".lower()
-    if any(k in text for k in ["ترامب", "بوتين", "بايدن", "حكومة", "رئيس", "وزير", "انتخابات", "حرب", "عاجل", "سياسة", "trump", "biden", "putin", "president", "election", "war", "minister", "politics"]):
+    if any(k in text for k in ["ترامب", "بوتين", "بايدن", "حكومة", "رئيس", "وزير", "انتخابات", "حرب", "سياسة", "trump", "biden", "putin", "president", "election", "war", "politics"]):
         return "politics"
     if any(k in text for k in ["اقتصاد", "دولار", "أسواق", "نفط", "تضخم", "أسهم", "بنك", "economy", "market", "dollar", "stocks", "bank", "oil"]):
         return "economy"
@@ -164,10 +130,10 @@ def calculate_read_time(text, lang):
     minutes = math.ceil(words / 130) if words > 0 else 1
     return f"{minutes} دقائق قراءة" if lang == "ar" else f"{minutes} min read"
 
-def generate_detailed_fallback_content(raw_title, raw_summary, lang):
+def generate_detailed_fallback_content(raw_title, lang):
     if lang == "ar":
-        return f"تتابع وسائل الإعلام والتغطيات الصحفية عن كثب تفاصيل المستجدات المرتبطة بـ '{raw_title}'. وتشير التقييمات الأولية إلى أن هذا الحدث يمثل تطوراً لافتاً ضمن سياق الأحداث الجارية، مع توقع صدور تقارير إضافية قريباً."
-    return f"Media outlets are closely following the unfolding details regarding '{raw_title}'. Initial assessments indicate that this event marks a significant development within the current context."
+        return f"تتابع وسائل الإعلام والتغطيات الصحفية عن كثب تفاصيل المستجدات المرتبطة بـ '{raw_title}'. وتشير التقييمات الأولية إلى أن هذا الحدث يمثل تطوراً لافتاً ضمن سياق الأحداث الجارية."
+    return f"Media outlets are closely following the unfolding details regarding '{raw_title}'. Initial assessments indicate a significant development."
 
 def save_article_to_db(art):
     conn = get_db_connection()
@@ -176,7 +142,7 @@ def save_article_to_db(art):
     try:
         cursor = conn.cursor()
         cursor.execute("""
-            INSERT INTO articles_v2 (lang, title, summary, content, category, image, time, read_time)
+            INSERT INTO articles_v3 (lang, title, summary, content, category, image, time, read_time)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (lang, title) DO NOTHING
         """, (art['lang'], art['title'], art['summary'], art['content'], art['category'], art['image'], art['time'], art['read_time']))
@@ -192,7 +158,7 @@ def get_articles_from_db(lang):
         return []
     try:
         cursor = conn.cursor()
-        cursor.execute('SELECT id, lang, title, summary, content, category, image, time, read_time FROM articles_v2 WHERE lang = %s ORDER BY id DESC', (lang,))
+        cursor.execute('SELECT id, lang, title, summary, content, category, image, time, read_time, created_at FROM articles_v3 WHERE lang = %s ORDER BY id DESC', (lang,))
         rows = cursor.fetchall()
         cursor.close()
         conn.close()
@@ -200,24 +166,47 @@ def get_articles_from_db(lang):
         for row in rows:
             articles.append({
                 "id": row[0], "lang": row[1], "title": row[2], "summary": row[3],
-                "content": row[4], "category": row[5], "image": row[6], "time": row[7], "read_time": row[8]
+                "content": row[4], "category": row[5], "image": row[6], "time": row[7], "read_time": row[8], "created_at": row[9]
             })
         return articles
     except Exception as e:
         print(f"DB Fetch Error: {e}")
         return []
 
-def process_with_gemini(feed_entries, lang):
+# ⏱️ خوارزمية التحقق والترتيب الذكي (التحديث كل 30 دقيقة)
+def fetch_and_process_news(lang="ar"):
+    articles = get_articles_from_db(lang)
+    
+    # التحقق من وقت آخر تحديث، وإذا مر أكثر من 30 دقيقة يتم سحب أخبار جديدة وتحديثها
+    should_refresh = True
+    if articles and len(articles) > 0:
+        last_article_time = articles[0].get("created_at")
+        if last_article_time and (datetime.now() - last_article_time) < timedelta(minutes=30):
+            should_refresh = False
+
+    if not should_refresh and articles:
+        return articles
+
+    sources = MULTI_SOURCES.get(lang, MULTI_SOURCES["ar"])
+    all_entries = []
+    for url in sources:
+        try:
+            feed = feedparser.parse(url)
+            if feed and hasattr(feed, 'entries'):
+                all_entries.extend(feed.entries[:3])
+        except Exception:
+            pass
+
     now_str = datetime.now().strftime("%Y-%m-%d | %H:%M")
     day_str = datetime.now().strftime("%A")
     used_images = set()
 
-    for entry in feed_entries[:10]:
+    for entry in all_entries[:8]:
         raw_title = entry.get("title", "خبر عاجل")
         raw_summary = entry.get("summary", "تغطية إخبارية مستمرة.")
         smart_cat = detect_category_smart(raw_title, raw_summary)
-        hd_image = get_dynamic_news_image(raw_title, raw_summary, smart_cat, used_images)
-        detailed_content = generate_detailed_fallback_content(raw_title, raw_summary, lang)
+        hd_image = get_dynamic_news_image(smart_cat, used_images)
+        detailed_content = generate_detailed_fallback_content(raw_title, lang)
 
         art = {
             "lang": lang,
@@ -234,23 +223,15 @@ def process_with_gemini(feed_entries, lang):
             try:
                 model = genai.GenerativeModel("gemini-1.5-flash")
                 prompt = f"""
-                You are a senior news editor. Process this article for target language '{lang}':
+                Process this news for target language '{lang}':
                 Title: {raw_title}
                 Summary: {raw_summary}
-
-                Rules:
-                1. "title": Professional news headline in '{lang}'.
-                2. "summary": Executive 2-sentence summary in '{lang}'.
-                3. "content": Write 3 detailed background paragraphs in '{lang}'.
-                4. "category": Choose strict term from: [world, politics, economy, tech, gaming, sports, science, culture].
-
-                Return JSON ONLY:
-                {{"title": "...", "summary": "...", "content": "...", "category": "{smart_cat}"}}
+                Return strict JSON:
+                {{"title": "...", "summary": "...", "content": "...", "category": "world|politics|economy|tech|gaming|sports|science|culture"}}
                 """
                 response = model.generate_content(prompt, request_options={"timeout": 4})
                 clean_text = response.text.replace("```json", "").replace("```", "").strip()
                 data = json.loads(clean_text)
-                
                 art["title"] = data.get("title", raw_title)
                 art["summary"] = data.get("summary", raw_summary)
                 art["content"] = data.get("content", detailed_content)
@@ -261,26 +242,6 @@ def process_with_gemini(feed_entries, lang):
                 pass
 
         save_article_to_db(art)
-
-    return get_articles_from_db(lang)
-
-def fetch_and_process_news(lang="ar"):
-    existing = get_articles_from_db(lang)
-    if existing and len(existing) >= 6:
-        return existing
-
-    sources = MULTI_SOURCES.get(lang, MULTI_SOURCES["ar"])
-    all_entries = []
-    for url in sources:
-        try:
-            feed = feedparser.parse(url)
-            if feed and hasattr(feed, 'entries'):
-                all_entries.extend(feed.entries[:4])
-        except Exception:
-            pass
-
-    if all_entries:
-        process_with_gemini(all_entries, lang)
 
     return get_articles_from_db(lang)
 
@@ -303,86 +264,107 @@ def get_archive():
 @app.route("/article/<int:article_id>")
 def read_article(article_id):
     lang = request.args.get("lang", "ar")
-    conn = get_db_connection()
-    if not conn:
-        return "Database Error", 500
-    try:
-        cursor = conn.cursor()
-        cursor.execute('SELECT id, lang, title, summary, content, category, image, time, read_time FROM articles_v2 WHERE id = %s', (article_id,))
-        row = cursor.fetchone()
-        cursor.close()
-        conn.close()
+    articles = fetch_and_process_news(lang)
+    article = next((a for a in articles if a["id"] == article_id), None)
 
-        if not row:
-            return "الخبر غير موجود / Article Not Found", 404
+    if not article:
+        return "الخبر غير موجود / Article Not Found", 404
 
-        article = {
-            "id": row[0], "lang": row[1], "title": row[2], "summary": row[3],
-            "content": row[4], "category": row[5], "image": row[6], "time": row[7], "read_time": row[8]
-        }
-        
-        cat_key = str(article.get("category", "world")).lower().strip()
-        cat_display = CATEGORY_NAMES.get(cat_key, {}).get(lang, CATEGORY_NAMES["world"][lang])
-        site_title = "العالم اليوم" if lang == "ar" else "Global Today"
+    # 🧠 خوارزمية التوصية الذكية (جلب أخبار مقترحة من نفس القسم)
+    recommended = [a for a in articles if a["category"] == article["category"] and a["id"] != article["id"][:3]] if len(articles) > 1 else []
+    if not recommended:
+        recommended = [a for a in articles if a["id"] != article["id"]][:3]
 
-        html_template = """
-        <!DOCTYPE html>
-        <html lang="{{ lang }}" dir="{{ 'rtl' if lang == 'ar' else 'ltr' }}">
-        <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>{{ article.title }} | {{ site_title }}</title>
-            <script src="https://cdn.tailwindcss.com"></script>
-            <script> tailwind.config = { darkMode: 'class' } </script>
-            <style> #readingProgress { width: 0%; transition: width 0.1s ease-out; } </style>
-        </head>
-        <body class="bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 font-sans transition-colors duration-300">
-            <div class="fixed top-0 left-0 right-0 h-1 bg-gray-200 dark:bg-slate-800 z-50">
-                <div id="readingProgress" class="h-full bg-blue-600"></div>
+    cat_key = str(article.get("category", "world")).lower().strip()
+    cat_display = CATEGORY_NAMES.get(cat_key, {}).get(lang, CATEGORY_NAMES["world"][lang])
+    site_title = "العالم اليوم" if lang == "ar" else "Global Today"
+
+    html_template = """
+    <!DOCTYPE html>
+    <html lang="{{ lang }}" dir="{{ 'rtl' if lang == 'ar' else 'ltr' }}">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>{{ article.title }} | {{ site_title }}</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+        <script> tailwind.config = { darkMode: 'class' } </script>
+        <style> #readingProgress { width: 0%; transition: width 0.1s ease-out; } </style>
+    </head>
+    <body class="bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 font-sans transition-colors duration-300">
+        <div class="fixed top-0 left-0 right-0 h-1 bg-gray-200 dark:bg-slate-800 z-50">
+            <div id="readingProgress" class="h-full bg-blue-600"></div>
+        </div>
+        <header class="bg-slate-900 border-b border-slate-800 text-white p-4 sticky top-1 z-40 shadow-md">
+            <div class="container mx-auto flex justify-between items-center">
+                <a href="/" class="text-2xl font-black text-blue-500 tracking-wide">{{ site_title }}</a>
+                <a href="/" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-xs font-bold transition">
+                    {{ '← العودة للرئيسية' if lang == 'ar' else '← Back to Home' }}
+                </a>
             </div>
-            <header class="bg-slate-900 border-b border-slate-800 text-white p-4 sticky top-1 z-40 shadow-md">
-                <div class="container mx-auto flex justify-between items-center">
-                    <a href="/" class="text-2xl font-black text-blue-500 tracking-wide">{{ site_title }}</a>
-                    <a href="/" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-xs font-bold transition">
-                        {{ '← العودة للرئيسية' if lang == 'ar' else '← Back to Home' }}
-                    </a>
+        </header>
+        <main class="container mx-auto px-4 py-10 max-w-4xl">
+            <article class="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl overflow-hidden border border-slate-200 dark:border-slate-800 mb-12">
+                <div class="relative h-96 w-full bg-slate-800">
+                    <img src="{{ article.image }}" alt="Article" class="w-full h-full object-cover">
+                    <div class="absolute inset-0 bg-gradient-to-t from-slate-950/90 via-slate-950/40 to-transparent"></div>
+                    <div class="absolute bottom-6 right-6 left-6 text-white">
+                        <span class="bg-blue-600 text-white text-xs font-extrabold px-3 py-1.5 rounded-full uppercase inline-block mb-3 shadow">
+                            {{ cat_display }}
+                        </span>
+                        <h1 class="text-2xl md:text-4xl font-black leading-snug drop-shadow-md">{{ article.title }}</h1>
+                    </div>
                 </div>
-            </header>
-            <main class="container mx-auto px-4 py-10 max-w-4xl">
-                <article class="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl overflow-hidden border border-slate-200 dark:border-slate-800">
-                    <div class="relative h-96 w-full bg-slate-800">
-                        <img src="{{ article.image }}" alt="Article" class="w-full h-full object-cover">
-                        <div class="absolute inset-0 bg-gradient-to-t from-slate-950/90 via-slate-950/40 to-transparent"></div>
-                        <div class="absolute bottom-6 right-6 left-6 text-white">
-                            <span class="bg-blue-600 text-white text-xs font-extrabold px-3 py-1.5 rounded-full uppercase inline-block mb-3 shadow">
-                                {{ cat_display }}
-                            </span>
-                            <h1 class="text-2xl md:text-4xl font-black leading-snug drop-shadow-md">{{ article.title }}</h1>
+                <div class="p-8 md:p-12">
+                    <div class="text-xs text-slate-500 dark:text-slate-400 pb-6 mb-8 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center">
+                        <span>🕒 {{ article.time }}</span>
+                        <span class="bg-blue-50 dark:bg-slate-800 text-blue-600 font-bold px-2.5 py-0.5 rounded-md">⏱️ {{ article.read_time }}</span>
+                    </div>
+                    <div class="text-slate-800 dark:text-slate-200 text-lg leading-relaxed space-y-8">
+                        <div class="bg-blue-50/80 dark:bg-slate-800/80 p-6 rounded-2xl border-r-4 border-blue-600 shadow-sm">
+                            <h4 class="text-xs font-bold text-blue-600 mb-2 uppercase">{{ 'الملخص التنفيذي' if lang == 'ar' else 'Summary' }}</h4>
+                            <p class="font-semibold text-base leading-relaxed">{{ article.summary }}</p>
+                        </div>
+                        <div class="whitespace-pre-line text-slate-700 dark:text-slate-300 leading-9 text-lg">
+                            {{ article.content }}
                         </div>
                     </div>
-                    <div class="p-8 md:p-12">
-                        <div class="text-xs text-slate-500 dark:text-slate-400 pb-6 mb-8 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center">
-                            <span>🕒 {{ article.time }}</span>
-                            <span class="bg-blue-50 dark:bg-slate-800 text-blue-600 font-bold px-2.5 py-0.5 rounded-md">⏱️ {{ article.read_time }}</span>
+                </div>
+            </article>
+
+            <!-- 🌟 قسم المقترحات الذكية (Recommendation Engine) -->
+            {% if recommended %}
+            <div class="mt-12">
+                <h3 class="text-xl font-bold mb-6 border-r-4 border-blue-600 pr-3">{{ 'أخبار ذات صلة قد تعجبك:' if lang == 'ar' else 'Recommended Stories:' }}</h3>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    {% for rec in recommended[:3] %}
+                    <div class="bg-white dark:bg-slate-900 rounded-2xl shadow-md border border-slate-100 dark:border-slate-800 overflow-hidden flex flex-col justify-between">
+                        <div class="relative h-40 w-full">
+                            <img src="{{ rec.image }}" class="w-full h-full object-cover" alt="Rec">
                         </div>
-                        <div class="text-slate-800 dark:text-slate-200 text-lg leading-relaxed space-y-8">
-                            <div class="bg-blue-50/80 dark:bg-slate-800/80 p-6 rounded-2xl border-r-4 border-blue-600 shadow-sm">
-                                <h4 class="text-xs font-bold text-blue-600 mb-2 uppercase">{{ 'الملخص التنفيذي' if lang == 'ar' else 'Summary' }}</h4>
-                                <p class="font-semibold text-base leading-relaxed">{{ article.summary }}</p>
-                            </div>
-                            <div class="whitespace-pre-line text-slate-700 dark:text-slate-300 leading-9 text-lg">
-                                {{ article.content }}
-                            </div>
+                        <div class="p-4 flex flex-col justify-between flex-grow">
+                            <h4 class="font-bold text-sm mb-2 line-clamp-2">{{ rec.title }}</h4>
+                            <a href="/article/{{ rec.id }}?lang={{ lang }}" class="text-blue-600 dark:text-blue-400 text-xs font-bold hover:underline mt-2 inline-block">
+                                {{ 'اقرأ المزيد ←' if lang == 'ar' else 'Read More →' }}
+                            </a>
                         </div>
                     </div>
-                </article>
-            </main>
-        </body>
-        </html>
-        """
-        return render_template_string(html_template, article=article, lang=lang, cat_display=cat_display, site_title=site_title)
-    except Exception as e:
-        return f"Error: {e}", 500
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+        </main>
+        <script>
+            window.onscroll = function() {
+                const winScroll = document.body.scrollTop || document.documentElement.scrollTop;
+                const height = document.documentElement.scrollHeight - document.documentElement.clientHeight;
+                const scrolled = (winScroll / height) * 100;
+                document.getElementById("readingProgress").style.width = scrolled + "%";
+            };
+        </script>
+    </body>
+    </html>
+    """
+    return render_template_string(html_template, article=article, lang=lang, cat_display=cat_display, site_title=site_title, recommended=recommended)
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
