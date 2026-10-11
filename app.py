@@ -37,7 +37,7 @@ def init_db():
         if not conn:
             return
         cursor = conn.cursor()
-        cursor.execute('''
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS articles (
                 id SERIAL PRIMARY KEY,
                 lang TEXT,
@@ -50,14 +50,13 @@ def init_db():
                 read_time TEXT,
                 UNIQUE(lang, title)
             )
-        ''')
+        """)
         conn.commit()
         cursor.close()
         conn.close()
     except Exception as e:
         print(f"Init DB Error: {e}")
 
-# عدم إيقاف السيرفر في حال فشل الاتصال المبدئي
 try:
     init_db()
 except Exception:
@@ -135,11 +134,11 @@ def save_article_to_db(art):
         if not conn:
             return
         cursor = conn.cursor()
-        cursor.execute('''
+        cursor.execute("""
             INSERT INTO articles (lang, title, summary, content, category, image, time, read_time)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (lang, title) DO NOTHING
-        '', (art['lang'], art['title'], art['summary'], art['content'], art['category'], art['image'], art['time'], art['read_time']))
+        """, (art['lang'], art['title'], art['summary'], art['content'], art['category'], art['image'], art['time'], art['read_time']))
         conn.commit()
         cursor.close()
         conn.close()
