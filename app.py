@@ -1,10 +1,10 @@
-from datetime import datetime, timedelta
+from datetime import datetime
 import json
 import os
 import math
 import random
 import re
-import urllib.parse
+import sqlite3
 from flask import Flask, jsonify, render_template_string, request, send_from_directory
 import feedparser
 import google.generativeai as genai
@@ -18,8 +18,29 @@ if API_KEY:
     except Exception:
         pass
 
-NEWS_CACHE = {"ar": {"time": None, "data": []}, "en": {"time": None, "data": []}}
-NEWS_ARCHIVE = {"ar": [], "en": []}
+DB_NAME = "news_database.db"
+
+def init_db():
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS articles (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            lang TEXT,
+            title TEXT,
+            summary TEXT,
+            content TEXT,
+            category TEXT,
+            image TEXT,
+            time TEXT,
+            read_time TEXT,
+            UNIQUE(lang, title)
+        )
+    ''')
+    conn.commit()
+    conn.close()
+
+init_db()
 
 CATEGORY_NAMES = {
     "world": {"ar": "🌍 أخبار العالم", "en": "🌍 World News"},
@@ -32,81 +53,57 @@ CATEGORY_NAMES = {
     "culture": {"ar": "🎬 ثقافة وفن وترفيه", "en": "🎬 Culture & Arts"}
 }
 
-# 🌟 مكتبة صور Ultra-HD / 1080p عالية الجودة ومضمونة لكل تصنيف
 CATEGORY_HD_COLLECTIONS = {
     "politics": [
         "https://images.unsplash.com/photo-1540910419892-4a36d2c3266c?auto=format&fit=crop&w=1920&q=90",
-        "https://images.unsplash.com/photo-1529107386315-e1a2ed48a620?auto=format&fit=crop&w=1920&q=90",
-        "https://images.unsplash.com/photo-1575320181282-9afab399332c?auto=format&fit=crop&w=1920&q=90"
+        "https://images.unsplash.com/photo-1529107386315-e1a2ed48a620?auto=format&fit=crop&w=1920&q=90"
     ],
     "world": [
         "https://images.unsplash.com/photo-1526778548025-fa2f459cd5c1?auto=format&fit=crop&w=1920&q=90",
-        "https://images.unsplash.com/photo-1508847154043-be5407fcaa5a?auto=format&fit=crop&w=1920&q=90",
         "https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&w=1920&q=90"
     ],
     "economy": [
         "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?auto=format&fit=crop&w=1920&q=90",
-        "https://images.unsplash.com/photo-1590283603385-17ffb3a7f29f?auto=format&fit=crop&w=1920&q=90",
-        "https://images.unsplash.com/photo-1607604276583-eef5d076aa5f?auto=format&fit=crop&w=1920&q=90"
+        "https://images.unsplash.com/photo-1590283603385-17ffb3a7f29f?auto=format&fit=crop&w=1920&q=90"
     ],
     "tech": [
         "https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=1920&q=90",
-        "https://images.unsplash.com/photo-1485827404703-89b55fcc595e?auto=format&fit=crop&w=1920&q=90",
-        "https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?auto=format&fit=crop&w=1920&q=90"
+        "https://images.unsplash.com/photo-1485827404703-89b55fcc595e?auto=format&fit=crop&w=1920&q=90"
     ],
     "gaming": [
         "https://images.unsplash.com/photo-1538481199705-c710c4e965fc?auto=format&fit=crop&w=1920&q=90",
-        "https://images.unsplash.com/photo-1511512578047-dfb367046420?auto=format&fit=crop&w=1920&q=90",
-        "https://images.unsplash.com/photo-1550745165-9bc0b252726f?auto=format&fit=crop&w=1920&q=90"
+        "https://images.unsplash.com/photo-1511512578047-dfb367046420?auto=format&fit=crop&w=1920&q=90"
     ],
     "sports": [
         "https://images.unsplash.com/photo-1508098682722-e99c43a406b2?auto=format&fit=crop&w=1920&q=90",
-        "https://images.unsplash.com/photo-1461896836934-ffe607ba8211?auto=format&fit=crop&w=1920&q=90",
-        "https://images.unsplash.com/photo-1579952363873-27f3bade9f55?auto=format&fit=crop&w=1920&q=90"
+        "https://images.unsplash.com/photo-1461896836934-ffe607ba8211?auto=format&fit=crop&w=1920&q=90"
     ],
     "science": [
-        "https://images.unsplash.com/photo-1507668077129-56e32842fceb?auto=format&fit=crop&w=1920&q=90",
-        "https://images.unsplash.com/photo-1532094349884-543bc11b234d?auto=format&fit=crop&w=1920&q=90"
+        "https://images.unsplash.com/photo-1507668077129-56e32842fceb?auto=format&fit=crop&w=1920&q=90"
     ],
     "culture": [
-        "https://images.unsplash.com/photo-1485846234645-a62644f84728?auto=format&fit=crop&w=1920&q=90",
-        "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&w=1920&q=90"
+        "https://images.unsplash.com/photo-1485846234645-a62644f84728?auto=format&fit=crop&w=1920&q=90"
     ]
 }
 
-def get_hd_image_for_news(cat_key, used_set):
-    """توليد صورة HD حادة وواضحة جداً وتجنب التكرار"""
-    collection = CATEGORY_HD_COLLECTIONS.get(cat_key, CATEGORY_HD_COLLECTIONS["world"])
-    available = [img for img in collection if img not in used_set]
-    if not available:
-        available = collection
-    chosen = random.choice(available)
-    used_set.add(chosen)
-    return chosen
+def get_hd_image(cat_key):
+    col = CATEGORY_HD_COLLECTIONS.get(cat_key, CATEGORY_HD_COLLECTIONS["world"])
+    return random.choice(col)
 
 def detect_category_smart(title, summary):
     text = f"{title} {summary}".lower()
-    
-    politics_keywords = ["ترامب", "بوتين", "بايدن", "حكومة", "رئيس", "وزير", "انتخابات", "اتفاقية", "عسكري", "حرب", "عاجل", "سياسة", "مفاوضات", "حزب", "trump", "biden", "putin", "president", "election", "war", "minister", "politics"]
-    economy_keywords = ["اقتصاد", "دولار", "أسواق", "نفط", "تضخم", "أسهم", "بنك", "مالي", "تجارة", "فائدة", "economy", "market", "dollar", "stocks", "bank", "oil", "business"]
-    tech_keywords = ["تكنولوجيا", "ذكاء اصطناعي", "جوجل", "أبل", "مايكروسوفت", "هاتف", "تطبيق", "إنترنت", "tech", "ai", "google", "apple", "microsoft", "software"]
-    gaming_keywords = ["لعبة", "جيمنج", "بلايستيشن", "إكس بوكس", "بطولة ألعاب", "gaming", "playstation", "xbox", "game", "esports"]
-    sports_keywords = ["كرة", "مباراة", "دوري", "فريق", "لاعب", "بطولة", "ريال مدريد", "برشلونة", "sports", "football", "match", "league", "player"]
-    science_keywords = ["فضاء", "علماء", "كوكب", "طب", "علاج", "دراسة", "ناسا", "science", "space", "nasa", "health", "doctor"]
-    
-    if any(k in text for k in politics_keywords):
+    if any(k in text for k in ["ترامب", "بوتين", "بايدن", "حكومة", "رئيس", "انتخابات", "سلطة", "trump", "biden", "putin", "election", "politics"]):
         return "politics"
-    elif any(k in text for k in economy_keywords):
+    if any(k in text for k in ["اقتصاد", "دولار", "أسواق", "نفط", "تضخم", "أسهم", "economy", "market", "dollar", "stocks", "oil"]):
         return "economy"
-    elif any(k in text for k in tech_keywords):
+    if any(k in text for k in ["تكنولوجيا", "ذكاء اصطناعي", "جوجل", "أبل", "هاتف", "tech", "ai", "google", "apple"]):
         return "tech"
-    elif any(k in text for k in gaming_keywords):
+    if any(k in text for k in ["لعبة", "جيمنج", "بلايستيشن", "gaming", "playstation", "xbox"]):
         return "gaming"
-    elif any(k in text for k in sports_keywords):
+    if any(k in text for k in ["كرة", "مباراة", "دوري", "sports", "football", "match"]):
         return "sports"
-    elif any(k in text for k in science_keywords):
+    if any(k in text for k in ["فضاء", "علماء", "طب", "science", "space", "health"]):
         return "science"
-    
     return "world"
 
 def calculate_read_time(text, lang):
@@ -116,87 +113,45 @@ def calculate_read_time(text, lang):
         return f"{minutes} دقائق قراءة" if minutes > 1 else "دقيقة قراءة واحدة"
     return f"{minutes} min read"
 
-def generate_detailed_fallback_content(raw_title, raw_summary, lang):
+def generate_detailed_fallback_content(raw_title, lang):
     if lang == "ar":
-        return f"""تتابع وسائل الإعلام والتغطيات الصحفية عن كثب تفاصيل المستجدات المرتبطة بـ "{raw_title}".
+        return f"""تتابع الصحافة العالمية باهتمام بالغ التطورات الأخيرة المرتبطة بـ "{raw_title}". وتشير التقارير الميدانية والتحليلات السياسية إلى أن هذا الحدث يفتح الباب أمام قراءات متعددة لتبعاته المستقبلية على الصعيد الإقليمي والدولي.
 
-وتشير التقييمات الأولية إلى أن هذا الحدث يمثل تطوراً لافتاً ضمن سياق الأحداث الجارية، حيث يحظى باهتمام من المحللين والمتابعين للشأن الإقليمي والدولي.
-
-ومن المتوقع نشر المزيد من التحديثات والتفاصيل الإضافية حول هذا الملف خلال الساعات القليلة القادمة."""
+وقد عبر المراقبون عن ضرورة رصد ردود الفعل الرسمية وغير الرسمية للوقوف على تداعيات الموقف بدقة. ومن المتقب أن تشهد الأيام القادمة مستجدات إضافية ترسم ملامح جديدة للتعامل مع هذا الملف."""
     else:
-        return f"""Media outlets are closely following the unfolding details regarding "{raw_title}".
+        return f"""Global media outlets are closely tracking the unfolding events regarding "{raw_title}". Field reports and political analysis indicate that this development opens the door for wide-ranging perspectives on its long-term regional and international impacts.
 
-Initial assessments indicate that this event marks a significant development within the current context, drawing interest from global observers and analysts.
+Observers emphasize the necessity of monitoring official and unofficial reactions to accurately evaluate the situation. Further updates are expected in the coming days."""
 
-Further updates and detailed coverage are expected to follow in the coming hours."""
+def save_article_to_db(art):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    try:
+        cursor.execute('''
+            INSERT OR IGNORE INTO articles (lang, title, summary, content, category, image, time, read_time)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (art['lang'], art['title'], art['summary'], art['content'], art['category'], art['image'], art['time'], art['read_time']))
+        conn.commit()
+    except Exception:
+        pass
+    conn.close()
 
-def process_with_gemini(feed_entries, lang):
-    processed = []
-    now_str = datetime.now().strftime("%Y-%m-%d | %H:%M")
-    day_str = datetime.now().strftime("%A")
-    used_images = set()
-
-    for idx, entry in enumerate(feed_entries[:6]):
-        raw_title = entry.get("title", "خبر عاجل")
-        raw_summary = entry.get("summary", "تغطية إخبارية مستمرة على مدار الساعة.")
-        
-        smart_cat = detect_category_smart(raw_title, raw_summary)
-        hd_image = get_hd_image_for_news(smart_cat, used_images)
-
-        fallback_content = generate_detailed_fallback_content(raw_title, raw_summary, lang)
-        
-        fallback_item = {
-            "id": idx + 1,
-            "title": raw_title,
-            "summary": raw_summary,
-            "content": fallback_content,
-            "category": smart_cat,
-            "image": hd_image,
-            "time": f"{day_str} - {now_str}",
-            "read_time": calculate_read_time(fallback_content, lang)
-        }
-
-        if API_KEY:
-            try:
-                model = genai.GenerativeModel("gemini-1.5-flash")
-                prompt = f"""
-                You are a senior news editor. Process this article for target language '{lang}':
-                Title: {raw_title}
-                Summary: {raw_summary}
-
-                Strict Rules:
-                1. "title": Professional news headline in '{lang}'.
-                2. "summary": Executive 2-sentence summary in '{lang}'.
-                3. "content": Write 3 detailed paragraphs providing background context in '{lang}'. DO NOT repeat summary sentences.
-                4. "category": Choose the MOST ACCURATE term from: [world, politics, economy, tech, gaming, sports, science, culture].
-
-                Return JSON ONLY:
-                {{"id": {idx + 1}, "title": "...", "summary": "...", "content": "...", "category": "{smart_cat}"}}
-                """
-                response = model.generate_content(prompt, request_options={"timeout": 4})
-                clean_text = response.text.replace("```json", "").replace("```", "").strip()
-                data = json.loads(clean_text)
-                
-                cat = str(data.get("category", smart_cat)).lower().strip()
-                data["time"] = f"{day_str} - {now_str}"
-                data["category"] = cat if cat in CATEGORY_NAMES else smart_cat
-                data["image"] = hd_image
-                data["read_time"] = calculate_read_time(data.get("content", ""), lang)
-                processed.append(data)
-            except Exception:
-                processed.append(fallback_item)
-        else:
-            processed.append(fallback_item)
-
-    return processed
+def get_articles_from_db(lang):
+    conn = sqlite3.connect(DB_NAME)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM articles WHERE lang = ? ORDER BY id DESC', (lang,))
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
 
 def fetch_and_process_news(lang="ar"):
-    now = datetime.now()
-    if NEWS_CACHE[lang]["time"] and (now - NEWS_CACHE[lang]["time"]) < timedelta(minutes=30) and NEWS_CACHE[lang]["data"]:
-        return NEWS_CACHE[lang]["data"]
+    existing = get_articles_from_db(lang)
+    # إذا كانت قاعدة البيانات تحتوي على أخبار مسبقة، نرجعها مباشرة (أرشيف دائم للأبد)
+    if existing and len(existing) >= 6:
+        return existing
 
     sources = ["http://feeds.bbci.co.uk/arabic/rss.xml"] if lang == "ar" else ["http://feeds.bbci.co.uk/news/world/rss.xml"]
-
     all_entries = []
     for url in sources:
         try:
@@ -206,20 +161,52 @@ def fetch_and_process_news(lang="ar"):
         except Exception:
             pass
 
-    articles = []
-    if all_entries:
-        articles = process_with_gemini(all_entries, lang)
+    now_str = datetime.now().strftime("%Y-%m-%d | %H:%M")
+    day_str = datetime.now().strftime("%A")
 
-    if articles:
-        if NEWS_CACHE[lang]["data"]:
-            for old_art in NEWS_CACHE[lang]["data"]:
-                if old_art not in NEWS_ARCHIVE[lang]:
-                    NEWS_ARCHIVE[lang].append(old_art)
-        NEWS_CACHE[lang]["time"] = now
-        NEWS_CACHE[lang]["data"] = articles
-        return articles
+    for entry in all_entries[:10]:
+        raw_title = entry.get("title", "خبر عاجل")
+        raw_summary = entry.get("summary", "تغطية إخبارية مستمرة.")
+        smart_cat = detect_category_smart(raw_title, raw_summary)
+        hd_image = get_hd_image(smart_cat)
+        detailed_content = generate_detailed_fallback_content(raw_title, lang)
 
-    return NEWS_CACHE[lang]["data"] or []
+        art = {
+            "lang": lang,
+            "title": raw_title,
+            "summary": raw_summary,
+            "content": detailed_content,
+            "category": smart_cat,
+            "image": hd_image,
+            "time": f"{day_str} - {now_str}",
+            "read_time": calculate_read_time(detailed_content, lang)
+        }
+
+        if API_KEY:
+            try:
+                model = genai.GenerativeModel("gemini-1.5-flash")
+                prompt = f"""
+                Process this news for target language '{lang}':
+                Title: {raw_title}
+                Summary: {raw_summary}
+                Return strict JSON:
+                {{"title": "...", "summary": "...", "content": "...", "category": "world|politics|economy|tech|gaming|sports|science|culture"}}
+                """
+                response = model.generate_content(prompt, request_options={"timeout": 4})
+                clean_text = response.text.replace("```json", "").replace("```", "").strip()
+                data = json.loads(clean_text)
+                art["title"] = data.get("title", raw_title)
+                art["summary"] = data.get("summary", raw_summary)
+                art["content"] = data.get("content", detailed_content)
+                cat = str(data.get("category", smart_cat)).lower().strip()
+                art["category"] = cat if cat in CATEGORY_NAMES else smart_cat
+                art["read_time"] = calculate_read_time(art["content"], lang)
+            except Exception:
+                pass
+
+        save_article_to_db(art)
+
+    return get_articles_from_db(lang)
 
 @app.route("/")
 def home():
@@ -234,24 +221,25 @@ def get_news():
 @app.route("/api/archive")
 def get_archive():
     lang = request.args.get("lang", "ar")
-    return jsonify({"lang": lang, "archive": NEWS_ARCHIVE[lang]})
+    articles = get_articles_from_db(lang)
+    return jsonify({"lang": lang, "archive": articles})
 
 @app.route("/article/<int:article_id>")
 def read_article(article_id):
     lang = request.args.get("lang", "ar")
-    articles = fetch_and_process_news(lang)
-    article = next((a for a in articles if a["id"] == article_id), None)
+    conn = sqlite3.connect(DB_NAME)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM articles WHERE id = ?', (article_id,))
+    row = cursor.fetchone()
+    conn.close()
 
-    if not article:
-        article = next((a for a in NEWS_ARCHIVE[lang] if a["id"] == article_id), None)
-
-    if not article:
+    if not row:
         return "الخبر غير موجود / Article Not Found", 404
 
+    article = dict(row)
     cat_key = str(article.get("category", "world")).lower().strip()
     cat_display = CATEGORY_NAMES.get(cat_key, {}).get(lang, CATEGORY_NAMES["world"][lang])
-    article_image = article.get("image", CATEGORY_HD_COLLECTIONS["world"][0])
-    read_time = article.get("read_time", "2 min read")
     site_title = "العالم اليوم" if lang == "ar" else "Global Today"
 
     html_template = """
@@ -292,7 +280,7 @@ def read_article(article_id):
         <main class="container mx-auto px-4 py-10 max-w-4xl">
             <article class="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl overflow-hidden border border-slate-200 dark:border-slate-800">
                 <div class="relative h-96 w-full bg-slate-800">
-                    <img src="{{ article_image }}" alt="Article" class="w-full h-full object-cover">
+                    <img src="{{ article.image }}" alt="Article" class="w-full h-full object-cover">
                     <div class="absolute inset-0 bg-gradient-to-t from-slate-950/90 via-slate-950/40 to-transparent"></div>
                     <div class="absolute bottom-6 right-6 left-6 text-white">
                         <span class="bg-blue-600 text-white text-xs font-extrabold px-3 py-1.5 rounded-full uppercase inline-block mb-3 shadow">
@@ -306,7 +294,7 @@ def read_article(article_id):
                     <div class="text-xs text-slate-500 dark:text-slate-400 pb-6 mb-8 border-b border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-4">
                         <div class="flex items-center gap-3">
                             <span>🕒 {{ article.time }}</span> • 
-                            <span class="bg-blue-50 dark:bg-slate-800 text-blue-600 dark:text-blue-400 font-bold px-2.5 py-0.5 rounded-md">⏱️ {{ read_time }}</span>
+                            <span class="bg-blue-50 dark:bg-slate-800 text-blue-600 dark:text-blue-400 font-bold px-2.5 py-0.5 rounded-md">⏱️ {{ article.read_time }}</span>
                         </div>
                         
                         <button onclick="toggleAudio()" id="audioBtn" class="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-1.5 rounded-full text-xs font-bold shadow transition">
@@ -349,11 +337,9 @@ def read_article(article_id):
             function getBestVoice(targetLang) {
                 const voices = window.speechSynthesis.getVoices();
                 if (!voices || voices.length === 0) return null;
-
                 const langPrefix = targetLang === 'ar' ? 'ar' : 'en';
                 const bestVoice = voices.find(v => v.lang.startsWith(langPrefix) && (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('Online')));
                 if (bestVoice) return bestVoice;
-
                 return voices.find(v => v.lang.startsWith(langPrefix)) || null;
             }
 
@@ -376,9 +362,7 @@ def read_article(article_id):
                         speechUtterance.rate = 0.95;
 
                         const bestVoice = getBestVoice(targetLang);
-                        if (bestVoice) {
-                            speechUtterance.voice = bestVoice;
-                        }
+                        if (bestVoice) speechUtterance.voice = bestVoice;
 
                         speechUtterance.onend = () => {
                             isSpeaking = false;
@@ -394,12 +378,6 @@ def read_article(article_id):
                 } else {
                     alert("المتصفح لا يدعم القراءة الصوتية.");
                 }
-            }
-
-            if ('speechSynthesis' in window) {
-                window.speechSynthesis.onvoiceschanged = () => {
-                    getBestVoice("{{ 'ar' if lang == 'ar' else 'en' }}");
-                };
             }
 
             window.onscroll = function() {
@@ -429,11 +407,9 @@ def read_article(article_id):
             function shareWhatsApp() {
                 window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(document.title + ' ' + window.location.href)}`, '_blank');
             }
-
             function shareX() {
                 window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(document.title)}&url=${encodeURIComponent(window.location.href)}`, '_blank');
             }
-
             function copyArticleLink() {
                 navigator.clipboard.writeText(window.location.href);
                 alert("تم نسخ رابط الخبر بنجاح!");
@@ -442,7 +418,7 @@ def read_article(article_id):
     </body>
     </html>
     """
-    return render_template_string(html_template, article=article, lang=lang, cat_display=cat_display, article_image=article_image, read_time=read_time, site_title=site_title)
+    return render_template_string(html_template, article=article, lang=lang, cat_display=cat_display, site_title=site_title)
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
