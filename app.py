@@ -38,7 +38,7 @@ def init_db():
             return
         cursor = conn.cursor()
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS ai_newsroom_articles_v4 (
+            CREATE TABLE IF NOT EXISTS ai_newsroom_pro_v1 (
                 id SERIAL PRIMARY KEY,
                 lang TEXT,
                 title TEXT,
@@ -108,31 +108,10 @@ def get_dynamic_news_image(cat_key, used_set):
     used_set.add(chosen)
     return chosen
 
-def detect_category_smart(title, summary):
-    text = f"{title} {summary}".lower()
-    if any(k in text for k in ["ترامب", "بوتين", "بايدن", "حكومة", "رئيس", "وزير", "انتخابات", "حرب", "سياسة", "trump", "biden", "putin", "president", "election", "war", "politics"]):
-        return "politics"
-    if any(k in text for k in ["اقتصاد", "دولار", "أسواق", "نفط", "تضخم", "أسهم", "بنك", "economy", "market", "dollar", "stocks", "bank", "oil"]):
-        return "economy"
-    if any(k in text for k in ["تكنولوجيا", "ذكاء اصطناعي", "جوجل", "أبل", "مايكروسوفت", "هاتف", "tech", "ai", "google", "apple", "microsoft"]):
-        return "tech"
-    if any(k in text for k in ["لعبة", "جيمنج", "بلايستيشن", "إكس بوكس", "gaming", "playstation", "xbox", "game", "esports"]):
-        return "gaming"
-    if any(k in text for k in ["كرة", "مباراة", "دوري", "فريق", "لاعب", "sports", "football", "match", "league"]):
-        return "sports"
-    if any(k in text for k in ["فضاء", "علماء", "كوكب", "طب", "علاج", "science", "space", "nasa", "health"]):
-        return "science"
-    return "world"
-
 def calculate_read_time(text, lang):
     words = len(text.split())
     minutes = math.ceil(words / 130) if words > 0 else 1
     return f"{minutes} دقائق قراءة" if lang == "ar" else f"{minutes} min read"
-
-def generate_detailed_fallback_content(raw_title, lang):
-    if lang == "ar":
-        return f"تتابع وسائل الإعلام والتغطيات الصحفية عن كثب تفاصيل المستجدات المرتبطة بـ '{raw_title}'. وتشير التقييمات الأولية إلى أن هذا الحدث يمثل تطوراً لافتاً ضمن سياق الأحداث الجارية."
-    return f"Media outlets are closely following the unfolding details regarding '{raw_title}'. Initial assessments indicate a significant development."
 
 def save_article_to_db(art):
     conn = get_db_connection()
@@ -141,7 +120,7 @@ def save_article_to_db(art):
     try:
         cursor = conn.cursor()
         cursor.execute("""
-            INSERT INTO ai_newsroom_articles_v4 (lang, title, summary, content, category, image, time, read_time)
+            INSERT INTO ai_newsroom_pro_v1 (lang, title, summary, content, category, image, time, read_time)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (lang, title) DO NOTHING
         """, (art['lang'], art['title'], art['summary'], art['content'], art['category'], art['image'], art['time'], art['read_time']))
@@ -157,7 +136,7 @@ def get_articles_from_db(lang):
         return []
     try:
         cursor = conn.cursor()
-        cursor.execute('SELECT id, lang, title, summary, content, category, image, time, read_time, created_at FROM ai_newsroom_articles_v4 WHERE lang = %s ORDER BY id DESC', (lang,))
+        cursor.execute('SELECT id, lang, title, summary, content, category, image, time, read_time, created_at FROM ai_newsroom_pro_v1 WHERE lang = %s ORDER BY id DESC', (lang,))
         rows = cursor.fetchall()
         cursor.close()
         conn.close()
@@ -172,6 +151,7 @@ def get_articles_from_db(lang):
         print(f"DB Fetch Error: {e}")
         return []
 
+# 🏢 نظام غرفة التحرير الاحترافي المحاكي لكبرى الشبكات العالمية
 def fetch_and_process_news(lang="ar"):
     articles = get_articles_from_db(lang)
     
@@ -185,12 +165,13 @@ def fetch_and_process_news(lang="ar"):
         return articles
 
     sources = SPECIALIZED_SOURCES.get(lang, SPECIALIZED_SOURCES["ar"])
-    all_entries = []
+    all_raw_text = ""
     for url in sources:
         try:
             feed = feedparser.parse(url)
             if feed and hasattr(feed, 'entries'):
-                all_entries.extend(feed.entries[:3])
+                for entry in feed.entries[:3]:
+                    all_raw_text += f"- Headline: {entry.get('title', '')} | Excerpt: {entry.get('summary', '')}\n"
         except Exception:
             pass
 
@@ -198,41 +179,62 @@ def fetch_and_process_news(lang="ar"):
     day_str = datetime.now().strftime("%A")
     used_images = set()
 
-    for entry in all_entries[:8]:
-        raw_title = entry.get("title", "خبر عاجل")
-        raw_summary = entry.get("summary", "تغطية إخبارية مستمرة.")
-        smart_cat = detect_category_smart(raw_title, raw_summary)
-        hd_image = get_dynamic_news_image(smart_cat, used_images)
-        detailed_content = generate_detailed_fallback_content(raw_title, lang)
+    if API_KEY and all_raw_text:
+        try:
+            model = genai.GenerativeModel("gemini-1.5-flash")
+            
+            # 🌟 برومبت غرفة التحرير المركزي المحاكي لفرق العمل البشرية (وكالات + رئيس تحرير + تدقيق وترجمة)
+            prompt = f"""
+            You are the Central Editorial Board of a global, elite news network (operating like BBC and Reuters).
+            Your team consists of wire-service reporters, section editors, translators, and chief editors.
+            
+            Analyze the following live incoming news feeds, filter out noise, translate and adapt professionally into target language '{lang}', and distribute them accurately into their respective domains.
 
-        art = {
-            "lang": lang,
-            "title": raw_title,
-            "summary": raw_summary,
-            "content": detailed_content,
-            "category": smart_cat,
-            "image": hd_image,
-            "time": f"{day_str} - {now_str}",
-            "read_time": calculate_read_time(detailed_content, lang)
-        }
+            Incoming Raw Feeds:
+            {all_raw_text}
 
-        if API_KEY:
-            try:
-                model = genai.GenerativeModel("gemini-1.5-flash")
-                prompt = f"Process this news for target language '{lang}'. Title: {raw_title}. Summary: {raw_summary}. Return strict JSON with keys: title, summary, content, category (world, politics, economy, tech, gaming, sports, science, culture)."
-                response = model.generate_content(prompt, request_options={"timeout": 4})
-                clean_text = response.text.replace("```json", "").replace("```", "").strip()
-                data = json.loads(clean_text)
-                art["title"] = data.get("title", raw_title)
-                art["summary"] = data.get("summary", raw_summary)
-                art["content"] = data.get("content", detailed_content)
-                cat = str(data.get("category", smart_cat)).lower().strip()
-                art["category"] = cat if cat in CATEGORY_NAMES else smart_cat
-                art["read_time"] = calculate_read_time(art["content"], lang)
-            except Exception:
-                pass
+            Instructions for Each Article:
+            1. "title": A compelling, professional journalistic headline in '{lang}'.
+            2. "summary": A concise executive 2-sentence summary capturing the core significance.
+            3. "content": Comprehensive reporting divided into 3 rich, analytical paragraphs detailing background context, implications, and global reactions (in '{lang}').
+            4. "category": Strictly assign the most accurate category from: [world, politics, economy, tech, gaming, sports, science, culture].
 
-        save_article_to_db(art)
+            Return a valid JSON array of objects only (no markdown formatting outside json):
+            [
+              {{
+                "title": "...",
+                "summary": "...",
+                "content": "...",
+                "category": "..."
+              }}
+            ]
+            """
+            
+            response = model.generate_content(prompt, request_options={"timeout": 10})
+            clean_text = response.text.replace("```json", "").replace("```", "").strip()
+            items = json.loads(clean_text)
+
+            for item in items:
+                cat = str(item.get("category", "world")).lower().strip()
+                if cat not in CATEGORY_NAMES:
+                    cat = "world"
+                
+                hd_image = get_dynamic_news_image(cat, used_images)
+                content_text = item.get("content", "تغطية إخبارية مستمرة.")
+                
+                art = {
+                    "lang": lang,
+                    "title": item.get("title", "خبر عاجل"),
+                    "summary": item.get("summary", "تغطية إخبارية مستمرة."),
+                    "content": content_text,
+                    "category": cat,
+                    "image": hd_image,
+                    "time": f"{day_str} - {now_str}",
+                    "read_time": calculate_read_time(content_text, lang)
+                }
+                save_article_to_db(art)
+        except Exception as e:
+            print(f"Pro Newsroom Error: {e}")
 
     return get_articles_from_db(lang)
 
