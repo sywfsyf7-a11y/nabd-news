@@ -357,3 +357,31 @@ def read_article(article_id):
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
+# 🖼️ نظام جلب الصور الذكي المرتبط بمحتوى الخبر
+def get_dynamic_news_image(title, summary, category):
+    query_text = f"{title} {summary}".lower()
+    
+    # قاموس كلمات مفتاحية لجلب صور حقيقية ومعبرة من Unsplash بناءً على مضمون الخبر
+    if any(k in query_text for k in ["ترامب", "بوتين", "بايدن", "رئيس", "حكومة", "انتخابات", "politics", "president"]):
+        return "https://images.unsplash.com/photo-1540910419892-4a36d2c3266c?auto=format&fit=crop&w=1200&q=80"
+    elif any(k in query_text for k in ["اقتصاد", "أسواق", "دولار", "أسهم", "بنك", "economy", "market", "stocks"]):
+        return "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?auto=format&fit=crop&w=1200&q=80"
+    elif any(k in query_text for k in ["تكنولوجيا", "ذكاء اصطناعي", "جوجل", "أبل", "هاتف", "tech", "ai", "google", "apple"]):
+        return "https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=1200&q=80"
+    elif any(k in query_text for k in ["لعبة", "جيمنج", "بلايستيشن", "gaming", "playstation", "xbox", "game"]):
+        return "https://images.unsplash.com/photo-1538481199705-c710c4e965fc?auto=format&fit=crop&w=1200&q=80"
+    elif any(k in query_text for k in ["كرة", "مباراة", "دوري", "sports", "football", "match", "league"]):
+        return "https://images.unsplash.com/photo-1508098682722-e99c43a406b2?auto=format&fit=crop&w=1200&q=80"
+    elif any(k in query_text for k in ["فضاء", "علماء", "ناسا", "science", "space", "nasa"]):
+        return "https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&w=1200&q=80"
+    
+    # صور عامة عالية الدقة ومتنوعة حسب التصنيف في حال عدم وجود كلمة مفتاحية محددة
+    default_collections = {
+        "politics": "https://images.unsplash.com/photo-1529107386315-e1a2ed48a620?auto=format&fit=crop&w=1200&q=80",
+        "economy": "https://images.unsplash.com/photo-1590283603385-17ffb3a7f29f?auto=format&fit=crop&w=1200&q=80",
+        "tech": "https://images.unsplash.com/photo-1485827404703-89b55fcc595e?auto=format&fit=crop&w=1200&q=80",
+        "gaming": "https://images.unsplash.com/photo-1511512578047-dfb367046420?auto=format&fit=crop&w=1200&q=80",
+        "sports": "https://images.unsplash.com/photo-1461896836934-ffe607ba8211?auto=format&fit=crop&w=1200&q=80",
+        "world": "https://images.unsplash.com/photo-1526778548025-fa2f459cd5c1?auto=format&fit=crop&w=1200&q=80"
+    }
+    return default_collections.get(category, default_collections["world"])
