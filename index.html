@@ -6,18 +6,30 @@
     <title>العالم اليوم | Global Today</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
-        tailwind.config = {
-            darkMode: 'class',
-        }
+        tailwind.config = { darkMode: 'class' }
     </script>
     <style>
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
     </style>
 </head>
-<body class="bg-gray-50 dark:bg-slate-950 text-gray-900 dark:text-gray-100 font-sans transition-colors duration-300 min-h-screen flex flex-col justify-between">
+<body class="bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 font-sans transition-colors duration-300 min-h-screen flex flex-col justify-between">
 
     <div>
+        <!-- 🌡️ Live Weather & Markets Header Bar -->
+        <div class="bg-slate-950 text-slate-400 text-xs py-1.5 px-4 border-b border-slate-800 flex justify-between items-center">
+            <div class="container mx-auto flex justify-between items-center">
+                <div class="flex items-center gap-4">
+                    <span>💵 USD/EUR: 0.92</span>
+                    <span>📈 BRENT: $82.4</span>
+                    <span id="liveClock">🕒 --:--</span>
+                </div>
+                <div class="hidden md:block">
+                    <span>🌍 شبكة إخبارية عالمية مستقلة</span>
+                </div>
+            </div>
+        </div>
+
         <!-- 🔴 Breaking News Banner -->
         <div class="bg-red-700 text-white text-sm py-2 px-4 flex items-center justify-between shadow-inner">
             <div class="flex items-center space-x-2 space-x-reverse w-full">
@@ -33,20 +45,20 @@
             <div class="container mx-auto px-4 py-4 flex flex-wrap justify-between items-center gap-4">
                 <div>
                     <h1 id="siteBrand" class="text-3xl font-black tracking-wide text-blue-500 cursor-pointer" onclick="filterCategory('all')">العالم اليوم</h1>
-                    <p id="subHeader" class="text-xs text-gray-400 mt-1">تغطية إخبارية عالمية شاملة على مدار الساعة</p>
+                    <p id="subHeader" class="text-xs text-slate-400 mt-1">تغطية إخبارية عالمية شاملة على مدار الساعة</p>
                 </div>
                 
                 <div class="flex items-center gap-3">
-                    <!-- 🌙 / ☀️ Toggle Dark Mode Button -->
-                    <button onclick="toggleDarkMode()" class="bg-slate-800 hover:bg-slate-700 text-amber-400 px-3 py-2 rounded-lg text-sm font-bold border border-slate-700 transition" title="Toggle Dark/Light Mode">
-                        🌙 / ☀️
+                    <!-- 🌙 / ☀️ Cinematic Theme Switcher -->
+                    <button onclick="toggleDarkMode()" id="themeBtn" class="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-amber-400 px-3.5 py-2 rounded-xl text-xs font-bold border border-slate-700 shadow transition">
+                        <span id="themeIcon">🌙</span> <span id="themeText">الوضع الليلي</span>
                     </button>
 
-                    <div class="flex items-center bg-slate-800 rounded-lg px-3 py-2 w-48 md:w-72 border border-slate-700">
-                        <input type="text" id="searchInput" onkeyup="searchNews()" placeholder="ابحث عن خبر..." class="bg-transparent border-none text-sm text-white focus:outline-none w-full placeholder-gray-400">
+                    <div class="flex items-center bg-slate-800 rounded-xl px-3 py-2 w-48 md:w-72 border border-slate-700">
+                        <input type="text" id="searchInput" onkeyup="searchNews()" placeholder="ابحث عن خبر..." class="bg-transparent border-none text-sm text-white focus:outline-none w-full placeholder-slate-400">
                     </div>
 
-                    <button onclick="switchLanguage()" id="langBtn" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-bold transition whitespace-nowrap">
+                    <button onclick="switchLanguage()" id="langBtn" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl text-sm font-bold transition whitespace-nowrap shadow">
                         🌐 English
                     </button>
                 </div>
@@ -78,9 +90,9 @@
 
             <div id="mainContent" class="hidden">
                 <div id="mainArticleSection" class="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-12">
-                    <div id="mainArticle" class="lg:col-span-2 bg-white dark:bg-slate-900 rounded-2xl shadow-lg overflow-hidden border border-gray-100 dark:border-slate-800"></div>
+                    <div id="mainArticle" class="lg:col-span-2 bg-white dark:bg-slate-900 rounded-3xl shadow-xl overflow-hidden border border-slate-100 dark:border-slate-800"></div>
 
-                    <div class="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-lg border border-gray-100 dark:border-slate-800 flex flex-col justify-between">
+                    <div class="bg-white dark:bg-slate-900 p-6 rounded-3xl shadow-xl border border-slate-100 dark:border-slate-800 flex flex-col justify-between">
                         <div>
                             <h3 id="mostReadTitle" class="text-lg font-bold border-b dark:border-slate-800 pb-3 mb-4 flex items-center gap-2 text-slate-800 dark:text-slate-100">🔥 الأكثر قراءة اليوم</h3>
                             <div id="mostReadList" class="space-y-4"></div>
@@ -96,8 +108,8 @@
     </div>
 
     <!-- 📌 Footer -->
-    <footer class="bg-slate-900 text-gray-400 text-sm py-8 border-t border-slate-800 mt-12">
-        <div id="footerText" class="text-center text-xs text-gray-400">
+    <footer class="bg-slate-900 text-slate-400 text-sm py-8 border-t border-slate-800 mt-12">
+        <div id="footerText" class="text-center text-xs text-slate-400">
             جميع الحقوق محفوظة © 2026 - شبكة العالم اليوم الإخبارية
         </div>
     </footer>
@@ -150,13 +162,28 @@
             'culture': { ar: '🎬 ثقافة وفن وترفيه', en: '🎬 Culture & Arts' }
         };
 
+        function updateClock() {
+            const now = new Date();
+            document.getElementById('liveClock').innerText = '🕒 ' + now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        }
+        setInterval(updateClock, 1000);
+        updateClock();
+
         function toggleDarkMode() {
             document.documentElement.classList.toggle('dark');
-            localStorage.setItem('theme', document.documentElement.classList.contains('dark') ? 'dark' : 'light');
+            const isDark = document.documentElement.classList.contains('dark');
+            localStorage.setItem('theme', isDark ? 'dark' : 'light');
+            updateThemeUI(isDark);
+        }
+
+        function updateThemeUI(isDark) {
+            document.getElementById('themeIcon').innerText = isDark ? '☀️' : '🌙';
+            document.getElementById('themeText').innerText = isDark ? (currentLang === 'ar' ? 'الوضع النهاري' : 'Light Mode') : (currentLang === 'ar' ? 'الوضع الليلي' : 'Dark Mode');
         }
 
         if (localStorage.getItem('theme') === 'dark') {
             document.documentElement.classList.add('dark');
+            updateThemeUI(true);
         }
 
         function updateUIStrings() {
@@ -171,6 +198,9 @@
             document.getElementById('sectionTitle').innerText = t.coverage;
             document.getElementById('footerText').innerText = t.footer;
             document.getElementById('loading').innerText = t.loading;
+
+            const isDark = document.documentElement.classList.contains('dark');
+            updateThemeUI(isDark);
 
             const navButtons = document.querySelectorAll('#navMenu button');
             t.nav.forEach((name, idx) => {
@@ -219,7 +249,7 @@
             grid.innerHTML = '';
 
             if (!archiveArticles || archiveArticles.length === 0) {
-                grid.innerHTML = `<p class="text-gray-500 dark:text-gray-400 col-span-3 text-center py-10">${currentLang === 'ar' ? 'الأرشيف فارغ حالياً. ستبدأ الأخبار بالمرحلة والقدم هنا تباعاً.' : 'Archive is currently empty.'}</p>`;
+                grid.innerHTML = `<p class="text-slate-500 dark:text-slate-400 col-span-3 text-center py-10">${currentLang === 'ar' ? 'الأرشيف فارغ حالياً. ستبدأ الأخبار بالتراكم هنا تباعاً.' : 'Archive is currently empty.'}</p>`;
                 return;
             }
 
@@ -243,14 +273,14 @@
 
                 arts.forEach(art => {
                     grid.innerHTML += `
-                        <div class="bg-white dark:bg-slate-900 rounded-2xl shadow-md border border-gray-100 dark:border-slate-800 overflow-hidden hover:shadow-xl transition flex flex-col justify-between">
+                        <div class="bg-white dark:bg-slate-900 rounded-2xl shadow-md border border-slate-100 dark:border-slate-800 overflow-hidden hover:shadow-xl transition flex flex-col justify-between">
                             <div class="p-6">
                                 <span class="text-xs font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-slate-800 px-3 py-1 rounded-full uppercase">${catTitle}</span>
                                 <h4 class="font-bold text-lg mt-3 mb-2 text-slate-900 dark:text-slate-100 leading-snug">${art.title}</h4>
-                                <p class="text-gray-500 dark:text-gray-400 text-xs leading-relaxed line-clamp-3 mb-4">${art.summary}</p>
+                                <p class="text-slate-500 dark:text-slate-400 text-xs leading-relaxed line-clamp-3 mb-4">${art.summary}</p>
                             </div>
-                            <div class="p-6 pt-0 border-t border-gray-50 dark:border-slate-800 flex justify-between items-center mt-2">
-                                <span class="text-[11px] text-gray-400 font-medium">🕒 ${art.time}</span>
+                            <div class="p-6 pt-0 border-t border-slate-50 dark:border-slate-800 flex justify-between items-center mt-2">
+                                <span class="text-[11px] text-slate-400 font-medium">🕒 ${art.time}</span>
                                 <a href="/article/${art.id}?lang=${currentLang}" class="text-blue-600 dark:text-blue-400 text-xs font-bold hover:underline">
                                     ${currentLang === 'ar' ? 'قراءة المزيد ←' : 'Read More →'}
                                 </a>
@@ -264,7 +294,7 @@
         function renderArticles(articles, isArchive = false) {
             const t = translations[currentLang];
             if (!articles || articles.length === 0) {
-                document.getElementById('categoriesGrid').innerHTML = `<p class="text-gray-500 dark:text-gray-400 col-span-3 text-center py-10">${currentLang === 'ar' ? 'لا توجد أخبار متاحة حالياً.' : 'No news available currently.'}</p>`;
+                document.getElementById('categoriesGrid').innerHTML = `<p class="text-slate-500 dark:text-slate-400 col-span-3 text-center py-10">${currentLang === 'ar' ? 'لا توجد أخبار متاحة حالياً.' : 'No news available currently.'}</p>`;
                 return;
             }
 
@@ -276,15 +306,15 @@
                 document.getElementById('mainArticle').innerHTML = `
                     <div class="relative h-72 w-full">
                         <img src="${main.image || 'https://images.unsplash.com/photo-1585829365295-ab7cd400c167?w=1000'}" class="w-full h-full object-cover" alt="Main news">
-                        <div class="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent"></div>
+                        <div class="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent"></div>
                         <span class="absolute top-4 right-4 bg-blue-600 text-white text-xs font-bold px-3 py-1 rounded-full uppercase">${catObj[currentLang]}</span>
                     </div>
                     <div class="p-6">
                         <h2 class="text-2xl font-black mt-1 mb-2 hover:text-blue-600 cursor-pointer text-slate-900 dark:text-slate-100 leading-snug">${main.title}</h2>
-                        <p class="text-gray-600 dark:text-gray-300 text-sm leading-relaxed mb-4">${main.summary}</p>
-                        <div class="flex justify-between items-center text-xs text-gray-400 border-t dark:border-slate-800 pt-4">
+                        <p class="text-slate-600 dark:text-slate-300 text-sm leading-relaxed mb-4">${main.summary}</p>
+                        <div class="flex justify-between items-center text-xs text-slate-400 border-t dark:border-slate-800 pt-4">
                             <span>🕒 ${main.time}</span>
-                            <a href="/article/${main.id}?lang=${currentLang}" class="bg-blue-600 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-blue-700 transition">
+                            <a href="/article/${main.id}?lang=${currentLang}" class="bg-blue-600 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-blue-700 transition shadow">
                                 ${t.readMore}
                             </a>
                         </div>
@@ -297,7 +327,7 @@
                     const ck = (art.category || 'world').toLowerCase().trim();
                     const c = categoryNames[ck] || { ar: ck, en: ck };
                     mostRead.innerHTML += `
-                        <article class="border-b border-gray-100 dark:border-slate-800 pb-3 last:border-b-0">
+                        <article class="border-b border-slate-100 dark:border-slate-800 pb-3 last:border-b-0">
                             <span class="text-xs text-blue-600 dark:text-blue-400 font-bold">${c[currentLang]}</span>
                             <h4 class="font-bold text-sm text-slate-800 dark:text-slate-200 hover:text-blue-600 cursor-pointer mt-1">
                                 <a href="/article/${art.id}?lang=${currentLang}">${art.title}</a>
@@ -315,18 +345,18 @@
                 const ck = (art.category || 'world').toLowerCase().trim();
                 const c = categoryNames[ck] || { ar: ck, en: ck };
                 grid.innerHTML += `
-                    <div class="bg-white dark:bg-slate-900 rounded-2xl shadow-md border border-gray-100 dark:border-slate-800 overflow-hidden hover:shadow-xl transition flex flex-col justify-between">
+                    <div class="bg-white dark:bg-slate-900 rounded-2xl shadow-md border border-slate-100 dark:border-slate-800 overflow-hidden hover:shadow-xl transition flex flex-col justify-between">
                         <div class="relative h-48 w-full">
                             <img src="${art.image || 'https://images.unsplash.com/photo-1585829365295-ab7cd400c167?w=1000'}" class="w-full h-full object-cover" alt="Article">
-                            <div class="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent"></div>
+                            <div class="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent"></div>
                             <span class="absolute top-3 right-3 bg-blue-600 text-white text-[10px] font-bold px-2.5 py-0.5 rounded-full uppercase">${c[currentLang]}</span>
                         </div>
                         <div class="p-5">
                             <h4 class="font-bold text-lg mt-1 mb-2 text-slate-900 dark:text-slate-100 leading-snug">${art.title}</h4>
-                            <p class="text-gray-500 dark:text-gray-400 text-xs leading-relaxed line-clamp-3 mb-4">${art.summary}</p>
+                            <p class="text-slate-500 dark:text-slate-400 text-xs leading-relaxed line-clamp-3 mb-4">${art.summary}</p>
                         </div>
-                        <div class="p-5 pt-0 border-t border-gray-50 dark:border-slate-800 flex justify-between items-center mt-2">
-                            <span class="text-[10px] text-gray-400">🕒 ${art.time}</span>
+                        <div class="p-5 pt-0 border-t border-slate-50 dark:border-slate-800 flex justify-between items-center mt-2">
+                            <span class="text-[10px] text-slate-400">🕒 ${art.time}</span>
                             <a href="/article/${art.id}?lang=${currentLang}" class="text-blue-600 dark:text-blue-400 text-xs font-bold hover:underline">
                                 ${t.readMoreGrid}
                             </a>
