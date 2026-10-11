@@ -38,7 +38,7 @@ def init_db():
             return
         cursor = conn.cursor()
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS articles_v3 (
+            CREATE TABLE IF NOT EXISTS ai_newsroom_articles (
                 id SERIAL PRIMARY KEY,
                 lang TEXT,
                 title TEXT,
@@ -74,7 +74,8 @@ CATEGORY_NAMES = {
     "culture": {"ar": "🎬 ثقافة وفن وترفيه", "en": "🎬 Culture & Arts"}
 }
 
-MULTI_SOURCES = {
+# 🌐 مصادر RSS متخصصة لكل الأقسام لضمان تنوع الأخبار وحقيقتها
+SPECIALIZED_SOURCES = {
     "ar": [
         "http://feeds.bbci.co.uk/arabic/rss.xml",
         "https://www.aljazeera.net/aljazeerarss/a7c18663-7311-4224-b77e-d960b077f092/73d0e1b4-532f-45ef-b135-bfd3d2cf8712",
@@ -84,7 +85,9 @@ MULTI_SOURCES = {
         "http://feeds.bbci.co.uk/news/world/rss.xml",
         "http://feeds.bbci.co.uk/news/technology/rss.xml",
         "https://www.eurogamer.net/feed/news",
-        "https://rss.nytimes.com/services/xml/rss/nyt/World.xml"
+        "https://rss.nytimes.com/services/xml/rss/nyt/World.xml",
+        "https://feeds.feedburner.com/TechCrunch/",
+        "https://www.espn.com/espn/rss/news"
     ]
 }
 
@@ -95,7 +98,7 @@ CATEGORY_HD_COLLECTIONS = {
     "tech": ["https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=1200&q=80", "https://images.unsplash.com/photo-1485827404703-89b55fcc595e?auto=format&fit=crop&w=1200&q=80"],
     "gaming": ["https://images.unsplash.com/photo-1538481199705-c710c4e965fc?auto=format&fit=crop&w=1200&q=80", "https://images.unsplash.com/photo-1511512578047-dfb367046420?auto=format&fit=crop&w=1200&q=80"],
     "sports": ["https://images.unsplash.com/photo-1508098682722-e99c43a406b2?auto=format&fit=crop&w=1200&q=80", "https://images.unsplash.com/photo-1461896836934-ffe607ba8211?auto=format&fit=crop&w=1200&q=80"],
-    "science": ["https://images.unsplash.com/photo-1507668077129-56e32842fceb?auto=format&fit=crop&w=1200&q=80"],
+    "science": ["https://images.unsplash.com/photo-1507668077129-56e32842fceb?auto=format&fit=crop&w=1200&q=80", "https://images.unsplash.com/photo-1532094349884-543bc11b234d?auto=format&fit=crop&w=1200&q=80"],
     "culture": ["https://images.unsplash.com/photo-1485846234645-a62644f84728?auto=format&fit=crop&w=1200&q=80"]
 }
 
@@ -108,32 +111,10 @@ def get_dynamic_news_image(cat_key, used_set):
     used_set.add(chosen)
     return chosen
 
-# 🧠 الخوارزمية الذكية لتصنيف وتحليل المحتوى
-def detect_category_smart(title, summary):
-    text = f"{title} {summary}".lower()
-    if any(k in text for k in ["ترامب", "بوتين", "بايدن", "حكومة", "رئيس", "وزير", "انتخابات", "حرب", "سياسة", "trump", "biden", "putin", "president", "election", "war", "politics"]):
-        return "politics"
-    if any(k in text for k in ["اقتصاد", "دولار", "أسواق", "نفط", "تضخم", "أسهم", "بنك", "economy", "market", "dollar", "stocks", "bank", "oil"]):
-        return "economy"
-    if any(k in text for k in ["تكنولوجيا", "ذكاء اصطناعي", "جوجل", "أبل", "مايكروسوفت", "هاتف", "tech", "ai", "google", "apple", "microsoft"]):
-        return "tech"
-    if any(k in text for k in ["لعبة", "جيمنج", "بلايستيشن", "إكس بوكس", "gaming", "playstation", "xbox", "game", "esports"]):
-        return "gaming"
-    if any(k in text for k in ["كرة", "مباراة", "دوري", "فريق", "لاعب", "sports", "football", "match", "league"]):
-        return "sports"
-    if any(k in text for k in ["فضاء", "علماء", "كوكب", "طب", "علاج", "science", "space", "nasa", "health"]):
-        return "science"
-    return "world"
-
 def calculate_read_time(text, lang):
     words = len(text.split())
     minutes = math.ceil(words / 130) if words > 0 else 1
     return f"{minutes} دقائق قراءة" if lang == "ar" else f"{minutes} min read"
-
-def generate_detailed_fallback_content(raw_title, lang):
-    if lang == "ar":
-        return f"تتابع وسائل الإعلام والتغطيات الصحفية عن كثب تفاصيل المستجدات المرتبطة بـ '{raw_title}'. وتشير التقييمات الأولية إلى أن هذا الحدث يمثل تطوراً لافتاً ضمن سياق الأحداث الجارية."
-    return f"Media outlets are closely following the unfolding details regarding '{raw_title}'. Initial assessments indicate a significant development."
 
 def save_article_to_db(art):
     conn = get_db_connection()
@@ -142,7 +123,7 @@ def save_article_to_db(art):
     try:
         cursor = conn.cursor()
         cursor.execute("""
-            INSERT INTO articles_v3 (lang, title, summary, content, category, image, time, read_time)
+            INSERT INTO ai_newsroom_articles (lang, title, summary, content, category, image, time, read_time)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (lang, title) DO NOTHING
         """, (art['lang'], art['title'], art['summary'], art['content'], art['category'], art['image'], art['time'], art['read_time']))
@@ -158,7 +139,7 @@ def get_articles_from_db(lang):
         return []
     try:
         cursor = conn.cursor()
-        cursor.execute('SELECT id, lang, title, summary, content, category, image, time, read_time, created_at FROM articles_v3 WHERE lang = %s ORDER BY id DESC', (lang,))
+        cursor.execute('SELECT id, lang, title, summary, content, category, image, time, read_time, created_at FROM ai_newsroom_articles WHERE lang = %s ORDER BY id DESC', (lang,))
         rows = cursor.fetchall()
         cursor.close()
         conn.close()
@@ -173,27 +154,28 @@ def get_articles_from_db(lang):
         print(f"DB Fetch Error: {e}")
         return []
 
-# ⏱️ خوارزمية التحقق والترتيب الذكي (التحديث كل 30 دقيقة)
+# 🧠 نظام غرفة التحرير الذكية (AI Newsroom Director)
 def fetch_and_process_news(lang="ar"):
     articles = get_articles_from_db(lang)
     
-    # التحقق من وقت آخر تحديث، وإذا مر أكثر من 30 دقيقة يتم سحب أخبار جديدة وتحديثها
+    # تحديث تلقائي كل 30 دقيقة
     should_refresh = True
     if articles and len(articles) > 0:
-        last_article_time = articles[0].get("created_at")
-        if last_article_time and (datetime.now() - last_article_time) < timedelta(minutes=30):
+        last_time = articles[0].get("created_at")
+        if last_time and (datetime.now() - last_time) < timedelta(minutes=30):
             should_refresh = False
 
     if not should_refresh and articles:
         return articles
 
-    sources = MULTI_SOURCES.get(lang, MULTI_SOURCES["ar"])
-    all_entries = []
+    sources = SPECIALIZED_SOURCES.get(lang, SPECIALIZED_SOURCES["ar"])
+    all_raw_text = ""
     for url in sources:
         try:
             feed = feedparser.parse(url)
             if feed and hasattr(feed, 'entries'):
-                all_entries.extend(feed.entries[:3])
+                for entry in feed.entries[:3]:
+                    all_raw_text += f"- Title: {entry.get('title', '')} | Summary: {entry.get('summary', '')}\n"
         except Exception:
             pass
 
@@ -201,47 +183,52 @@ def fetch_and_process_news(lang="ar"):
     day_str = datetime.now().strftime("%A")
     used_images = set()
 
-    for entry in all_entries[:8]:
-        raw_title = entry.get("title", "خبر عاجل")
-        raw_summary = entry.get("summary", "تغطية إخبارية مستمرة.")
-        smart_cat = detect_category_smart(raw_title, raw_summary)
-        hd_image = get_dynamic_news_image(smart_cat, used_images)
-        detailed_content = generate_detailed_fallback_content(raw_title, lang)
+    if API_KEY and all_raw_text:
+        try:
+            model = genai.GenerativeModel("gemini-1.5-flash")
+            prompt = f"""
+            You are the Chief Editor of a global AI-powered news portal (BBC Grid style). 
+            Analyze the following recent news feeds and act as an expert newsroom director.
+            Select the top 8 most important stories and distribute them across these exact categories: [world, politics, economy, tech, gaming, sports, science, culture].
+            
+            Feeds:
+            {all_raw_text}
 
-        art = {
-            "lang": lang,
-            "title": raw_title,
-            "summary": raw_summary,
-            "content": detailed_content,
-            "category": smart_cat,
-            "image": hd_image,
-            "time": f"{day_str} - {now_str}",
-            "read_time": calculate_read_time(detailed_content, lang)
-        }
+            Return strict JSON array of objects:
+            [
+              {{
+                "title": "Professional headline in {lang}",
+                "summary": "Executive 2-sentence summary in {lang}",
+                "content": "Detailed 3-paragraph background coverage in {lang}",
+                "category": "world|politics|economy|tech|gaming|sports|science|culture"
+              }
+            ]
+            """
+            response = model.generate_content(prompt, request_options={"timeout": 8})
+            clean_text = response.text.replace("```json", "").replace("```", "").strip()
+            items = json.loads(clean_text)
 
-        if API_KEY:
-            try:
-                model = genai.GenerativeModel("gemini-1.5-flash")
-                prompt = f"""
-                Process this news for target language '{lang}':
-                Title: {raw_title}
-                Summary: {raw_summary}
-                Return strict JSON:
-                {{"title": "...", "summary": "...", "content": "...", "category": "world|politics|economy|tech|gaming|sports|science|culture"}}
-                """
-                response = model.generate_content(prompt, request_options={"timeout": 4})
-                clean_text = response.text.replace("```json", "").replace("```", "").strip()
-                data = json.loads(clean_text)
-                art["title"] = data.get("title", raw_title)
-                art["summary"] = data.get("summary", raw_summary)
-                art["content"] = data.get("content", detailed_content)
-                cat = str(data.get("category", smart_cat)).lower().strip()
-                art["category"] = cat if cat in CATEGORY_NAMES else smart_cat
-                art["read_time"] = calculate_read_time(art["content"], lang)
-            except Exception:
-                pass
-
-        save_article_to_db(art)
+            for item in items:
+                cat = str(item.get("category", "world")).lower().strip()
+                if cat not in CATEGORY_NAMES:
+                    cat = "world"
+                
+                hd_image = get_dynamic_news_image(cat, used_images)
+                content_text = item.get("content", "تغطية إخبارية مستمرة.")
+                
+                art = {
+                    "lang": lang,
+                    "title": item.get("title", "خبر عاجل"),
+                    "summary": item.get("summary", "تغطية إخبارية مستمرة."),
+                    "content": content_text,
+                    "category": cat,
+                    "image": hd_image,
+                    "time": f"{day_str} - {now_str}",
+                    "read_time": calculate_read_time(content_text, lang)
+                }
+                save_article_to_db(art)
+        except Exception as e:
+            print(f"AI Newsroom Error: {e}")
 
     return get_articles_from_db(lang)
 
@@ -270,10 +257,7 @@ def read_article(article_id):
     if not article:
         return "الخبر غير موجود / Article Not Found", 404
 
-    # 🧠 خوارزمية التوصية الذكية (جلب أخبار مقترحة من نفس القسم)
-    recommended = [a for a in articles if a["category"] == article["category"] and a["id"] != article["id"][:3]] if len(articles) > 1 else []
-    if not recommended:
-        recommended = [a for a in articles if a["id"] != article["id"]][:3]
+    recommended = [a for a in articles if a["category"] == article["category"] and a["id"] != article_id][:3]
 
     cat_key = str(article.get("category", "world")).lower().strip()
     cat_display = CATEGORY_NAMES.get(cat_key, {}).get(lang, CATEGORY_NAMES["world"][lang])
@@ -331,12 +315,11 @@ def read_article(article_id):
                 </div>
             </article>
 
-            <!-- 🌟 قسم المقترحات الذكية (Recommendation Engine) -->
             {% if recommended %}
             <div class="mt-12">
                 <h3 class="text-xl font-bold mb-6 border-r-4 border-blue-600 pr-3">{{ 'أخبار ذات صلة قد تعجبك:' if lang == 'ar' else 'Recommended Stories:' }}</h3>
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    {% for rec in recommended[:3] %}
+                    {% for rec in recommended %}
                     <div class="bg-white dark:bg-slate-900 rounded-2xl shadow-md border border-slate-100 dark:border-slate-800 overflow-hidden flex flex-col justify-between">
                         <div class="relative h-40 w-full">
                             <img src="{{ rec.image }}" class="w-full h-full object-cover" alt="Rec">
