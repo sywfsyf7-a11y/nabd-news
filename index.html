@@ -3,83 +3,102 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Global Today | شبكة العالم اليوم</title>
+    <title>العالم اليوم | Global Today</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+        }
+    </script>
+    <style>
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    </style>
 </head>
-<body class="bg-gray-50 font-sans text-gray-900">
+<body class="bg-gray-50 dark:bg-slate-950 text-gray-900 dark:text-gray-100 font-sans transition-colors duration-300 min-h-screen flex flex-col justify-between">
 
-    <!-- 🔴 Breaking News Banner -->
-    <div class="bg-red-700 text-white text-sm py-2 px-4 flex items-center justify-between shadow-inner">
-        <div class="flex items-center space-x-2 space-x-reverse w-full">
-            <span id="breakingBadge" class="bg-black text-white px-3 py-0.5 rounded font-bold animate-pulse text-xs uppercase">🔴 عاجل</span>
-            <marquee scrollamount="6" id="breakingText" class="font-medium">
-                تغطية إخبارية مستمرة وشاملة لأبرز التطورات السياسية، الاقتصادية، والتكنولوجية حول العالم...
-            </marquee>
-        </div>
-    </div>
-
-    <!-- 🌐 Main Header -->
-    <header class="bg-slate-900 text-white border-b border-slate-800 sticky top-0 z-50 shadow-md">
-        <div class="container mx-auto px-4 py-4 flex flex-wrap justify-between items-center gap-4">
-            <div>
-                <h1 class="text-3xl font-black tracking-wide text-blue-500 cursor-pointer" onclick="filterCategory('all')">Global Today</h1>
-                <p id="subHeader" class="text-xs text-gray-400 mt-1">Comprehensive global news coverage 24/7</p>
+    <div>
+        <!-- 🔴 Breaking News Banner -->
+        <div class="bg-red-700 text-white text-sm py-2 px-4 flex items-center justify-between shadow-inner">
+            <div class="flex items-center space-x-2 space-x-reverse w-full">
+                <span id="breakingBadge" class="bg-black text-white px-3 py-0.5 rounded font-bold animate-pulse text-xs uppercase">🔴 عاجل</span>
+                <marquee scrollamount="6" id="breakingText" class="font-medium">
+                    تغطية إخبارية مستمرة وشاملة لأبرز التطورات السياسية، الاقتصادية، والتكنولوجية حول العالم...
+                </marquee>
             </div>
-            
-            <div class="flex items-center gap-3">
-                <div class="flex items-center bg-slate-800 rounded-lg px-3 py-2 w-64 md:w-80 border border-slate-700">
-                    <input type="text" id="searchInput" onkeyup="searchNews()" placeholder="Search news..." class="bg-transparent border-none text-sm text-white focus:outline-none w-full placeholder-gray-400">
+        </div>
+
+        <!-- 🌐 Main Header -->
+        <header class="bg-slate-900 text-white border-b border-slate-800 sticky top-0 z-50 shadow-md">
+            <div class="container mx-auto px-4 py-4 flex flex-wrap justify-between items-center gap-4">
+                <div>
+                    <h1 id="siteBrand" class="text-3xl font-black tracking-wide text-blue-500 cursor-pointer" onclick="filterCategory('all')">العالم اليوم</h1>
+                    <p id="subHeader" class="text-xs text-gray-400 mt-1">تغطية إخبارية عالمية شاملة على مدار الساعة</p>
                 </div>
-                <button onclick="switchLanguage()" id="langBtn" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-bold transition whitespace-nowrap">
-                    🌐 العربية
-                </button>
+                
+                <div class="flex items-center gap-3">
+                    <!-- 🌙 / ☀️ Toggle Dark Mode Button -->
+                    <button onclick="toggleDarkMode()" class="bg-slate-800 hover:bg-slate-700 text-amber-400 px-3 py-2 rounded-lg text-sm font-bold border border-slate-700 transition" title="Toggle Dark/Light Mode">
+                        🌙 / ☀️
+                    </button>
+
+                    <div class="flex items-center bg-slate-800 rounded-lg px-3 py-2 w-48 md:w-72 border border-slate-700">
+                        <input type="text" id="searchInput" onkeyup="searchNews()" placeholder="ابحث عن خبر..." class="bg-transparent border-none text-sm text-white focus:outline-none w-full placeholder-gray-400">
+                    </div>
+
+                    <button onclick="switchLanguage()" id="langBtn" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-bold transition whitespace-nowrap">
+                        🌐 English
+                    </button>
+                </div>
             </div>
-        </div>
 
-        <!-- 📂 Navigation Categories -->
-        <nav class="bg-slate-800 text-sm font-semibold border-t border-slate-700">
-            <div id="navMenu" class="container mx-auto px-4 flex space-x-5 space-x-reverse overflow-x-auto py-3 no-scrollbar">
-                <button onclick="filterCategory('all')" data-cat="all" class="nav-btn text-blue-400 transition whitespace-nowrap">Home</button>
-                <button onclick="filterCategory('world')" data-cat="world" class="nav-btn hover:text-blue-400 transition whitespace-nowrap">🌍 World</button>
-                <button onclick="filterCategory('politics')" data-cat="politics" class="nav-btn hover:text-blue-400 transition whitespace-nowrap">🏛️ Politics</button>
-                <button onclick="filterCategory('economy')" data-cat="economy" class="nav-btn hover:text-blue-400 transition whitespace-nowrap">📈 Economy</button>
-                <button onclick="filterCategory('tech')" data-cat="tech" class="nav-btn hover:text-blue-400 transition whitespace-nowrap">💻 Tech</button>
-                <button onclick="filterCategory('gaming')" data-cat="gaming" class="nav-btn hover:text-blue-400 transition whitespace-nowrap">🎮 Gaming</button>
-                <button onclick="filterCategory('sports')" data-cat="sports" class="nav-btn hover:text-blue-400 transition whitespace-nowrap">⚽ Sports</button>
-                <button onclick="loadArchive()" id="archiveNavBtn" class="hover:text-amber-300 transition whitespace-nowrap text-amber-400 font-bold">📂 Archive</button>
+            <!-- 📂 Navigation Categories -->
+            <nav class="bg-slate-800 text-sm font-semibold border-t border-slate-700">
+                <div id="navMenu" class="container mx-auto px-4 flex space-x-5 space-x-reverse overflow-x-auto py-3 no-scrollbar">
+                    <button onclick="filterCategory('all')" class="nav-btn text-blue-400 transition whitespace-nowrap">الرئيسية</button>
+                    <button onclick="filterCategory('world')" class="nav-btn hover:text-blue-400 transition whitespace-nowrap">🌍 أخبار العالم</button>
+                    <button onclick="filterCategory('politics')" class="nav-btn hover:text-blue-400 transition whitespace-nowrap">🏛️ سياسة ودبلوماسية</button>
+                    <button onclick="filterCategory('economy')" class="nav-btn hover:text-blue-400 transition whitespace-nowrap">📈 اقتصاد وأسواق</button>
+                    <button onclick="filterCategory('tech')" class="nav-btn hover:text-blue-400 transition whitespace-nowrap">💻 تكنولوجيا وذكاء اصطناعي</button>
+                    <button onclick="filterCategory('gaming')" class="nav-btn hover:text-blue-400 transition whitespace-nowrap">🎮 ألعاب وجيمنج</button>
+                    <button onclick="filterCategory('sports')" class="nav-btn hover:text-blue-400 transition whitespace-nowrap">⚽ رياضة عالمية</button>
+                    <button onclick="filterCategory('science')" class="nav-btn hover:text-blue-400 transition whitespace-nowrap">🧬 علوم وفضاء</button>
+                    <button onclick="filterCategory('culture')" class="nav-btn hover:text-blue-400 transition whitespace-nowrap">🎬 ثقافة وفن</button>
+                    <button onclick="loadArchive()" id="archiveNavBtn" class="hover:text-amber-300 transition whitespace-nowrap text-amber-400 font-bold">📂 الأرشيف والتاريخ</button>
+                </div>
+            </nav>
+        </header>
+
+        <!-- 📰 Main Content Area -->
+        <main class="container mx-auto px-4 py-8">
+            
+            <div id="loading" class="text-center py-20 text-xl font-bold text-blue-600 dark:text-blue-400 animate-pulse">
+                ⏳ جاري جلب وتصنيف الأخبار العالمية...
             </div>
-        </nav>
-    </header>
 
-    <!-- 📰 Main Content Area -->
-    <main class="container mx-auto px-4 py-8">
-        
-        <div id="loading" class="text-center py-20 text-xl font-bold text-blue-600 animate-pulse">
-            ⏳ جاري جلب وتصنيف الأخبار العالمية...
-        </div>
+            <div id="mainContent" class="hidden">
+                <div id="mainArticleSection" class="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-12">
+                    <div id="mainArticle" class="lg:col-span-2 bg-white dark:bg-slate-900 rounded-2xl shadow-lg overflow-hidden border border-gray-100 dark:border-slate-800"></div>
 
-        <div id="mainContent" class="hidden">
-            <div id="mainArticleSection" class="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-12">
-                <div id="mainArticle" class="lg:col-span-2 bg-white rounded-2xl shadow-lg overflow-hidden border border-gray-100"></div>
-
-                <div class="bg-white p-6 rounded-2xl shadow-lg border border-gray-100 flex flex-col justify-between">
-                    <div>
-                        <h3 id="mostReadTitle" class="text-lg font-bold border-b pb-3 mb-4 flex items-center gap-2 text-slate-800">🔥 Most Read Today</h3>
-                        <div id="mostReadList" class="space-y-4"></div>
+                    <div class="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-lg border border-gray-100 dark:border-slate-800 flex flex-col justify-between">
+                        <div>
+                            <h3 id="mostReadTitle" class="text-lg font-bold border-b dark:border-slate-800 pb-3 mb-4 flex items-center gap-2 text-slate-800 dark:text-slate-100">🔥 الأكثر قراءة اليوم</h3>
+                            <div id="mostReadList" class="space-y-4"></div>
+                        </div>
                     </div>
                 </div>
+
+                <h3 id="sectionTitle" class="text-2xl font-bold mb-6 text-slate-800 dark:text-slate-100 border-r-4 border-blue-600 pr-3">📰 تغطيات شاملة</h3>
+                <div id="categoriesGrid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-12"></div>
             </div>
 
-            <h3 id="sectionTitle" class="text-2xl font-bold mb-6 text-slate-800 border-r-4 border-blue-600 pr-3">📰 Comprehensive Coverage</h3>
-            <div id="categoriesGrid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-12"></div>
-        </div>
-
-    </main>
+        </main>
+    </div>
 
     <!-- 📌 Footer -->
-    <footer class="bg-slate-900 text-gray-400 text-sm py-10 border-t border-slate-800">
+    <footer class="bg-slate-900 text-gray-400 text-sm py-8 border-t border-slate-800 mt-12">
         <div id="footerText" class="text-center text-xs text-gray-400">
-            All Rights Reserved &copy; 2026 - Global Today News Network
+            جميع الحقوق محفوظة © 2026 - شبكة العالم اليوم الإخبارية
         </div>
     </footer>
 
@@ -89,11 +108,13 @@
 
         const translations = {
             ar: {
+                brand: "العالم اليوم",
                 sub: "تغطية إخبارية عالمية شاملة على مدار الساعة",
                 search: "ابحث عن خبر...",
+                langBtn: "🌐 English",
                 breaking: "🔴 عاجل",
                 breakingText: "تغطية إخبارية مستمرة وشاملة لأبرز التطورات السياسية، الاقتصادية، والتكنولوجية حول العالم...",
-                nav: ["الرئيسية", "🌍 أخبار العالم", "🏛️ سياسة", "📈 اقتصاد", "💻 تكنولوجيا", "🎮 جيمنج", "⚽ رياضة", "📂 الأرشيف والتاريخ"],
+                nav: ["الرئيسية", "🌍 أخبار العالم", "🏛️ سياسة ودبلوماسية", "📈 اقتصاد وأسواق", "💻 تكنولوجيا وذكاء اصطناعي", "🎮 ألعاب وجيمنج", "⚽ رياضة عالمية", "🧬 علوم وفضاء", "🎬 ثقافة وفن", "📂 الأرشيف والتاريخ"],
                 mostRead: "🔥 الأكثر قراءة اليوم",
                 coverage: "📰 تغطيات شاملة",
                 readMore: "قراءة الخبر الكامل ←",
@@ -102,11 +123,13 @@
                 loading: "⏳ جاري جلب وتصنيف الأخبار العالمية..."
             },
             en: {
+                brand: "Global Today",
                 sub: "Comprehensive global news coverage 24/7",
                 search: "Search news...",
+                langBtn: "🌐 العربية",
                 breaking: "🔴 BREAKING",
                 breakingText: "Continuous live coverage of top global developments in politics, economy, tech, gaming and sports...",
-                nav: ["Home", "🌍 World", "🏛️ Politics", "📈 Economy", "💻 Tech", "🎮 Gaming", "⚽ Sports", "📂 Archive"],
+                nav: ["Home", "🌍 World News", "🏛️ Politics & Diplomacy", "📈 Economy & Markets", "💻 Tech & AI", "🎮 Gaming", "⚽ Global Sports", "🧬 Science & Space", "🎬 Culture & Arts", "📂 News Archive"],
                 mostRead: "🔥 Most Read Today",
                 coverage: "📰 Comprehensive Coverage",
                 readMore: "Read Full Article →",
@@ -118,19 +141,30 @@
 
         const categoryNames = {
             'world': { ar: '🌍 أخبار العالم', en: '🌍 World News' },
-            'politics': { ar: '🏛️ سياسة ودبلوماسية', en: '🏛️ Politics' },
-            'economy': { ar: '📈 اقتصاد وأسواق', en: '📈 Economy' },
+            'politics': { ar: '🏛️ سياسة ودبلوماسية', en: '🏛️ Politics & Diplomacy' },
+            'economy': { ar: '📈 اقتصاد وأسواق', en: '📈 Economy & Markets' },
             'tech': { ar: '💻 تكنولوجيا وذكاء اصطناعي', en: '💻 Tech & AI' },
             'gaming': { ar: '🎮 ألعاب وجيمنج', en: '🎮 Gaming' },
-            'sports': { ar: '⚽ رياضة عالمية', en: '⚽ Sports' },
-            'science': { ar: '🧬 علوم وفضاء', en: '🧬 Science' },
-            'culture': { ar: '🎬 ثقافة وفن', en: '🎬 Culture' }
+            'sports': { ar: '⚽ رياضة عالمية', en: '⚽ Global Sports' },
+            'science': { ar: '🧬 علوم وفضاء', en: '🧬 Science & Space' },
+            'culture': { ar: '🎬 ثقافة وفن وترفيه', en: '🎬 Culture & Arts' }
         };
+
+        function toggleDarkMode() {
+            document.documentElement.classList.toggle('dark');
+            localStorage.setItem('theme', document.documentElement.classList.contains('dark') ? 'dark' : 'light');
+        }
+
+        if (localStorage.getItem('theme') === 'dark') {
+            document.documentElement.classList.add('dark');
+        }
 
         function updateUIStrings() {
             const t = translations[currentLang];
+            document.getElementById('siteBrand').innerText = t.brand;
             document.getElementById('subHeader').innerText = t.sub;
             document.getElementById('searchInput').placeholder = t.search;
+            document.getElementById('langBtn').innerText = t.langBtn;
             document.getElementById('breakingBadge').innerText = t.breaking;
             document.getElementById('breakingText').innerText = t.breakingText;
             document.getElementById('mostReadTitle').innerText = t.mostRead;
@@ -169,7 +203,7 @@
             try {
                 const res = await fetch(`/api/archive?lang=${currentLang}`);
                 const data = await res.json();
-                document.getElementById('sectionTitle').innerText = currentLang === 'ar' ? '📂 أرشيف الأخبار المصنف والأنيق' : '📂 Elegant Classified News Archive';
+                document.getElementById('sectionTitle').innerText = currentLang === 'ar' ? '📂 أرشيف الأخبار المصنف بدقة' : '📂 Classified News Archive';
                 
                 renderArchiveGrouped(data.archive);
 
@@ -185,7 +219,7 @@
             grid.innerHTML = '';
 
             if (!archiveArticles || archiveArticles.length === 0) {
-                grid.innerHTML = `<p class="text-gray-500 col-span-3 text-center py-10">${currentLang === 'ar' ? 'الأرشيف فارغ حالياً. ستبدأ الأخبار بالتراكم هنا تباعاً.' : 'Archive is currently empty.'}</p>`;
+                grid.innerHTML = `<p class="text-gray-500 dark:text-gray-400 col-span-3 text-center py-10">${currentLang === 'ar' ? 'الأرشيف فارغ حالياً. ستبدأ الأخبار بالمرحلة والقدم هنا تباعاً.' : 'Archive is currently empty.'}</p>`;
                 return;
             }
 
@@ -202,22 +236,22 @@
 
                 grid.innerHTML += `
                     <div class="col-span-full mt-8 mb-4 border-b-2 border-blue-600 pb-2 flex items-center justify-between">
-                        <h4 class="text-xl font-black text-slate-800">${catTitle}</h4>
-                        <span class="bg-blue-100 text-blue-800 text-xs font-bold px-3 py-1 rounded-full">${arts.length} ${currentLang === 'ar' ? 'مقال' : 'Articles'}</span>
+                        <h4 class="text-xl font-black text-slate-800 dark:text-slate-100">${catTitle}</h4>
+                        <span class="bg-blue-100 dark:bg-slate-800 text-blue-800 dark:text-blue-400 text-xs font-bold px-3 py-1 rounded-full">${arts.length} ${currentLang === 'ar' ? 'مقال' : 'Articles'}</span>
                     </div>
                 `;
 
                 arts.forEach(art => {
                     grid.innerHTML += `
-                        <div class="bg-white rounded-2xl shadow-md border border-gray-100 overflow-hidden hover:shadow-xl transition flex flex-col justify-between">
+                        <div class="bg-white dark:bg-slate-900 rounded-2xl shadow-md border border-gray-100 dark:border-slate-800 overflow-hidden hover:shadow-xl transition flex flex-col justify-between">
                             <div class="p-6">
-                                <span class="text-xs font-bold text-blue-600 bg-blue-50 px-3 py-1 rounded-full uppercase">${catTitle}</span>
-                                <h4 class="font-bold text-lg mt-3 mb-2 text-slate-900 leading-snug">${art.title}</h4>
-                                <p class="text-gray-500 text-xs leading-relaxed line-clamp-3 mb-4">${art.summary}</p>
+                                <span class="text-xs font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-slate-800 px-3 py-1 rounded-full uppercase">${catTitle}</span>
+                                <h4 class="font-bold text-lg mt-3 mb-2 text-slate-900 dark:text-slate-100 leading-snug">${art.title}</h4>
+                                <p class="text-gray-500 dark:text-gray-400 text-xs leading-relaxed line-clamp-3 mb-4">${art.summary}</p>
                             </div>
-                            <div class="p-6 pt-0 border-t border-gray-50 flex justify-between items-center mt-2">
+                            <div class="p-6 pt-0 border-t border-gray-50 dark:border-slate-800 flex justify-between items-center mt-2">
                                 <span class="text-[11px] text-gray-400 font-medium">🕒 ${art.time}</span>
-                                <a href="/article/${art.id}?lang=${currentLang}" class="text-blue-600 text-xs font-bold hover:underline">
+                                <a href="/article/${art.id}?lang=${currentLang}" class="text-blue-600 dark:text-blue-400 text-xs font-bold hover:underline">
                                     ${currentLang === 'ar' ? 'قراءة المزيد ←' : 'Read More →'}
                                 </a>
                             </div>
@@ -230,7 +264,7 @@
         function renderArticles(articles, isArchive = false) {
             const t = translations[currentLang];
             if (!articles || articles.length === 0) {
-                document.getElementById('categoriesGrid').innerHTML = `<p class="text-gray-500 col-span-3 text-center py-10">${currentLang === 'ar' ? 'لا توجد أخبار متاحة حالياً.' : 'No news available currently.'}</p>`;
+                document.getElementById('categoriesGrid').innerHTML = `<p class="text-gray-500 dark:text-gray-400 col-span-3 text-center py-10">${currentLang === 'ar' ? 'لا توجد أخبار متاحة حالياً.' : 'No news available currently.'}</p>`;
                 return;
             }
 
@@ -242,13 +276,13 @@
                 document.getElementById('mainArticle').innerHTML = `
                     <div class="relative h-72 w-full">
                         <img src="${main.image || 'https://images.unsplash.com/photo-1585829365295-ab7cd400c167?w=1000'}" class="w-full h-full object-cover" alt="Main news">
-                        <div class="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent"></div>
+                        <div class="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent"></div>
                         <span class="absolute top-4 right-4 bg-blue-600 text-white text-xs font-bold px-3 py-1 rounded-full uppercase">${catObj[currentLang]}</span>
                     </div>
                     <div class="p-6">
-                        <h2 class="text-2xl font-black mt-1 mb-2 hover:text-blue-600 cursor-pointer text-slate-900 leading-snug">${main.title}</h2>
-                        <p class="text-gray-600 text-sm leading-relaxed mb-4">${main.summary}</p>
-                        <div class="flex justify-between items-center text-xs text-gray-400 border-t pt-4">
+                        <h2 class="text-2xl font-black mt-1 mb-2 hover:text-blue-600 cursor-pointer text-slate-900 dark:text-slate-100 leading-snug">${main.title}</h2>
+                        <p class="text-gray-600 dark:text-gray-300 text-sm leading-relaxed mb-4">${main.summary}</p>
+                        <div class="flex justify-between items-center text-xs text-gray-400 border-t dark:border-slate-800 pt-4">
                             <span>🕒 ${main.time}</span>
                             <a href="/article/${main.id}?lang=${currentLang}" class="bg-blue-600 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-blue-700 transition">
                                 ${t.readMore}
@@ -263,9 +297,9 @@
                     const ck = (art.category || 'world').toLowerCase().trim();
                     const c = categoryNames[ck] || { ar: ck, en: ck };
                     mostRead.innerHTML += `
-                        <article class="border-b border-gray-100 pb-3 last:border-b-0">
-                            <span class="text-xs text-blue-600 font-bold">${c[currentLang]}</span>
-                            <h4 class="font-bold text-sm text-slate-800 hover:text-blue-600 cursor-pointer mt-1">
+                        <article class="border-b border-gray-100 dark:border-slate-800 pb-3 last:border-b-0">
+                            <span class="text-xs text-blue-600 dark:text-blue-400 font-bold">${c[currentLang]}</span>
+                            <h4 class="font-bold text-sm text-slate-800 dark:text-slate-200 hover:text-blue-600 cursor-pointer mt-1">
                                 <a href="/article/${art.id}?lang=${currentLang}">${art.title}</a>
                             </h4>
                         </article>
@@ -281,19 +315,19 @@
                 const ck = (art.category || 'world').toLowerCase().trim();
                 const c = categoryNames[ck] || { ar: ck, en: ck };
                 grid.innerHTML += `
-                    <div class="bg-white rounded-2xl shadow-md border border-gray-100 overflow-hidden hover:shadow-xl transition flex flex-col justify-between">
+                    <div class="bg-white dark:bg-slate-900 rounded-2xl shadow-md border border-gray-100 dark:border-slate-800 overflow-hidden hover:shadow-xl transition flex flex-col justify-between">
                         <div class="relative h-48 w-full">
                             <img src="${art.image || 'https://images.unsplash.com/photo-1585829365295-ab7cd400c167?w=1000'}" class="w-full h-full object-cover" alt="Article">
-                            <div class="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent"></div>
+                            <div class="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent"></div>
                             <span class="absolute top-3 right-3 bg-blue-600 text-white text-[10px] font-bold px-2.5 py-0.5 rounded-full uppercase">${c[currentLang]}</span>
                         </div>
                         <div class="p-5">
-                            <h4 class="font-bold text-lg mt-1 mb-2 text-slate-900 leading-snug">${art.title}</h4>
-                            <p class="text-gray-500 text-xs leading-relaxed line-clamp-3 mb-4">${art.summary}</p>
+                            <h4 class="font-bold text-lg mt-1 mb-2 text-slate-900 dark:text-slate-100 leading-snug">${art.title}</h4>
+                            <p class="text-gray-500 dark:text-gray-400 text-xs leading-relaxed line-clamp-3 mb-4">${art.summary}</p>
                         </div>
-                        <div class="p-5 pt-0 border-t border-gray-50 flex justify-between items-center mt-2">
+                        <div class="p-5 pt-0 border-t border-gray-50 dark:border-slate-800 flex justify-between items-center mt-2">
                             <span class="text-[10px] text-gray-400">🕒 ${art.time}</span>
-                            <a href="/article/${art.id}?lang=${currentLang}" class="text-blue-600 text-xs font-bold hover:underline">
+                            <a href="/article/${art.id}?lang=${currentLang}" class="text-blue-600 dark:text-blue-400 text-xs font-bold hover:underline">
                                 ${t.readMoreGrid}
                             </a>
                         </div>
@@ -327,7 +361,6 @@
             currentLang = currentLang === 'ar' ? 'en' : 'ar';
             document.documentElement.lang = currentLang;
             document.documentElement.dir = currentLang === 'ar' ? 'rtl' : 'ltr';
-            document.getElementById('langBtn').innerText = currentLang === 'ar' ? '🌐 العربية' : '🌐 English';
             
             updateUIStrings();
             fetchNews();
