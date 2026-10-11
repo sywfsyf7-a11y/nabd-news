@@ -61,25 +61,28 @@
                     <button onclick="filterCategory('sports')" class="nav-btn hover:text-blue-400 transition whitespace-nowrap">⚽ رياضة عالمية</button>
                     <button onclick="filterCategory('science')" class="nav-btn hover:text-blue-400 transition whitespace-nowrap">🧬 علوم وفضاء</button>
                     <button onclick="filterCategory('culture')" class="nav-btn hover:text-blue-400 transition whitespace-nowrap">🎬 ثقافة وفن</button>
-                    <button onclick="loadArchive()" id="archiveNavBtn" class="hover:text-amber-300 transition whitespace-nowrap text-amber-400 font-bold">📂 الأرشيف والتاريخ</button>
+                    <button onclick="loadArchive()" id="archiveNavBtn" class="hover:text-amber-300 transition whitespace-nowrap text-amber-400 font-bold">📂 الأرشيف والأخبار الدائمة</button>
                 </div>
             </nav>
         </header>
 
-        <!-- 📰 Main Content Area -->
+        <!-- 📰 Main Content Area (BBC Grid Layout Style) -->
         <main class="container mx-auto px-4 py-8">
             
             <div id="loading" class="text-center py-20 text-xl font-bold text-blue-600 dark:text-blue-400 animate-pulse">
-                ⏳ جاري جلب وتصنيف الأخبار العالمية...
+                ⏳ جاري تحميل شبكة الأخبار العالمية...
             </div>
 
             <div id="mainContent" class="hidden">
-                <div id="mainArticleSection" class="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-12">
-                    <div id="mainArticle" class="lg:col-span-2 bg-white dark:bg-slate-900 rounded-3xl shadow-xl overflow-hidden border border-slate-100 dark:border-slate-800"></div>
+                <!-- BBC Style Top Grid: Lead Story + Side Stories -->
+                <div id="mainArticleSection" class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-12">
+                    <!-- Lead Story (Big Feature) -->
+                    <div id="mainArticle" class="lg:col-span-2 bg-white dark:bg-slate-900 rounded-3xl shadow-xl overflow-hidden border border-slate-200 dark:border-slate-800 flex flex-col justify-between"></div>
 
-                    <div class="bg-white dark:bg-slate-900 p-6 rounded-3xl shadow-xl border border-slate-100 dark:border-slate-800 flex flex-col justify-between">
+                    <!-- Side Live / Breaking List -->
+                    <div class="bg-white dark:bg-slate-900 p-6 rounded-3xl shadow-xl border border-slate-200 dark:border-slate-800 flex flex-col justify-between">
                         <div>
-                            <h3 id="mostReadTitle" class="text-lg font-bold border-b dark:border-slate-800 pb-3 mb-4 flex items-center gap-2 text-slate-800 dark:text-slate-100">🔥 الأكثر قراءة اليوم</h3>
+                            <h3 id="mostReadTitle" class="text-lg font-bold border-b dark:border-slate-800 pb-3 mb-4 flex items-center gap-2 text-slate-800 dark:text-slate-100">🔥 أبرز العناوين الحية</h3>
                             <div id="mostReadList" class="space-y-4"></div>
                         </div>
                     </div>
@@ -95,7 +98,7 @@
     <!-- 📌 Footer -->
     <footer class="bg-slate-900 text-slate-400 text-sm py-8 border-t border-slate-800 mt-12">
         <div id="footerText" class="text-center text-xs text-slate-400">
-            جميع الحقوق محفوظة © 2026 - شبكة العالم اليوم الإخبارية
+            جميع الحقوق محفوظة © 2026 - شبكة العالم اليوم الإخبارية (نظام أرشيف دائم)
         </div>
     </footer>
 
@@ -111,13 +114,13 @@
                 langBtn: "🌐 English",
                 breaking: "🔴 عاجل",
                 breakingText: "تغطية إخبارية مستمرة وشاملة لأبرز التطورات السياسية، الاقتصادية، والتكنولوجية حول العالم...",
-                nav: ["الرئيسية", "🌍 أخبار العالم", "🏛️ سياسة ودبلوماسية", "📈 اقتصاد وأسواق", "💻 تكنولوجيا وذكاء اصطناعي", "🎮 ألعاب وجيمنج", "⚽ رياضة عالمية", "🧬 علوم وفضاء", "🎬 ثقافة وفن", "📂 الأرشيف والتاريخ"],
-                mostRead: "🔥 الأكثر قراءة اليوم",
+                nav: ["الرئيسية", "🌍 أخبار العالم", "🏛️ سياسة ودبلوماسية", "📈 اقتصاد وأسواق", "💻 تكنولوجيا وذكاء اصطناعي", "🎮 ألعاب وجيمنج", "⚽ رياضة عالمية", "🧬 علوم وفضاء", "🎬 ثقافة وفن", "📂 الأرشيف والأخبار الدائمة"],
+                mostRead: "🔥 أبرز العناوين الحية",
                 coverage: "📰 تغطيات شاملة",
                 readMore: "قراءة الخبر الكامل ←",
                 readMoreGrid: "قراءة المزيد ←",
                 footer: "جميع الحقوق محفوظة © 2026 - شبكة العالم اليوم الإخبارية",
-                loading: "⏳ جاري جلب وتصنيف الأخبار العالمية..."
+                loading: "⏳ جاري تحميل شبكة الأخبار العالمية..."
             },
             en: {
                 brand: "Global Today",
@@ -126,13 +129,13 @@
                 langBtn: "🌐 العربية",
                 breaking: "🔴 BREAKING",
                 breakingText: "Continuous live coverage of top global developments in politics, economy, tech, gaming and sports...",
-                nav: ["Home", "🌍 World News", "🏛️ Politics & Diplomacy", "📈 Economy & Markets", "💻 Tech & AI", "🎮 Gaming", "⚽ Global Sports", "🧬 Science & Space", "🎬 Culture & Arts", "📂 News Archive"],
-                mostRead: "🔥 Most Read Today",
+                nav: ["Home", "🌍 World News", "🏛️ Politics & Diplomacy", "📈 Economy & Markets", "💻 Tech & AI", "🎮 Gaming", "⚽ Global Sports", "🧬 Science & Space", "🎬 Culture & Arts", "📂 Permanent Archive"],
+                mostRead: "🔥 Top Live Headlines",
                 coverage: "📰 Comprehensive Coverage",
                 readMore: "Read Full Article →",
                 readMoreGrid: "Read More →",
                 footer: "All Rights Reserved © 2026 - Global Today News Network",
-                loading: "⏳ Fetching and classifying global news..."
+                loading: "⏳ Loading global news network..."
             }
         };
 
@@ -211,7 +214,7 @@
             try {
                 const res = await fetch(`/api/archive?lang=${currentLang}`);
                 const data = await res.json();
-                document.getElementById('sectionTitle').innerText = currentLang === 'ar' ? '📂 أرشيف الأخبار المصنف بدقة' : '📂 Classified News Archive';
+                document.getElementById('sectionTitle').innerText = currentLang === 'ar' ? '📂 أرشيف الأخبار الدائم (محفوظ للأبد)' : '📂 Permanent News Archive';
                 
                 renderArchiveGrouped(data.archive);
 
@@ -227,7 +230,7 @@
             grid.innerHTML = '';
 
             if (!archiveArticles || archiveArticles.length === 0) {
-                grid.innerHTML = `<p class="text-slate-500 dark:text-slate-400 col-span-3 text-center py-10">${currentLang === 'ar' ? 'الأرشيف فارغ حالياً. ستبدأ الأخبار بالتراكم هنا تباعاً.' : 'Archive is currently empty.'}</p>`;
+                grid.innerHTML = `<p class="text-slate-500 dark:text-slate-400 col-span-3 text-center py-10">الأرشيف فارغ حالياً.</p>`;
                 return;
             }
 
@@ -245,22 +248,26 @@
                 grid.innerHTML += `
                     <div class="col-span-full mt-8 mb-4 border-b-2 border-blue-600 pb-2 flex items-center justify-between">
                         <h4 class="text-xl font-black text-slate-800 dark:text-slate-100">${catTitle}</h4>
-                        <span class="bg-blue-100 dark:bg-slate-800 text-blue-800 dark:text-blue-400 text-xs font-bold px-3 py-1 rounded-full">${arts.length} ${currentLang === 'ar' ? 'مقال' : 'Articles'}</span>
+                        <span class="bg-blue-100 dark:bg-slate-800 text-blue-800 dark:text-blue-400 text-xs font-bold px-3 py-1 rounded-full">${arts.length} مقال محفوظ</span>
                     </div>
                 `;
 
                 arts.forEach(art => {
                     grid.innerHTML += `
                         <div class="bg-white dark:bg-slate-900 rounded-2xl shadow-md border border-slate-100 dark:border-slate-800 overflow-hidden hover:shadow-xl transition flex flex-col justify-between">
-                            <div class="p-6">
-                                <span class="text-xs font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-slate-800 px-3 py-1 rounded-full uppercase">${catTitle}</span>
-                                <h4 class="font-bold text-lg mt-3 mb-2 text-slate-900 dark:text-slate-100 leading-snug">${art.title}</h4>
+                            <div class="relative h-48 w-full">
+                                <img src="${art.image}" class="w-full h-full object-cover" alt="Article">
+                                <div class="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent"></div>
+                                <span class="absolute top-3 right-3 bg-blue-600 text-white text-[10px] font-bold px-2.5 py-0.5 rounded-full uppercase">${catTitle}</span>
+                            </div>
+                            <div class="p-5">
+                                <h4 class="font-bold text-lg mt-1 mb-2 text-slate-900 dark:text-slate-100 leading-snug">${art.title}</h4>
                                 <p class="text-slate-500 dark:text-slate-400 text-xs leading-relaxed line-clamp-3 mb-4">${art.summary}</p>
                             </div>
-                            <div class="p-6 pt-0 border-t border-slate-50 dark:border-slate-800 flex justify-between items-center mt-2">
-                                <span class="text-[11px] text-slate-400 font-medium">🕒 ${art.time}</span>
+                            <div class="p-5 pt-0 border-t border-slate-50 dark:border-slate-800 flex justify-between items-center mt-2">
+                                <span class="text-[10px] text-slate-400 font-medium">🕒 ${art.time}</span>
                                 <a href="/article/${art.id}?lang=${currentLang}" class="text-blue-600 dark:text-blue-400 text-xs font-bold hover:underline">
-                                    ${currentLang === 'ar' ? 'قراءة المزيد ←' : 'Read More →'}
+                                    قراءة الخبر ←
                                 </a>
                             </div>
                         </div>
@@ -272,7 +279,7 @@
         function renderArticles(articles, isArchive = false) {
             const t = translations[currentLang];
             if (!articles || articles.length === 0) {
-                document.getElementById('categoriesGrid').innerHTML = `<p class="text-slate-500 dark:text-slate-400 col-span-3 text-center py-10">${currentLang === 'ar' ? 'لا توجد أخبار متاحة حالياً.' : 'No news available currently.'}</p>`;
+                document.getElementById('categoriesGrid').innerHTML = `<p class="text-slate-500 dark:text-slate-400 col-span-3 text-center py-10">لا توجد أخبار متاحة حالياً.</p>`;
                 return;
             }
 
@@ -281,18 +288,21 @@
                 const main = articles[0];
                 const catKey = (main.category || 'world').toLowerCase().trim();
                 const catObj = categoryNames[catKey] || { ar: catKey, en: catKey };
+                
                 document.getElementById('mainArticle').innerHTML = `
-                    <div class="relative h-72 w-full">
-                        <img src="${main.image || 'https://images.unsplash.com/photo-1585829365295-ab7cd400c167?w=1000'}" class="w-full h-full object-cover" alt="Main news">
-                        <div class="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent"></div>
-                        <span class="absolute top-4 right-4 bg-blue-600 text-white text-xs font-bold px-3 py-1 rounded-full uppercase">${catObj[currentLang]}</span>
+                    <div class="relative h-80 w-full bg-slate-800">
+                        <img src="${main.image}" class="w-full h-full object-cover" alt="Main news">
+                        <div class="absolute inset-0 bg-gradient-to-t from-slate-950/90 via-slate-950/40 to-transparent"></div>
+                        <span class="absolute top-4 right-4 bg-blue-600 text-white text-xs font-bold px-3 py-1.5 rounded-full uppercase shadow">${catObj[currentLang]}</span>
                     </div>
-                    <div class="p-6">
-                        <h2 class="text-2xl font-black mt-1 mb-2 hover:text-blue-600 cursor-pointer text-slate-900 dark:text-slate-100 leading-snug">${main.title}</h2>
-                        <p class="text-slate-600 dark:text-slate-300 text-sm leading-relaxed mb-4">${main.summary}</p>
+                    <div class="p-8 flex flex-col justify-between flex-grow">
+                        <div>
+                            <h2 class="text-2xl md:text-3xl font-black mt-1 mb-3 hover:text-blue-500 cursor-pointer text-slate-900 dark:text-slate-100 leading-snug">${main.title}</h2>
+                            <p class="text-slate-600 dark:text-slate-300 text-base leading-relaxed mb-6">${main.summary}</p>
+                        </div>
                         <div class="flex justify-between items-center text-xs text-slate-400 border-t dark:border-slate-800 pt-4">
                             <span>🕒 ${main.time}</span>
-                            <a href="/article/${main.id}?lang=${currentLang}" class="bg-blue-600 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-blue-700 transition shadow">
+                            <a href="/article/${main.id}?lang=${currentLang}" class="bg-blue-600 text-white px-5 py-2.5 rounded-xl text-xs font-bold hover:bg-blue-700 transition shadow">
                                 ${t.readMore}
                             </a>
                         </div>
@@ -305,11 +315,12 @@
                     const ck = (art.category || 'world').toLowerCase().trim();
                     const c = categoryNames[ck] || { ar: ck, en: ck };
                     mostRead.innerHTML += `
-                        <article class="border-b border-slate-100 dark:border-slate-800 pb-3 last:border-b-0">
-                            <span class="text-xs text-blue-600 dark:text-blue-400 font-bold">${c[currentLang]}</span>
-                            <h4 class="font-bold text-sm text-slate-800 dark:text-slate-200 hover:text-blue-600 cursor-pointer mt-1">
+                        <article class="border-b border-slate-100 dark:border-slate-800 pb-4 last:border-b-0">
+                            <span class="text-xs text-blue-600 dark:text-blue-400 font-bold uppercase">${c[currentLang]}</span>
+                            <h4 class="font-bold text-sm text-slate-800 dark:text-slate-200 hover:text-blue-500 cursor-pointer mt-1 leading-snug">
                                 <a href="/article/${art.id}?lang=${currentLang}">${art.title}</a>
                             </h4>
+                            <span class="text-[10px] text-slate-400 mt-1 block">🕒 ${art.time}</span>
                         </article>
                     `;
                 });
@@ -317,15 +328,15 @@
 
             const grid = document.getElementById('categoriesGrid');
             grid.innerHTML = '';
-            const targetList = isArchive ? articles : articles.slice(1);
+            const targetList = isArchive ? articles : articles.slice(5);
             
             targetList.forEach(art => {
                 const ck = (art.category || 'world').toLowerCase().trim();
                 const c = categoryNames[ck] || { ar: ck, en: ck };
                 grid.innerHTML += `
                     <div class="bg-white dark:bg-slate-900 rounded-2xl shadow-md border border-slate-100 dark:border-slate-800 overflow-hidden hover:shadow-xl transition flex flex-col justify-between">
-                        <div class="relative h-48 w-full">
-                            <img src="${art.image || 'https://images.unsplash.com/photo-1585829365295-ab7cd400c167?w=1000'}" class="w-full h-full object-cover" alt="Article">
+                        <div class="relative h-48 w-full bg-slate-800">
+                            <img src="${art.image}" class="w-full h-full object-cover" alt="Article">
                             <div class="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent"></div>
                             <span class="absolute top-3 right-3 bg-blue-600 text-white text-[10px] font-bold px-2.5 py-0.5 rounded-full uppercase">${c[currentLang]}</span>
                         </div>
@@ -355,7 +366,7 @@
                 const cObj = categoryNames[cat] || { ar: cat, en: cat };
                 document.getElementById('sectionTitle').innerText = cObj[currentLang];
                 const filtered = allArticles.filter(a => (a.category || '').toLowerCase().trim() === cat);
-                renderArticles(filtered);
+                renderArticles(filtered, true);
             }
         }
 
