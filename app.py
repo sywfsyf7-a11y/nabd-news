@@ -14,6 +14,18 @@ if API_KEY:
 NEWS_CACHE = {"ar": {"time": None, "data": []}, "en": {"time": None, "data": []}}
 NEWS_ARCHIVE = {"ar": [], "en": []}
 
+# أسماء الأقسام المترجمة والمحسنة
+CATEGORY_NAMES = {
+    "world": {"ar": "🌍 أخبار العالم", "en": "🌍 World News"},
+    "politics": {"ar": "🏛️ سياسة ودبلوماسية", "en": "🏛️ Politics"},
+    "economy": {"ar": "📈 اقتصاد وأسواق", "en": "📈 Economy"},
+    "tech": {"ar": "💻 تكنولوجيا وذكاء اصطناعي", "en": "💻 Tech & AI"},
+    "gaming": {"ar": "🎮 ألعاب وجيمنج", "en": "🎮 Gaming"},
+    "sports": {"ar": "⚽ رياضة عالمية", "en": "⚽ Sports"},
+    "science": {"ar": "🧬 علوم وفضاء", "en": "🧬 Science"},
+    "culture": {"ar": "🎬 ثقافة وفن", "en": "🎬 Culture"},
+}
+
 
 def process_with_gemini(feed_entries, lang):
   model = genai.GenerativeModel("gemini-1.5-flash")
@@ -25,20 +37,20 @@ def process_with_gemini(feed_entries, lang):
     now_str = datetime.now().strftime("%Y-%m-%d | %H:%M")
     day_str = datetime.now().strftime("%A")
 
-    # Prompt 100% in English for maximum accuracy and speed
+    # Prompt متطور يمنع التكرار تماماً بين الملخص والمقال
     prompt = f"""
-        You are a professional global news editor. Analyze and process this news article for language '{lang}':
-        Title: {raw_title}
-        Summary: {raw_summary}
+        You are an expert news writer. Process this article for target language '{lang}':
+        Raw Title: {raw_title}
+        Raw Summary: {raw_summary}
 
-        Requirements:
-        1. Formulate an engaging and professional title in language '{lang}'.
-        2. Write a clear, exciting two-line summary.
-        3. Write a detailed two-paragraph article body based on the news.
-        4. Choose strictly one category from this exact list: [world, politics, economy, tech, gaming, sports, science, culture].
+        Strict Rules:
+        1. "title": Catchy, professional news headline in language '{lang}'.
+        2. "summary": A concise 2-sentence summary highlighting key facts.
+        3. "content": Write 3 FULL paragraphs of detailed background analysis and story context in '{lang}'. DO NOT repeat or copy the sentences used in "summary". Start the content directly with deeper details and geopolitical/economic context.
+        4. "category": Select ONLY ONE from: [world, politics, economy, tech, gaming, sports, science, culture].
 
-        Return ONLY a clean JSON object without markdown formatting blocks:
-        {{"id": {idx + 1}, "title": "Generated Title", "summary": "Generated Summary", "content": "Generated 2-paragraph content", "category": "selected_category"}}
+        Output ONLY valid JSON format:
+        {{"id": {idx + 1}, "title": "Headline", "summary": "Short Summary", "content": "Paragraph 1\\n\\nParagraph 2\\n\\nParagraph 3", "category": "category_name"}}
         """
 
     try:
@@ -57,7 +69,8 @@ def process_with_gemini(feed_entries, lang):
           "title": raw_title,
           "summary": raw_summary,
           "content": (
-              f"{raw_summary}\n\nContinuous news coverage by Global Today network."
+              f"تفاصيل إضافية وتحليل شامل للأحداث:\n\n{raw_summary}\n\nتغطية"
+              " مستمرة ومحدثة عبر شبكة العالم اليوم."
           ),
           "category": "world",
           "time": f"{day_str} - {now_str}",
@@ -126,7 +139,13 @@ def read_article(article_id):
     )
 
   if not article:
-    return "Article not found", 404
+    return "الخبر غير موجود", 404
+
+  # الحصول على الاسم الأنيق للقسم
+  cat_key = article.get("category", "world")
+  cat_display = CATEGORY_NAMES.get(cat_key, {}).get(
+      lang, cat_key.capitalize()
+  )
 
   html_template = """
     <!DOCTYPE html>
@@ -134,13 +153,13 @@ def read_article(article_id):
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>{{ article.title }} | Global Today</title>
+        <title>{{ article.title }} | العالم اليوم</title>
         <script src="https://cdn.tailwindcss.com"></script>
     </head>
     <body class="bg-gray-100 font-sans text-gray-900">
         <header class="bg-slate-900 text-white p-4 border-b border-slate-800">
             <div class="container mx-auto flex justify-between items-center">
-                <a href="/" class="text-2xl font-black text-blue-500">Global Today</a>
+                <a href="/" class="text-2xl font-black text-blue-500">العالم اليوم</a>
                 <a href="/" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-xs font-bold">
                     {{ '← العودة للرئيسية' if lang == 'ar' else '← Back to Home' }}
                 </a>
@@ -148,14 +167,28 @@ def read_article(article_id):
         </header>
         <main class="container mx-auto px-4 py-10 max-w-4xl">
             <div class="bg-white rounded-2xl shadow-lg border border-gray-200 p-8">
-                <span class="bg-blue-100 text-blue-800 text-xs font-bold px-3 py-1 rounded-full uppercase">{{ article.category }}</span>
-                <h1 class="text-3xl font-black mt-4 mb-4 text-slate-900 leading-snug">{{ article.title }}</h1>
+                <!-- عرض اسم القسم الكامل والأنيق بدل الكلمة الإنجليزية المفردة -->
+                <span class="bg-blue-100 text-blue-800 text-xs font-bold px-3 py-1.5 rounded-full inline-block mb-3">
+                    {{ cat_display }}
+                </span>
+                
+                <h1 class="text-3xl font-black mb-4 text-slate-900 leading-snug">{{ article.title }}</h1>
+                
                 <div class="text-xs text-gray-500 pb-6 mb-6 border-b border-gray-100 flex items-center gap-2">
-                    <span>🕒 {{ article.time }}</span> • <span>Editorial Team</span>
+                    <span>🕒 {{ article.time }}</span> • <span>الفريق الإخباري الذكي</span>
                 </div>
+                
                 <div class="text-gray-700 text-lg leading-relaxed space-y-6">
-                    <p class="font-semibold text-gray-900 bg-blue-50 p-4 rounded-xl border-r-4 border-blue-600">{{ article.summary }}</p>
-                    <div class="whitespace-pre-line text-slate-800 leading-8">{{ article.content }}</div>
+                    <!-- الملخص المنهجي والمستقل -->
+                    <div class="bg-blue-50 p-5 rounded-xl border-r-4 border-blue-600">
+                        <h4 class="text-xs font-bold text-blue-700 mb-1 uppercase tracking-wider">{{ 'الملخص التنفيذي' if lang == 'ar' else 'Executive Summary' }}</h4>
+                        <p class="font-semibold text-gray-900 text-base leading-snug">{{ article.summary }}</p>
+                    </div>
+
+                    <!-- التفاصيل العميقة والمستقلة بأسلوب صحفي ممتع -->
+                    <div class="whitespace-pre-line text-slate-800 leading-8 text-base">
+                        {{ article.content }}
+                    </div>
                 </div>
             </div>
         </main>
@@ -163,7 +196,7 @@ def read_article(article_id):
     </html>
     """
   return render_template_string(
-      html_template, article=article, lang=lang
+      html_template, article=article, lang=lang, cat_display=cat_display
   )
 
 
