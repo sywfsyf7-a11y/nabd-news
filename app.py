@@ -81,9 +81,10 @@ def process_with_gemini(feed_entries, lang):
 
 def fetch_and_process_news(lang="ar"):
   now = datetime.now()
+  # تم تعديل الكاش ليصبح دقيقة واحدة فقط لتسريع التطوير والتجربة المباشرة
   if (
       NEWS_CACHE[lang]["time"]
-      and (now - NEWS_CACHE[lang]["time"]) < timedelta(hours=1)
+      and (now - NEWS_CACHE[lang]["time"]) < timedelta(minutes=1)
       and NEWS_CACHE[lang]["data"]
   ):
     return NEWS_CACHE[lang]["data"]
@@ -141,7 +142,6 @@ def read_article(article_id):
   if not article:
     return "الخبر غير موجود", 404
 
-  # الحصول على الاسم الأنيق للقسم
   cat_key = article.get("category", "world")
   cat_display = CATEGORY_NAMES.get(cat_key, {}).get(
       lang, cat_key.capitalize()
@@ -167,7 +167,6 @@ def read_article(article_id):
         </header>
         <main class="container mx-auto px-4 py-10 max-w-4xl">
             <div class="bg-white rounded-2xl shadow-lg border border-gray-200 p-8">
-                <!-- عرض اسم القسم الكامل والأنيق بدل الكلمة الإنجليزية المفردة -->
                 <span class="bg-blue-100 text-blue-800 text-xs font-bold px-3 py-1.5 rounded-full inline-block mb-3">
                     {{ cat_display }}
                 </span>
@@ -179,13 +178,11 @@ def read_article(article_id):
                 </div>
                 
                 <div class="text-gray-700 text-lg leading-relaxed space-y-6">
-                    <!-- الملخص المنهجي والمستقل -->
                     <div class="bg-blue-50 p-5 rounded-xl border-r-4 border-blue-600">
                         <h4 class="text-xs font-bold text-blue-700 mb-1 uppercase tracking-wider">{{ 'الملخص التنفيذي' if lang == 'ar' else 'Executive Summary' }}</h4>
                         <p class="font-semibold text-gray-900 text-base leading-snug">{{ article.summary }}</p>
                     </div>
 
-                    <!-- التفاصيل العميقة والمستقلة بأسلوب صحفي ممتع -->
                     <div class="whitespace-pre-line text-slate-800 leading-8 text-base">
                         {{ article.content }}
                     </div>
