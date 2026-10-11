@@ -4,7 +4,7 @@ import os
 import math
 import random
 import psycopg2
-from flask import Flask, jsonify, render_template_string, request, send_from_directory
+from flask import Flask, jsonify, render_template_string, request
 import feedparser
 import google.generativeai as genai
 
@@ -38,7 +38,7 @@ def init_db():
             return
         cursor = conn.cursor()
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS ai_newsroom_pro_v2 (
+            CREATE TABLE IF NOT EXISTS ai_newsroom_pro_v3 (
                 id SERIAL PRIMARY KEY,
                 lang TEXT,
                 title TEXT,
@@ -141,7 +141,7 @@ def save_article_to_db(art):
     try:
         cursor = conn.cursor()
         cursor.execute("""
-            INSERT INTO ai_newsroom_pro_v2 (lang, title, summary, content, category, image, time, read_time)
+            INSERT INTO ai_newsroom_pro_v3 (lang, title, summary, content, category, image, time, read_time)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (lang, title) DO NOTHING
         """, (art['lang'], art['title'], art['summary'], art['content'], art['category'], art['image'], art['time'], art['read_time']))
@@ -157,7 +157,7 @@ def get_articles_from_db(lang):
         return []
     try:
         cursor = conn.cursor()
-        cursor.execute('SELECT id, lang, title, summary, content, category, image, time, read_time, created_at FROM ai_newsroom_pro_v2 WHERE lang = %s ORDER BY id DESC', (lang,))
+        cursor.execute('SELECT id, lang, title, summary, content, category, image, time, read_time, created_at FROM ai_newsroom_pro_v3 WHERE lang = %s ORDER BY id DESC', (lang,))
         rows = cursor.fetchall()
         cursor.close()
         conn.close()
@@ -175,7 +175,6 @@ def get_articles_from_db(lang):
 def fetch_and_process_news(lang="ar"):
     articles = get_articles_from_db(lang)
     
-    # إذا كانت القواعد فيها أخبار ولم تمضِ 30 دقيقة، نرجعها فوراً
     if articles and len(articles) >= 5:
         last_time = articles[0].get("created_at")
         if last_time and (datetime.now() - last_time) < timedelta(minutes=30):
@@ -199,7 +198,6 @@ def fetch_and_process_news(lang="ar"):
         raw_title = entry.get("title", "خبر عاجل")
         raw_summary = entry.get("summary", "تغطية إخبارية مستمرة.")
         
-        # تنظيف الـ HTML إن وجد في الملخص
         if "<" in raw_summary and ">" in raw_summary:
             import re
             raw_summary = re.sub('<[^<]+?>', '', raw_summary)
@@ -219,7 +217,6 @@ def fetch_and_process_news(lang="ar"):
             "read_time": calculate_read_time(detailed_content, lang)
         }
 
-        # محاولة التحسين بـ Gemini لكل خبر بشكل سريع
         if API_KEY:
             try:
                 model = genai.GenerativeModel("gemini-1.5-flash")
@@ -237,31 +234,119 @@ def fetch_and_process_news(lang="ar"):
             except Exception:
                 pass
 
-        # حفظ الخبر في قاعدة بيانات Supabase فوراً
         save_article_to_db(art)
 
     return get_articles_from_db(lang)
 
 @app.route("/")
 def home():
-    return send_from_directory(".", "index.html")
-
-@app.route("/api/news")
-def get_news():
     lang = request.args.get("lang", "ar")
+    selected_category = request.args.get("cat", "all")
+    
     articles = fetch_and_process_news(lang)
-    return jsonify({"lang": lang, "articles": articles})
+    
+    if selected_category != "all":
+        display_articles = [a for a in articles if a["category"] == selected_category]
+    else:
+        display_articles = articles
 
-@app.route("/api/archive")
-def get_archive():
-    lang = request.args.get("lang", "ar")
-    articles = get_articles_from_db(lang)
-    return jsonify({"lang": lang, "archive": articles})
+    site_title = "العالم اليوم" if lang == "ar" else "Global Today"
+    
+    home_template = """
+    <!DOCTYPE html>
+    <html lang="{{ lang }}" dir="{{ 'rtl' if lang == 'ar' else 'ltr' }}">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>{{ site_title }} - AI Newsroom</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+        <script> tailwind.config = { darkMode: 'class' } </script>
+    </head>
+    <body class="bg-slate-950 text-slate-100 font-sans min-h-screen">
+        <header class="bg-slate-900 border-b border-slate-800 p-4 sticky top-0 z-50 shadow-lg">
+            <div class="container mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
+                <div class="flex items-center gap-3">
+                    <a href="/" class="text-3xl font-black text-blue-500 tracking-wider">🌍 {{ site_title }}</a>
+                    <span class="text-xs bg-blue-900/50 text-blue-300 px-2.5 py-1 rounded-full border border-blue-700/50">AI Newsroom Pro</span>
+                </div>
+                <div class="flex items-center gap-3">
+                    <a href="/?lang={{ 'en' if lang == 'ar' else 'ar' }}" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl text-xs font-bold transition shadow">
+                        {{ 'English 🌐' if lang == 'ar' else 'عربي 🌐' }}
+                    </a>
+                </div>
+            </div>
+            <nav class="container mx-auto mt-4 flex flex-wrap gap-2 justify-center border-t border-slate-800/80 pt-3">
+                <a href="/?lang={{ lang }}" class="px-3 py-1.5 rounded-lg text-xs font-bold transition {{ 'bg-blue-600 text-white' if selected_category == 'all' else 'bg-slate-800 text-slate-300 hover:bg-slate-700' }}">
+                    {{ '⚡ كل الأخبار' if lang == 'ar' else '⚡ All News' }}
+                </a>
+                {% for key, cat in category_names.items() %}
+                <a href="/?lang={{ lang }}&cat={{ key }}" class="px-3 py-1.5 rounded-lg text-xs font-bold transition {{ 'bg-blue-600 text-white' if selected_category == key else 'bg-slate-800 text-slate-300 hover:bg-slate-700' }}">
+                    {{ cat[lang] }}
+                </a>
+                {% endfor %}
+            </nav>
+        </header>
+
+        <main class="container mx-auto px-4 py-8 max-w-7xl">
+            <!-- Breaking News -->
+            <div class="bg-blue-950/40 border border-blue-800/50 rounded-2xl p-4 mb-8 flex items-center gap-4 shadow-md">
+                <span class="bg-blue-600 text-white text-xs font-black px-3 py-1 rounded-full uppercase animate-pulse">🔥 عاجل</span>
+                <div class="overflow-hidden whitespace-nowrap">
+                    <p class="text-sm font-semibold text-blue-200 truncate">
+                        {{ articles[0].title if articles else ('جاري جلب أحدث تغطيات غرفة التحرير الذكية...' if lang == 'ar' else 'Fetching latest AI newsroom stories...') }}
+                    </p>
+                </div>
+            </div>
+
+            <h2 class="text-xl font-black mb-6 border-r-4 border-blue-600 pr-3 flex items-center justify-between">
+                <span>{{ '📰 التغطيات الإخبارية الحية' if lang == 'ar' else '📰 Live News Coverage' }}</span>
+                <span class="text-xs font-normal text-slate-400">({{ display_articles|length }} {{ 'خبر متاحة' if lang == 'ar' else 'stories' }})</span>
+            </h2>
+
+            {% if display_articles %}
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {% for art in display_articles %}
+                <div class="bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-xl flex flex-col justify-between hover:border-blue-600/50 transition duration-300">
+                    <div>
+                        <div class="relative h-48 w-full bg-slate-800 overflow-hidden">
+                            <img src="{{ art.image }}" alt="News" class="w-full h-full object-cover hover:scale-105 transition duration-500">
+                            <span class="absolute top-3 right-3 bg-blue-600 text-white text-[10px] font-black px-2.5 py-1 rounded-full shadow">
+                                {{ category_names.get(art.category, {}).get(lang, art.category) }}
+                            </span>
+                        </div>
+                        <div class="p-6">
+                            <div class="text-[11px] text-slate-400 mb-2 flex justify-between">
+                                <span>🕒 {{ art.time }}</span>
+                                <span class="text-blue-400 font-bold">⏱️ {{ art.read_time }}</span>
+                            </div>
+                            <h3 class="font-black text-lg mb-3 leading-snug line-clamp-2 hover:text-blue-400 transition">{{ art.title }}</h3>
+                            <p class="text-slate-400 text-sm leading-relaxed line-clamp-3 mb-4">{{ art.summary }}</p>
+                        </div>
+                    </div>
+                    <div class="p-6 pt-0">
+                        <a href="/article/{{ art.id }}?lang={{ lang }}" class="w-full block text-center bg-blue-600 hover:bg-blue-700 text-white py-2.5 rounded-xl font-bold text-xs transition shadow">
+                            {{ 'قراءة الخبر كاملاً ←' if lang == 'ar' else 'Read Full Story →' }}
+                        </a>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="text-center py-20 bg-slate-900/50 rounded-3xl border border-slate-800">
+                <p class="text-lg font-bold text-slate-400 mb-2">{{ 'لا توجد أخبار متاحة حالياً في هذا القسم.' if lang == 'ar' else 'No news available in this category.' }}</p>
+                <p class="text-xs text-slate-500">{{ 'يرجى الانتظار قليلاً أو إعادة تحميل الصفحة ليقوم نظام غرفة التحرير بسحب الأخبار.' if lang == 'ar' else 'Please wait or refresh to fetch stories.' }}</p>
+            </div>
+            {% endif %}
+        </main>
+    </body>
+    </html>
+    """
+    return render_template_string(home_template, articles=articles, display_articles=display_articles, lang=lang, selected_category=selected_category, category_names=CATEGORY_NAMES, site_title=site_title)
 
 @app.route("/article/<int:article_id>")
 def read_article(article_id):
     lang = request.args.get("lang", "ar")
-    articles = get_articles_from_db(lang)
+    articles = fetch_and_process_news(lang)
     article = next((a for a in articles if a["id"] == article_id), None)
 
     if not article:
@@ -273,7 +358,7 @@ def read_article(article_id):
     cat_display = CATEGORY_NAMES.get(cat_key, {}).get(lang, CATEGORY_NAMES["world"][lang])
     site_title = "العالم اليوم" if lang == "ar" else "Global Today"
 
-    html_template = """
+    article_template = """
     <!DOCTYPE html>
     <html lang="{{ lang }}" dir="{{ 'rtl' if lang == 'ar' else 'ltr' }}">
     <head>
@@ -284,20 +369,20 @@ def read_article(article_id):
         <script> tailwind.config = { darkMode: 'class' } </script>
         <style> #readingProgress { width: 0%; transition: width 0.1s ease-out; } </style>
     </head>
-    <body class="bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 font-sans transition-colors duration-300">
-        <div class="fixed top-0 left-0 right-0 h-1 bg-gray-200 dark:bg-slate-800 z-50">
+    <body class="bg-slate-950 text-slate-100 font-sans min-h-screen">
+        <div class="fixed top-0 left-0 right-0 h-1 bg-slate-800 z-50">
             <div id="readingProgress" class="h-full bg-blue-600"></div>
         </div>
-        <header class="bg-slate-900 border-b border-slate-800 text-white p-4 sticky top-1 z-40 shadow-md">
-            <div class="container mx-auto flex justify-between items-center">
-                <a href="/" class="text-2xl font-black text-blue-500 tracking-wide">{{ site_title }}</a>
-                <a href="/" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-xs font-bold transition">
+        <header class="bg-slate-900 border-b border-slate-800 p-4 sticky top-1 z-40 shadow-md">
+            <div class="container mx-auto flex justify-between items-center max-w-4xl">
+                <a href="/?lang={{ lang }}" class="text-2xl font-black text-blue-500 tracking-wide">{{ site_title }}</a>
+                <a href="/?lang={{ lang }}" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl text-xs font-bold transition shadow">
                     {{ '← العودة للرئيسية' if lang == 'ar' else '← Back to Home' }}
                 </a>
             </div>
         </header>
         <main class="container mx-auto px-4 py-10 max-w-4xl">
-            <article class="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl overflow-hidden border border-slate-200 dark:border-slate-800 mb-12">
+            <article class="bg-slate-900 rounded-3xl shadow-2xl overflow-hidden border border-slate-800 mb-12">
                 <div class="relative h-96 w-full bg-slate-800">
                     <img src="{{ article.image }}" alt="Article" class="w-full h-full object-cover">
                     <div class="absolute inset-0 bg-gradient-to-t from-slate-950/90 via-slate-950/40 to-transparent"></div>
@@ -309,16 +394,16 @@ def read_article(article_id):
                     </div>
                 </div>
                 <div class="p-8 md:p-12">
-                    <div class="text-xs text-slate-500 dark:text-slate-400 pb-6 mb-8 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center">
+                    <div class="text-xs text-slate-400 pb-6 mb-8 border-b border-slate-800 flex justify-between items-center">
                         <span>🕒 {{ article.time }}</span>
-                        <span class="bg-blue-50 dark:bg-slate-800 text-blue-600 font-bold px-2.5 py-0.5 rounded-md">⏱️ {{ article.read_time }}</span>
+                        <span class="bg-slate-800 text-blue-400 font-bold px-3 py-1 rounded-md">⏱️ {{ article.read_time }}</span>
                     </div>
-                    <div class="text-slate-800 dark:text-slate-200 text-lg leading-relaxed space-y-8">
-                        <div class="bg-blue-50/80 dark:bg-slate-800/80 p-6 rounded-2xl border-r-4 border-blue-600 shadow-sm">
-                            <h4 class="text-xs font-bold text-blue-600 mb-2 uppercase">{{ 'الملخص التنفيذي' if lang == 'ar' else 'Summary' }}</h4>
+                    <div class="text-slate-200 text-lg leading-relaxed space-y-8">
+                        <div class="bg-slate-800/80 p-6 rounded-2xl border-r-4 border-blue-600 shadow-sm">
+                            <h4 class="text-xs font-bold text-blue-400 mb-2 uppercase">{{ 'الملخص التنفيذي' if lang == 'ar' else 'Summary' }}</h4>
                             <p class="font-semibold text-base leading-relaxed">{{ article.summary }}</p>
                         </div>
-                        <div class="whitespace-pre-line text-slate-700 dark:text-slate-300 leading-9 text-lg">
+                        <div class="whitespace-pre-line text-slate-300 leading-9 text-lg">
                             {{ article.content }}
                         </div>
                     </div>
@@ -330,13 +415,13 @@ def read_article(article_id):
                 <h3 class="text-xl font-bold mb-6 border-r-4 border-blue-600 pr-3">{{ 'أخبار ذات صلة قد تعجبك:' if lang == 'ar' else 'Recommended Stories:' }}</h3>
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
                     {% for rec in recommended %}
-                    <div class="bg-white dark:bg-slate-900 rounded-2xl shadow-md border border-slate-100 dark:border-slate-800 overflow-hidden flex flex-col justify-between">
+                    <div class="bg-slate-900 rounded-2xl shadow-md border border-slate-800 overflow-hidden flex flex-col justify-between">
                         <div class="relative h-40 w-full">
                             <img src="{{ rec.image }}" class="w-full h-full object-cover" alt="Rec">
                         </div>
                         <div class="p-4 flex flex-col justify-between flex-grow">
-                            <h4 class="font-bold text-sm mb-2 line-clamp-2">{{ rec.title }}</h4>
-                            <a href="/article/{{ rec.id }}?lang={{ lang }}" class="text-blue-600 dark:text-blue-400 text-xs font-bold hover:underline mt-2 inline-block">
+                            <h4 class="font-bold text-sm mb-2 line-clamp-2 text-slate-200">{{ rec.title }}</h4>
+                            <a href="/article/{{ rec.id }}?lang={{ lang }}" class="text-blue-400 text-xs font-bold hover:underline mt-2 inline-block">
                                 {{ 'اقرأ المزيد ←' if lang == 'ar' else 'Read More →' }}
                             </a>
                         </div>
@@ -357,7 +442,7 @@ def read_article(article_id):
     </body>
     </html>
     """
-    return render_template_string(html_template, article=article, lang=lang, cat_display=cat_display, site_title=site_title, recommended=recommended)
+    return render_template_string(article_template, article=article, lang=lang, cat_display=cat_display, site_title=site_title, recommended=recommended)
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
