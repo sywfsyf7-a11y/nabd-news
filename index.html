@@ -3,27 +3,28 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>العالم  اليوم | شبكة إخبارية شاملة 🌐</title>
+    <title>العالم اليوم | شبكة إخبارية شاملة 🌐</title>
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="bg-gray-100 font-sans text-gray-900">
 
-    <!-- 1. شريط العاجل -->
+    <!-- شريط العاجل -->
     <div class="bg-red-700 text-white text-sm py-2 px-4 flex items-center justify-between shadow-inner">
         <div class="flex items-center space-x-2 space-x-reverse w-full">
             <span class="bg-black text-white px-3 py-0.5 rounded font-bold animate-pulse text-xs">🔴 عاجل</span>
             <marquee scrollamount="6" class="font-medium">
-                تحديثات فورية تسحب وتصنف تلقائياً عبر الذكاء الاصطناعي • تغطية شاملة للأخبار العالمية والرياضية والتقنية والجيمنج 24/7...
+                تحديثات فورية ومستمرة تغطي السياسة، الاقتصاد، التكنولوجيا، الجيمنج والعلوم عبر الذكاء الاصطناعي 24/7...
             </marquee>
         </div>
     </div>
 
-    <!-- 2. الهيدر الشامل -->
+    <!-- الهيدر الشامل -->
     <header class="bg-slate-900 text-white border-b border-slate-800 sticky top-0 z-50">
         <div class="container mx-auto px-4 py-4 flex flex-wrap justify-between items-center gap-4">
             <div>
-                <h1 class="text-3xl font-black tracking-wide text-blue-500 cursor-pointer" onclick="filterCategory('all')">العالم<span class="text-white">اليوم</span></h1>
-                <p class="text-xs text-gray-400 mt-1">تغطية إخبارية شاملة على مدار الساعة 24/7</p>
+                <!-- الشعار مع المسافة الصحيحة -->
+                <h1 class="text-3xl font-black tracking-wide text-blue-500 cursor-pointer" onclick="filterCategory('all')">العالم اليوم</h1>
+                <p class="text-xs text-gray-400 mt-1">تغطية إخبارية عالمية شاملة على مدار الساعة</p>
             </div>
             
             <div class="flex items-center gap-3">
@@ -36,30 +37,30 @@
             </div>
         </div>
 
-        <!-- 3. قائمة التصنيفات التفاعلية -->
+        <!-- قائمة الأقسام العالمية الشاملة -->
         <nav class="bg-slate-800 text-sm font-semibold border-t border-slate-700">
-            <div class="container mx-auto px-4 flex space-x-6 space-x-reverse overflow-x-auto py-3 no-scrollbar">
+            <div class="container mx-auto px-4 flex space-x-5 space-x-reverse overflow-x-auto py-3 no-scrollbar">
                 <button onclick="filterCategory('all')" class="hover:text-blue-400 transition whitespace-nowrap text-blue-400">الرئيسية</button>
                 <button onclick="filterCategory('world')" class="hover:text-blue-400 transition whitespace-nowrap">🌍 أخبار العالم</button>
-                <button onclick="filterCategory('politics')" class="hover:text-blue-400 transition whitespace-nowrap">🏛️ سياسة</button>
-                <button onclick="filterCategory('sports')" class="hover:text-blue-400 transition whitespace-nowrap">⚽ رياضة</button>
-                <button onclick="filterCategory('tech')" class="hover:text-blue-400 transition whitespace-nowrap">💻 تكنولوجيا وعلوم</button>
-                <button onclick="filterCategory('economy')" class="hover:text-blue-400 transition whitespace-nowrap">📈 اقتصاد وأعمال</button>
-                <button onclick="filterCategory('culture')" class="hover:text-blue-400 transition whitespace-nowrap">🎬 ثقافة وفن</button>
+                <button onclick="filterCategory('politics')" class="hover:text-blue-400 transition whitespace-nowrap">🏛️ سياسة ودبلوماسية</button>
+                <button onclick="filterCategory('economy')" class="hover:text-blue-400 transition whitespace-nowrap">📈 اقتصاد وأسواق</button>
+                <button onclick="filterCategory('tech')" class="hover:text-blue-400 transition whitespace-nowrap">💻 تكنولوجيا وذكاء اصطناعي</button>
                 <button onclick="filterCategory('gaming')" class="hover:text-blue-400 transition whitespace-nowrap">🎮 ألعاب وجيمنج</button>
+                <button onclick="filterCategory('sports')" class="hover:text-blue-400 transition whitespace-nowrap">⚽ رياضة عالمية</button>
+                <button onclick="filterCategory('science')" class="hover:text-blue-400 transition whitespace-nowrap">🧬 علوم وفضاء</button>
+                <button onclick="filterCategory('culture')" class="hover:text-blue-400 transition whitespace-nowrap">🎬 ثقافة وفن</button>
             </div>
         </nav>
     </header>
 
-    <!-- 4. المحتوى الرئيسي -->
+    <!-- المحتوى الرئيسي -->
     <main class="container mx-auto px-4 py-8">
         
         <div id="loading" class="text-center py-20 text-xl font-bold text-blue-600 animate-pulse">
-            ⏳ جاري سحب وتحليل الأخبار بالذكاء الاصطناعي...
+            ⏳ جاري سحب وتصنيف الأخبار العالمية بالذكاء الاصطناعي...
         </div>
 
         <div id="mainContent" class="hidden">
-            <!-- الخبر الرئيسي -->
             <div id="mainArticleSection" class="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-12">
                 <div id="mainArticle" class="lg:col-span-2 bg-white rounded-xl shadow-md overflow-hidden border border-gray-200"></div>
 
@@ -71,14 +72,13 @@
                 </div>
             </div>
 
-            <!-- شبكة الأخبار والأقسام -->
             <h3 id="sectionTitle" class="text-2xl font-bold mb-6 text-slate-800 border-r-4 border-blue-600 pr-3">📰 تغطيات شاملة</h3>
             <div id="categoriesGrid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-12"></div>
         </div>
 
     </main>
 
-    <!-- 5. الفوتر -->
+    <!-- الفوتر -->
     <footer class="bg-slate-900 text-gray-400 text-sm py-10 border-t border-slate-800">
         <div class="text-center text-xs text-gray-400">
             جميع الحقوق محفوظة &copy; 2026 - شبكة العالم اليوم الإخبارية
@@ -91,12 +91,13 @@
 
         const categoryNames = {
             'world': '🌍 أخبار العالم',
-            'politics': '🏛️ سياسة',
-            'sports': '⚽ رياضة',
-            'tech': '💻 تكنولوجيا وعلوم',
-            'economy': '📈 اقتصاد وأعمال',
-            'culture': '🎬 ثقافة وفن',
-            'gaming': '🎮 ألعاب وجيمنج'
+            'politics': '🏛️ سياسة ودبلوماسية',
+            'economy': '📈 اقتصاد وأسواق',
+            'tech': '💻 تكنولوجيا وذكاء اصطناعي',
+            'gaming': '🎮 ألعاب وجيمنج',
+            'sports': '⚽ رياضة عالمية',
+            'science': '🧬 علوم وفضاء',
+            'culture': '🎬 ثقافة وفن'
         };
 
         async function fetchNews() {
@@ -123,7 +124,6 @@
                 return;
             }
 
-            // الخبر الرئيسي
             const main = articles[0];
             document.getElementById('mainArticle').innerHTML = `
                 <img src="https://images.unsplash.com/photo-1585829365295-ab7cd400c167?w=1000" class="w-full h-80 object-cover" alt="خبر رئيسي">
@@ -140,7 +140,6 @@
                 </div>
             `;
 
-            // الأكثر قراءة
             const mostRead = document.getElementById('mostReadList');
             mostRead.innerHTML = '';
             articles.slice(1, 5).forEach(art => {
@@ -154,7 +153,6 @@
                 `;
             });
 
-            // باقي الأخبار
             const grid = document.getElementById('categoriesGrid');
             grid.innerHTML = '';
             articles.slice(1).forEach(art => {
