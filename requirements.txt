@@ -1,4 +1,4 @@
 Flask
 feedparser
 google-generativeai
-gunicorn
+psycopg2-binary
