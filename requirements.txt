@@ -2,4 +2,3 @@ Flask
 psycopg2-binary
 feedparser
 google-generativeai
-apscheduler
