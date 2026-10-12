@@ -8,11 +8,10 @@ import psycopg2
 from flask import Flask, jsonify, render_template_string, request
 import feedparser
 import google.generativeai as genai
-from apscheduler.schedulers.background import BackgroundScheduler
 
 app = Flask(__name__)
 
-# إجبار الاتصال على IPv4 فقط لمنع مشاكل الشبكة في السحابة
+# إجبار الاتصال على IPv4 لمنع مشاكل الشبكة
 old_getaddrinfo = socket.getaddrinfo
 def force_ipv4_getaddrinfo(*args, **kwargs):
     responses = old_getaddrinfo(*args, **kwargs)
@@ -47,7 +46,7 @@ def init_db():
             return
         cursor = conn.cursor()
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS ai_newsroom_v13 (
+            CREATE TABLE IF NOT EXISTS ai_newsroom_v14 (
                 id SERIAL PRIMARY KEY,
                 lang TEXT,
                 title TEXT,
@@ -106,7 +105,7 @@ def save_article_to_db(art):
     try:
         cursor = conn.cursor()
         cursor.execute("""
-            INSERT INTO ai_newsroom_v13 (lang, title, summary, content, category, image, time, read_time)
+            INSERT INTO ai_newsroom_v14 (lang, title, summary, content, category, image, time, read_time)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (lang, title) DO NOTHING
         """, (art['lang'], art['title'], art['summary'], art['content'], art['category'], art['image'], art['time'], art['read_time']))
@@ -116,51 +115,38 @@ def save_article_to_db(art):
     except Exception as e:
         print(f"DB Save Error: {e}")
 
-# 🤖 غُرفة تحكم الذكاء الاصطناعي (تولد خبراً جديداً تلقائياً في الخلفية)
-def generate_ai_news_job():
+# دالة توليد الأخبار الفورية بواسطة الذكاء الاصطناعي عند الحاجة
+def generate_fresh_ai_news(lang="ar"):
     if not API_KEY:
         return
-    
     categories = ["tech", "economy", "gaming", "politics", "science", "sports", "world"]
-    selected_cat = random.choice(categories)
     now_str = datetime.now().strftime("%Y-%m-%d | %H:%M")
     day_str = datetime.now().strftime("%A")
 
-    for lang in ["ar", "en"]:
+    for cat in categories[:3]: # توليد 3 أقسام رئيسية لتعبئة الموقع فوراً
         try:
             model = genai.GenerativeModel("gemini-1.5-flash")
-            prompt = f"Act as an international news agency editor. Generate a brand new, realistic breaking news article for category '{selected_cat}' in language '{lang}'. Return strict JSON only with keys: title, summary, content."
-            response = model.generate_content(prompt, request_options={"timeout": 8})
+            prompt = f"Act as an international news agency editor. Generate a realistic breaking news article for category '{cat}' in language '{lang}'. Return strict JSON only with keys: title, summary, content."
+            response = model.generate_content(prompt, request_options={"timeout": 6})
             clean_text = response.text.replace("```json", "").replace("```", "").strip()
             data = json.loads(clean_text)
             
-            image_list = CATEGORY_HD_COLLECTIONS.get(selected_cat, CATEGORY_HD_COLLECTIONS["world"])
+            image_list = CATEGORY_HD_COLLECTIONS.get(cat, CATEGORY_HD_COLLECTIONS["world"])
             hd_image = random.choice(image_list)
 
             art = {
                 "lang": lang,
-                "title": data.get("title", f"خبر جديد في قسم {selected_cat}"),
-                "summary": data.get("summary", "تغطية مستمرة لأحدث التطورات العالمية."),
-                "content": data.get("content", "تفاصيل كاملة تحللها غرفة التحكّم بالذكاء الاصطناعي."),
-                "category": selected_cat,
+                "title": data.get("title", "خبر عاجل جديد"),
+                "summary": data.get("summary", "تغطية مستمرة لأحدث المستجدات."),
+                "content": data.get("content", "التفاصيل الكاملة للخبر يتابعها موقعنا أول بأول."),
+                "category": cat,
                 "image": hd_image,
                 "time": f"{day_str} - {now_str}",
                 "read_time": calculate_read_time(data.get("content", ""), lang)
             }
             save_article_to_db(art)
         except Exception as e:
-            print(f"AI Generation Error ({lang}): {e}")
-
-# تشغيل المهمة التلقائية فور تشغيل السيرفر وكل 5 دقائق
-scheduler = BackgroundScheduler()
-scheduler.add_job(func=generate_ai_news_job, trigger="interval", minutes=5)
-scheduler.start()
-
-# توليد الدفعة الأولى عند التشغيل مباشرة
-try:
-    generate_ai_news_job()
-except Exception:
-    pass
+            print(f"Gen Error: {e}")
 
 def get_articles_from_db(lang="ar"):
     conn = get_db_connection()
@@ -168,8 +154,21 @@ def get_articles_from_db(lang="ar"):
         return []
     try:
         cursor = conn.cursor()
-        cursor.execute('SELECT id, lang, title, summary, content, category, image, time, read_time FROM ai_newsroom_v13 WHERE lang = %s ORDER BY id DESC', (lang,))
+        cursor.execute('SELECT id, lang, title, summary, content, category, image, time, read_time FROM ai_newsroom_v14 WHERE lang = %s ORDER BY id DESC', (lang,))
         rows = cursor.fetchall()
+        
+        # إذا كانت القاعدة فارغة لهذه اللغة، نطلب من Gemini توليد أخبار فورية حالاً
+        if not rows:
+            cursor.close()
+            conn.close()
+            generate_fresh_ai_news(lang)
+            conn = get_db_connection()
+            if not conn:
+                return []
+            cursor = conn.cursor()
+            cursor.execute('SELECT id, lang, title, summary, content, category, image, time, read_time FROM ai_newsroom_v14 WHERE lang = %s ORDER BY id DESC', (lang,))
+            rows = cursor.fetchall()
+
         cursor.close()
         conn.close()
 
@@ -198,8 +197,7 @@ def home():
 
     site_title = "نبض العالم" if lang == "ar" else "World Pulse"
     breaking_label = "🔥 عاجل" if lang == "ar" else "🔥 BREAKING"
-    
-    top_breaking_news = articles[0]["title"] if articles else ("جاري إعداد التغطيات الحية عبر الذكاء الاصطناعي..." if lang == "ar" else "Generating live AI coverage...")
+    top_breaking_news = articles[0]["title"] if articles else ("جاري تحميل التغطيات الحية..." if lang == "ar" else "Loading live coverage...")
 
     home_template = """
     <!DOCTYPE html>
@@ -280,7 +278,7 @@ def home():
             </div>
             {% else %}
             <div class="text-center py-20 bg-slate-900/50 rounded-3xl border border-slate-800">
-                <p class="text-lg font-bold text-slate-400 mb-2">{{ 'جاري توليد المحتوى الحَي بواسطة غرفة التحرير...' if lang == 'ar' else 'Generating news content...' }}</p>
+                <p class="text-lg font-bold text-slate-400 mb-2">{{ 'جاري توليد الأخبار الحية...' if lang == 'ar' else 'Generating news...' }}</p>
             </div>
             {% endif %}
         </main>
@@ -299,7 +297,6 @@ def read_article(article_id):
         return "الخبر غير موجود / Article Not Found", 404
 
     recommended = [a for a in articles if a["category"] == article["category"] and a["id"] != article_id][:3]
-
     cat_key = str(article.get("category", "world")).lower().strip()
     cat_display = CATEGORY_NAMES.get(cat_key, {}).get(lang, CATEGORY_NAMES["world"][lang])
     site_title = "نبض العالم" if lang == "ar" else "World Pulse"
@@ -313,13 +310,9 @@ def read_article(article_id):
         <title>{{ article.title }} | {{ site_title }}</title>
         <script src="https://cdn.tailwindcss.com"></script>
         <script> tailwind.config = { darkMode: 'class' } </script>
-        <style> #readingProgress { width: 0%; transition: width 0.1s ease-out; } </style>
     </head>
     <body class="bg-slate-950 text-slate-100 font-sans min-h-screen">
-        <div class="fixed top-0 left-0 right-0 h-1 bg-slate-800 z-50">
-            <div id="readingProgress" class="h-full bg-blue-600"></div>
-        </div>
-        <header class="bg-slate-900 border-b border-slate-800 p-4 sticky top-1 z-40 shadow-md">
+        <header class="bg-slate-900 border-b border-slate-800 p-4 sticky top-0 z-40 shadow-md">
             <div class="container mx-auto flex justify-between items-center max-w-4xl">
                 <a href="/?lang={{ lang }}" class="text-2xl font-black text-blue-500 tracking-wide">{{ site_title }}</a>
                 <a href="/?lang={{ lang }}" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl text-xs font-bold transition shadow">
