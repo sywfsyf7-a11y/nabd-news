@@ -1,17 +1,15 @@
 from datetime import datetime
 import json
 import os
-import math
 import random
 import socket
 import psycopg2
-from flask import Flask, jsonify, render_template_string, request
-import feedparser
+from flask import Flask, render_template_string, request
 import google.generativeai as genai
 
 app = Flask(__name__)
 
-# إجبار الاتصال على IPv4 لمنع مشاكل الشبكة
+# إجبار الاتصال على IPv4 لمنع مشاكل السحابة
 old_getaddrinfo = socket.getaddrinfo
 def force_ipv4_getaddrinfo(*args, **kwargs):
     responses = old_getaddrinfo(*args, **kwargs)
@@ -34,9 +32,9 @@ def get_db_connection():
         url = DATABASE_URL
         if url.startswith("postgres://"):
             url = url.replace("postgres://", "postgresql://", 1)
-        return psycopg2.connect(url, sslmode='require', connect_timeout=10)
+        return psycopg2.connect(url, sslmode='require', connect_timeout=5)
     except Exception as e:
-        print(f"DB Connection Error: {e}")
+        print(f"DB Error: {e}")
         return None
 
 def init_db():
@@ -46,7 +44,7 @@ def init_db():
             return
         cursor = conn.cursor()
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS ai_newsroom_v14 (
+            CREATE TABLE IF NOT EXISTS ai_newsroom_v15 (
                 id SERIAL PRIMARY KEY,
                 lang TEXT,
                 title TEXT,
@@ -56,7 +54,6 @@ def init_db():
                 image TEXT,
                 time TEXT,
                 read_time TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE(lang, title)
             )
         """)
@@ -82,91 +79,72 @@ CATEGORY_NAMES = {
     "culture": {"ar": "🎬 ثقافة وفن وترفيه", "en": "🎬 Culture & Arts"}
 }
 
-CATEGORY_HD_COLLECTIONS = {
-    "politics": ["https://images.unsplash.com/photo-1540910419892-4a36d2c3266c?auto=format&fit=crop&w=1200&q=80", "https://images.unsplash.com/photo-1529107386315-e1a2ed48a620?auto=format&fit=crop&w=1200&q=80"],
-    "world": ["https://images.unsplash.com/photo-1526778548025-fa2f459cd5c1?auto=format&fit=crop&w=1200&q=80", "https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&w=1200&q=80"],
-    "economy": ["https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?auto=format&fit=crop&w=1200&q=80", "https://images.unsplash.com/photo-1590283603385-17ffb3a7f29f?auto=format&fit=crop&w=1200&q=80"],
-    "tech": ["https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=1200&q=80", "https://images.unsplash.com/photo-1485827404703-89b55fcc595e?auto=format&fit=crop&w=1200&q=80"],
-    "gaming": ["https://images.unsplash.com/photo-1538481199705-c710c4e965fc?auto=format&fit=crop&w=1200&q=80", "https://images.unsplash.com/photo-1511512578047-dfb367046420?auto=format&fit=crop&w=1200&q=80"],
-    "sports": ["https://images.unsplash.com/photo-1508098682722-e99c43a406b2?auto=format&fit=crop&w=1200&q=80", "https://images.unsplash.com/photo-1461896836934-ffe607ba8211?auto=format&fit=crop&w=1200&q=80"],
-    "science": ["https://images.unsplash.com/photo-1507668077129-56e32842fceb?auto=format&fit=crop&w=1200&q=80"],
-    "culture": ["https://images.unsplash.com/photo-1485846234645-a62644f84728?auto=format&fit=crop&w=1200&q=80"]
+DEFAULT_FALLBACK_ARTICLES = {
+    "ar": [
+        {
+            "id": 1,
+            "title": "تطورات متسارعة في تقنيات الذكاء الاصطناعي وأنظمة الحوسبة المتقدمة",
+            "summary": "تسعى كبرى الشركات التقنية لدمج نماذج التعلم العميق في البنى التحتية الرقمية لتعزيز الأمان والسرعة.",
+            "content": "تشهد الأسواق التقنية العالمية طفرة غير مسبوقة بفضل انتشار الأدوات البرمجية المدارة بالذكاء الاصطناعي. تساهم هذه الابتكارات في تسهيل تحليل البيانات الضخمة، ودعم منصات الأمن السيبراني في رصد الثغرات والتصدي لها بفاعلية.",
+            "category": "tech",
+            "image": "https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=1200&q=80",
+            "time": "اليوم - تحديث مستمر",
+            "read_time": "3 دقائق قراءة"
+        },
+        {
+            "id": 2,
+            "title": "تحركات حذرة في الأسواق المالية بالتزامن مع ترقب مؤشرات التضخم",
+            "summary": "تتفاعل أسواق العملات والأسهم مع التحديثات الاقتصادية الجديدة والقرارات النقدية الدولية.",
+            "content": "تواصل المؤسسات المالية دراسة تأثير تقلبات أسعار الفائدة على قطاعات الاستثمار المختلفة، وسط توصيات الخبراء بضرورة تنويع الأصول لتقليل المخاطر.",
+            "category": "economy",
+            "image": "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?auto=format&fit=crop&w=1200&q=80",
+            "time": "اليوم - تحديث مستمر",
+            "read_time": "4 دقائق قراءة"
+        },
+        {
+            "id": 3,
+            "title": "إعلان رسمي عن تفاصيل وعروض إصدارات ألعاب الجيل الجديد",
+            "summary": "يترقب عشاق ألعاب الفيديو الإطلاقات الضخمة هذا العام مع تحسينات جبارة في الجرافيك وعوالم اللعب.",
+            "content": "كشفت استوديوهات التطوير الكبرى عن لمحات تشويقية لأبرز العناوين القادمة، متضمنة آليات تفاعل فيزيائي متطورة وقصص استثنائية.",
+            "category": "gaming",
+            "image": "https://images.unsplash.com/photo-1538481199705-c710c4e965fc?auto=format&fit=crop&w=1200&q=80",
+            "time": "اليوم - تحديث مستمر",
+            "read_time": "3 دقائق قراءة"
+        }
+    ],
+    "en": [
+        {
+            "id": 1,
+            "title": "Rapid Advancements in Artificial Intelligence and Computing",
+            "summary": "Major tech firms integrate deep learning models to secure digital infrastructures.",
+            "content": "Global tech markets are witnessing a surge in AI-driven tools that streamline big data analysis and enhance cybersecurity resilience.",
+            "category": "tech",
+            "image": "https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=1200&q=80",
+            "time": "Today - Live Update",
+            "read_time": "3 min read"
+        }
+    ]
 }
 
-def calculate_read_time(text, lang):
-    words = len(text.split())
-    minutes = math.ceil(words / 130) if words > 0 else 1
-    return f"{minutes} دقائق قراءة" if lang == "ar" else f"{minutes} min read"
-
-def save_article_to_db(art):
+def get_articles(lang="ar"):
     conn = get_db_connection()
     if not conn:
-        return
+        return DEFAULT_FALLBACK_ARTICLES.get(lang, DEFAULT_FALLBACK_ARTICLES["ar"])
     try:
         cursor = conn.cursor()
-        cursor.execute("""
-            INSERT INTO ai_newsroom_v14 (lang, title, summary, content, category, image, time, read_time)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-            ON CONFLICT (lang, title) DO NOTHING
-        """, (art['lang'], art['title'], art['summary'], art['content'], art['category'], art['image'], art['time'], art['read_time']))
-        conn.commit()
-        cursor.close()
-        conn.close()
-    except Exception as e:
-        print(f"DB Save Error: {e}")
-
-# دالة توليد الأخبار الفورية بواسطة الذكاء الاصطناعي عند الحاجة
-def generate_fresh_ai_news(lang="ar"):
-    if not API_KEY:
-        return
-    categories = ["tech", "economy", "gaming", "politics", "science", "sports", "world"]
-    now_str = datetime.now().strftime("%Y-%m-%d | %H:%M")
-    day_str = datetime.now().strftime("%A")
-
-    for cat in categories[:3]: # توليد 3 أقسام رئيسية لتعبئة الموقع فوراً
-        try:
-            model = genai.GenerativeModel("gemini-1.5-flash")
-            prompt = f"Act as an international news agency editor. Generate a realistic breaking news article for category '{cat}' in language '{lang}'. Return strict JSON only with keys: title, summary, content."
-            response = model.generate_content(prompt, request_options={"timeout": 6})
-            clean_text = response.text.replace("```json", "").replace("```", "").strip()
-            data = json.loads(clean_text)
-            
-            image_list = CATEGORY_HD_COLLECTIONS.get(cat, CATEGORY_HD_COLLECTIONS["world"])
-            hd_image = random.choice(image_list)
-
-            art = {
-                "lang": lang,
-                "title": data.get("title", "خبر عاجل جديد"),
-                "summary": data.get("summary", "تغطية مستمرة لأحدث المستجدات."),
-                "content": data.get("content", "التفاصيل الكاملة للخبر يتابعها موقعنا أول بأول."),
-                "category": cat,
-                "image": hd_image,
-                "time": f"{day_str} - {now_str}",
-                "read_time": calculate_read_time(data.get("content", ""), lang)
-            }
-            save_article_to_db(art)
-        except Exception as e:
-            print(f"Gen Error: {e}")
-
-def get_articles_from_db(lang="ar"):
-    conn = get_db_connection()
-    if not conn:
-        return []
-    try:
-        cursor = conn.cursor()
-        cursor.execute('SELECT id, lang, title, summary, content, category, image, time, read_time FROM ai_newsroom_v14 WHERE lang = %s ORDER BY id DESC', (lang,))
+        cursor.execute('SELECT id, lang, title, summary, content, category, image, time, read_time FROM ai_newsroom_v15 WHERE lang = %s ORDER BY id DESC', (lang,))
         rows = cursor.fetchall()
         
-        # إذا كانت القاعدة فارغة لهذه اللغة، نطلب من Gemini توليد أخبار فورية حالاً
         if not rows:
-            cursor.close()
-            conn.close()
-            generate_fresh_ai_news(lang)
-            conn = get_db_connection()
-            if not conn:
-                return []
-            cursor = conn.cursor()
-            cursor.execute('SELECT id, lang, title, summary, content, category, image, time, read_time FROM ai_newsroom_v14 WHERE lang = %s ORDER BY id DESC', (lang,))
+            # تعبئة قاعدة البيانات افتراضياً لضمان عدم ظهور موقع فارغ أبداً
+            for item in DEFAULT_FALLBACK_ARTICLES.get(lang, DEFAULT_FALLBACK_ARTICLES["ar"]):
+                cursor.execute("""
+                    INSERT INTO ai_newsroom_v15 (lang, title, summary, content, category, image, time, read_time)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (lang, title) DO NOTHING
+                """, (lang, item['title'], item['summary'], item['content'], item['category'], item['image'], item['time'], item['read_time']))
+            conn.commit()
+            cursor.execute('SELECT id, lang, title, summary, content, category, image, time, read_time FROM ai_newsroom_v15 WHERE lang = %s ORDER BY id DESC', (lang,))
             rows = cursor.fetchall()
 
         cursor.close()
@@ -181,14 +159,14 @@ def get_articles_from_db(lang="ar"):
         return articles
     except Exception as e:
         print(f"Fetch Error: {e}")
-        return []
+        return DEFAULT_FALLBACK_ARTICLES.get(lang, DEFAULT_FALLBACK_ARTICLES["ar"])
 
 @app.route("/")
 def home():
     lang = request.args.get("lang", "ar")
     selected_category = request.args.get("cat", "all")
     
-    articles = get_articles_from_db(lang)
+    articles = get_articles(lang)
     
     if selected_category != "all":
         display_articles = [a for a in articles if a["category"] == selected_category]
@@ -197,7 +175,7 @@ def home():
 
     site_title = "نبض العالم" if lang == "ar" else "World Pulse"
     breaking_label = "🔥 عاجل" if lang == "ar" else "🔥 BREAKING"
-    top_breaking_news = articles[0]["title"] if articles else ("جاري تحميل التغطيات الحية..." if lang == "ar" else "Loading live coverage...")
+    top_breaking_news = articles[0]["title"] if articles else ("تغطية حية مستمرة..." if lang == "ar" else "Live continuous coverage...")
 
     home_template = """
     <!DOCTYPE html>
@@ -207,7 +185,6 @@ def home():
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>{{ site_title }}</title>
         <script src="https://cdn.tailwindcss.com"></script>
-        <script> tailwind.config = { darkMode: 'class' } </script>
     </head>
     <body class="bg-slate-950 text-slate-100 font-sans min-h-screen">
         <header class="bg-slate-900 border-b border-slate-800 p-4 sticky top-0 z-50 shadow-lg">
@@ -278,7 +255,7 @@ def home():
             </div>
             {% else %}
             <div class="text-center py-20 bg-slate-900/50 rounded-3xl border border-slate-800">
-                <p class="text-lg font-bold text-slate-400 mb-2">{{ 'جاري توليد الأخبار الحية...' if lang == 'ar' else 'Generating news...' }}</p>
+                <p class="text-lg font-bold text-slate-400 mb-2">{{ 'لا توجد أخبار متاحة حالياً.' if lang == 'ar' else 'No news available.' }}</p>
             </div>
             {% endif %}
         </main>
@@ -290,7 +267,7 @@ def home():
 @app.route("/article/<int:article_id>")
 def read_article(article_id):
     lang = request.args.get("lang", "ar")
-    articles = get_articles_from_db(lang)
+    articles = get_articles(lang)
     article = next((a for a in articles if a["id"] == article_id), None)
 
     if not article:
@@ -309,7 +286,6 @@ def read_article(article_id):
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>{{ article.title }} | {{ site_title }}</title>
         <script src="https://cdn.tailwindcss.com"></script>
-        <script> tailwind.config = { darkMode: 'class' } </script>
     </head>
     <body class="bg-slate-950 text-slate-100 font-sans min-h-screen">
         <header class="bg-slate-900 border-b border-slate-800 p-4 sticky top-0 z-40 shadow-md">
