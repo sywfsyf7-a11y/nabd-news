@@ -8,6 +8,7 @@ import psycopg2
 from flask import Flask, jsonify, render_template_string, request
 import feedparser
 import google.generativeai as genai
+from apscheduler.schedulers.background import BackgroundScheduler
 
 app = Flask(__name__)
 
@@ -46,7 +47,7 @@ def init_db():
             return
         cursor = conn.cursor()
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS ai_newsroom_v12 (
+            CREATE TABLE IF NOT EXISTS ai_newsroom_v13 (
                 id SERIAL PRIMARY KEY,
                 lang TEXT,
                 title TEXT,
@@ -93,46 +94,10 @@ CATEGORY_HD_COLLECTIONS = {
     "culture": ["https://images.unsplash.com/photo-1485846234645-a62644f84728?auto=format&fit=crop&w=1200&q=80"]
 }
 
-SPECIALIZED_SOURCES = {
-    "ar": [
-        "http://feeds.bbci.co.uk/arabic/rss.xml",
-        "https://www.aljazeera.net/aljazeerarss/a7c18663-7311-4224-b77e-d960b077f092/73d0e1b4-532f-45ef-b135-bfd3d2cf8712",
-        "https://arabic.rt.com/rss/"
-    ],
-    "en": [
-        "http://feeds.bbci.co.uk/news/world/rss.xml",
-        "https://www.eurogamer.net/feed/news",
-        "https://rss.nytimes.com/services/xml/rss/nyt/World.xml"
-    ]
-}
-
-def detect_category_smart(title, summary):
-    text = f"{title} {summary}".lower()
-    if any(k in text for k in ["ترامب", "بوتين", "بايدن", "حكومة", "رئيس", "وزير", "انتخابات", "حرب", "سياسة", "trump", "biden", "putin", "president", "election", "war", "politics"]):
-        return "politics"
-    if any(k in text for k in ["اقتصاد", "دولار", "أسواق", "نفط", "تضخم", "أسهم", "بنك", "economy", "market", "dollar", "stocks", "bank", "oil"]):
-        return "economy"
-    if any(k in text for k in ["تكنولوجيا", "ذكاء اصطناعي", "جوجل", "أبل", "مايكروسوفت", "هاتف", "tech", "ai", "google", "apple", "microsoft"]):
-        return "tech"
-    if any(k in text for k in ["لعبة", "جيمنج", "بلايستيشن", "إكس بوكس", "gaming", "playstation", "xbox", "game", "esports"]):
-        return "gaming"
-    if any(k in text for k in ["كرة", "مباراة", "دوري", "فريق", "لاعب", "sports", "football", "match", "league"]):
-        return "sports"
-    if any(k in text for k in ["فضاء", "علماء", "كوكب", "طب", "علاج", "science", "space", "nasa", "health"]):
-        return "science"
-    return "world"
-
 def calculate_read_time(text, lang):
     words = len(text.split())
     minutes = math.ceil(words / 130) if words > 0 else 1
     return f"{minutes} دقائق قراءة" if lang == "ar" else f"{minutes} min read"
-
-def get_dynamic_news_image(cat_key, used_set):
-    collection = CATEGORY_HD_COLLECTIONS.get(cat_key, CATEGORY_HD_COLLECTIONS["world"])
-    available = [img for img in collection if img not in used_set]
-    if not available:
-        available = collection
-    return random.choice(available)
 
 def save_article_to_db(art):
     conn = get_db_connection()
@@ -141,7 +106,7 @@ def save_article_to_db(art):
     try:
         cursor = conn.cursor()
         cursor.execute("""
-            INSERT INTO ai_newsroom_v12 (lang, title, summary, content, category, image, time, read_time)
+            INSERT INTO ai_newsroom_v13 (lang, title, summary, content, category, image, time, read_time)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (lang, title) DO NOTHING
         """, (art['lang'], art['title'], art['summary'], art['content'], art['category'], art['image'], art['time'], art['read_time']))
@@ -151,65 +116,59 @@ def save_article_to_db(art):
     except Exception as e:
         print(f"DB Save Error: {e}")
 
-def fetch_and_process_news(lang="ar"):
+# 🤖 غُرفة تحكم الذكاء الاصطناعي (تولد خبراً جديداً تلقائياً في الخلفية)
+def generate_ai_news_job():
+    if not API_KEY:
+        return
+    
+    categories = ["tech", "economy", "gaming", "politics", "science", "sports", "world"]
+    selected_cat = random.choice(categories)
+    now_str = datetime.now().strftime("%Y-%m-%d | %H:%M")
+    day_str = datetime.now().strftime("%A")
+
+    for lang in ["ar", "en"]:
+        try:
+            model = genai.GenerativeModel("gemini-1.5-flash")
+            prompt = f"Act as an international news agency editor. Generate a brand new, realistic breaking news article for category '{selected_cat}' in language '{lang}'. Return strict JSON only with keys: title, summary, content."
+            response = model.generate_content(prompt, request_options={"timeout": 8})
+            clean_text = response.text.replace("```json", "").replace("```", "").strip()
+            data = json.loads(clean_text)
+            
+            image_list = CATEGORY_HD_COLLECTIONS.get(selected_cat, CATEGORY_HD_COLLECTIONS["world"])
+            hd_image = random.choice(image_list)
+
+            art = {
+                "lang": lang,
+                "title": data.get("title", f"خبر جديد في قسم {selected_cat}"),
+                "summary": data.get("summary", "تغطية مستمرة لأحدث التطورات العالمية."),
+                "content": data.get("content", "تفاصيل كاملة تحللها غرفة التحكّم بالذكاء الاصطناعي."),
+                "category": selected_cat,
+                "image": hd_image,
+                "time": f"{day_str} - {now_str}",
+                "read_time": calculate_read_time(data.get("content", ""), lang)
+            }
+            save_article_to_db(art)
+        except Exception as e:
+            print(f"AI Generation Error ({lang}): {e}")
+
+# تشغيل المهمة التلقائية فور تشغيل السيرفر وكل 5 دقائق
+scheduler = BackgroundScheduler()
+scheduler.add_job(func=generate_ai_news_job, trigger="interval", minutes=5)
+scheduler.start()
+
+# توليد الدفعة الأولى عند التشغيل مباشرة
+try:
+    generate_ai_news_job()
+except Exception:
+    pass
+
+def get_articles_from_db(lang="ar"):
     conn = get_db_connection()
     if not conn:
         return []
-
-    # جلب التغذية الحية من المصادر بمرونة وفقاً للغة المحددة
-    sources = SPECIALIZED_SOURCES.get(lang, SPECIALIZED_SOURCES["ar"])
-    now_str = datetime.now().strftime("%Y-%m-%d | %H:%M")
-    day_str = datetime.now().strftime("%A")
-    used_images = set()
-
-    for url in sources:
-        try:
-            feed = feedparser.parse(url)
-            if feed and hasattr(feed, 'entries'):
-                for entry in feed.entries[:4]:
-                    raw_title = entry.get('title', 'خبر جديد')
-                    raw_summary = entry.get('summary', 'تغطية إخبارية مستمرة.')
-                    if "<" in raw_summary and ">" in raw_summary:
-                        import re
-                        raw_summary = re.sub('<[^<]+?>', '', raw_summary)
-                    
-                    smart_cat = detect_category_smart(raw_title, raw_summary)
-                    hd_image = get_dynamic_news_image(smart_cat, used_images)
-                    
-                    final_title = raw_title
-                    final_summary = raw_summary
-                    final_content = f"{raw_summary}\n\nتتابع الوكالة الإخبارية تفاصيل هذا الحدث ضمن تغطيتها الحية المستمرة على مدار الساعة."
-                    
-                    if API_KEY:
-                        try:
-                            model = genai.GenerativeModel("gemini-1.5-flash")
-                            prompt = f"Act as Chief Editor. Rewrite this news in language '{lang}'. Title: {raw_title}. Summary: {raw_summary}. Return strict JSON with keys: title, summary, content."
-                            response = model.generate_content(prompt, request_options={"timeout": 3})
-                            clean_text = response.text.replace("```json", "").replace("```", "").strip()
-                            data = json.loads(clean_text)
-                            final_title = data.get("title", raw_title)
-                            final_summary = data.get("summary", raw_summary)
-                            final_content = data.get("content", final_content)
-                        except Exception:
-                            pass
-
-                    art = {
-                        "lang": lang,
-                        "title": final_title,
-                        "summary": final_summary,
-                        "content": final_content,
-                        "category": smart_cat,
-                        "image": hd_image,
-                        "time": f"{day_str} - {now_str}",
-                        "read_time": calculate_read_time(final_content, lang)
-                    }
-                    save_article_to_db(art)
-        except Exception:
-            pass
-
     try:
         cursor = conn.cursor()
-        cursor.execute('SELECT id, lang, title, summary, content, category, image, time, read_time FROM ai_newsroom_v12 WHERE lang = %s ORDER BY id DESC', (lang,))
+        cursor.execute('SELECT id, lang, title, summary, content, category, image, time, read_time FROM ai_newsroom_v13 WHERE lang = %s ORDER BY id DESC', (lang,))
         rows = cursor.fetchall()
         cursor.close()
         conn.close()
@@ -230,7 +189,7 @@ def home():
     lang = request.args.get("lang", "ar")
     selected_category = request.args.get("cat", "all")
     
-    articles = fetch_and_process_news(lang)
+    articles = get_articles_from_db(lang)
     
     if selected_category != "all":
         display_articles = [a for a in articles if a["category"] == selected_category]
@@ -240,8 +199,7 @@ def home():
     site_title = "نبض العالم" if lang == "ar" else "World Pulse"
     breaking_label = "🔥 عاجل" if lang == "ar" else "🔥 BREAKING"
     
-    # أكثر خبر حديث أو الأحدث لليوم يُعرض في شريط العاجل
-    top_breaking_news = articles[0]["title"] if articles else ("تغطية حية ومستمرة لأبرز الأحداث..." if lang == "ar" else "Live continuous coverage of top events...")
+    top_breaking_news = articles[0]["title"] if articles else ("جاري إعداد التغطيات الحية عبر الذكاء الاصطناعي..." if lang == "ar" else "Generating live AI coverage...")
 
     home_template = """
     <!DOCTYPE html>
@@ -278,7 +236,6 @@ def home():
         </header>
 
         <main class="container mx-auto px-4 py-8 max-w-7xl">
-            <!-- شريط الأخبار العاجلة الديناميكي -->
             <div class="bg-blue-950/40 border border-blue-800/50 rounded-2xl p-4 mb-8 flex items-center gap-4 shadow-md">
                 <span class="bg-blue-600 text-white text-xs font-black px-3 py-1 rounded-full uppercase animate-pulse">{{ breaking_label }}</span>
                 <div class="overflow-hidden whitespace-nowrap w-full">
@@ -323,7 +280,7 @@ def home():
             </div>
             {% else %}
             <div class="text-center py-20 bg-slate-900/50 rounded-3xl border border-slate-800">
-                <p class="text-lg font-bold text-slate-400 mb-2">{{ 'لا توجد أخبار متاحة حالياً في هذا القسم.' if lang == 'ar' else 'No news available in this category.' }}</p>
+                <p class="text-lg font-bold text-slate-400 mb-2">{{ 'جاري توليد المحتوى الحَي بواسطة غرفة التحرير...' if lang == 'ar' else 'Generating news content...' }}</p>
             </div>
             {% endif %}
         </main>
@@ -335,7 +292,7 @@ def home():
 @app.route("/article/<int:article_id>")
 def read_article(article_id):
     lang = request.args.get("lang", "ar")
-    articles = fetch_and_process_news(lang)
+    articles = get_articles_from_db(lang)
     article = next((a for a in articles if a["id"] == article_id), None)
 
     if not article:
