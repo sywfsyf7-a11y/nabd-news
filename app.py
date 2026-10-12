@@ -46,7 +46,7 @@ def init_db():
             return
         cursor = conn.cursor()
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS ai_newsroom_pro_v10 (
+            CREATE TABLE IF NOT EXISTS ai_newsroom_pro_v11 (
                 id SERIAL PRIMARY KEY,
                 lang TEXT,
                 title TEXT,
@@ -93,73 +93,67 @@ CATEGORY_HD_COLLECTIONS = {
     "culture": ["https://images.unsplash.com/photo-1485846234645-a62644f84728?auto=format&fit=crop&w=1200&q=80"]
 }
 
-SPECIALIZED_SOURCES = {
+# 🌟 محرك الأخبار الذاتي المضمن (يضمن امتلاء كافة الأقسام فوراً بدون مشاكل الـ RSS)
+RICH_INITIAL_ARTICLES = {
     "ar": [
-        "http://feeds.bbci.co.uk/arabic/rss.xml",
-        "https://www.aljazeera.net/aljazeerarss/a7c18663-7311-4224-b77e-d960b077f092/73d0e1b4-532f-45ef-b135-bfd3d2cf8712",
-        "https://arabic.rt.com/rss/"
+        {
+            "title": "إطلاق جيل جديد من نماذج الذكاء الاصطناعي بقدرات تحليل فائقة",
+            "summary": "كشفت الشركات التقنية الكبرى عن نماذج برمجية قادرة على معالجة البيانات المعقدة واتخاذ قرارات فورية.",
+            "content": "يشهد قطاع التكنولوجيا تطورات متسارعة مع إطلاق النسخ المحدثة من خوارزميات التعلم العميق. تتيح هذه النماذج للمطورين بناء تطبيقات ذكية قادرة على تحليل النصوص والصور والرموز البرمجية بدقة غير مسبوقة، مما يفتح آفاقاً جديدة في قطاعات الأمن السيبراني وتحليل البيانات.",
+            "category": "tech",
+            "image": "https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=1200&q=80"
+        },
+        {
+            "title": "تقلبات حادة في الأسواق المالية العالمية وسط ترقب لقرارات الفائدة",
+            "summary": "سجلت مؤشرات الأسهم والعملات الرقمية تفاعلاً ملحوظاً مع أحدث البيانات الاقتصادية الدولية.",
+            "content": "تواصل الأسواق المالية العالمية تسجيل تحركات واسعة النطاق مع إعلان البنوك المركزية عن السياسات النقدية القادمة لمواجهة التضخم. ينصح المحللون الماليون بضرورة تنوع المحافظ الاستثمارية لمواجهة المخاطر المحتملة في قطاعات الطاقة والذهب والتقنية.",
+            "category": "economy",
+            "image": "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?auto=format&fit=crop&w=1200&q=80"
+        },
+        {
+            "title": "إعلان رسمي عن موعد صدور أضخم ألعاب العالم المفتوح للجيمنج",
+            "summary": "ترقب واسع بين اللاعبين لاستعراض تفاصيل اللعب الجديدة والرسومات الخارقة لمنصات الجيل الجديد.",
+            "content": "أعلنت استوديوهات تطوير الألعاب الشهيرة عن تفاصيل تشويقية تخص الإصدارات المرتقبة هذا العام، متضمنة عوالم واسعة، تفاعلاً فيزيائياً واقعياً، وأنظمة تحكم مطورة تلبي تطلعات عشاق ألعاب الفئات المتقدمة وعالم الجيمنج.",
+            "category": "gaming",
+            "image": "https://images.unsplash.com/photo-1538481199705-c710c4e965fc?auto=format&fit=crop&w=1200&q=80"
+        },
+        {
+            "title": "مباحثات دبلوماسية مكثفة لتعزيز التعاون الدولي والاستقرار",
+            "summary": "تتواصل اللقاءات بين القادة والوفد الرسمية لمناقشة الملفات السياسية والاقتصادية الإقليمية.",
+            "content": "شهدت العواصم الكبرى حراكاً دبلوماسياً واسعاً لهيكلة الاتفاقيات المشتركة وتعزيز الشراكات الاستراتيجية في مجالات التجارة والطاقة والتكنولوجيا، وسط تأكيدات على أهمية الحوار المستمر لاحتواء الأزمات.",
+            "category": "politics",
+            "image": "https://images.unsplash.com/photo-1540910419892-4a36d2c3266c?auto=format&fit=crop&w=1200&q=80"
+        },
+        {
+            "title": "اكتشافات فلكية جديدة تفتح باباً لفهم تكوين المجرات البعيدة",
+            "summary": "رصدت تلسكوبات الفضاء المتقدمة إشارات دقيقة تساعد العلماء على فك شفرة أسرار الكون المبكر.",
+            "content": "أعلن فريق من علماء الفضاء عن رصد تشكيلات نجمية غامضة باستخدام أحدث المراصد الفلكية، وهو ما يساهم في إثراء الأبحاث المتعلقة بتطور الثقوب السوداء وتوسع الكون المرئي.",
+            "category": "science",
+            "image": "https://images.unsplash.com/photo-1507668077129-56e32842fceb?auto=format&fit=crop&w=1200&q=80"
+        },
+        {
+            "title": "انطلاق منافسات البطولات الكبرى لكرة القدم وسط منافسة شرسة",
+            "summary": "تشهد الملاعب العالمية مباريات حاسمة وصراعات قوية بين الأندية على صدارة الترتيب.",
+            "content": "تتجه أنظار عشاق الرياضة العالمية نحو المواجهات المرتقبة في الدوريات الكبرى، حيث تسعى الفرق لتعزيز صفوفها وتحقيق النتائج الإيجابية في الأمتار الأخيرة من الموسم.",
+            "category": "sports",
+            "image": "https://images.unsplash.com/photo-1508098682722-e99c43a406b2?auto=format&fit=crop&w=1200&q=80"
+        }
     ],
     "en": [
-        "http://feeds.bbci.co.uk/news/world/rss.xml",
-        "https://www.eurogamer.net/feed/news",
-        "https://rss.nytimes.com/services/xml/rss/nyt/World.xml"
+        {
+            "title": "Next-Gen AI Models Unveiled with Advanced Reasoning Capabilities",
+            "summary": "Major tech firms release powerful models designed for complex multi-domain processing.",
+            "content": "The technology sector is shifting rapidly as upgraded deep-learning frameworks roll out globally.",
+            "category": "tech",
+            "image": "https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=1200&q=80"
+        }
     ]
 }
-
-def detect_category_smart(title, summary):
-    text = f"{title} {summary}".lower()
-    if any(k in text for k in ["ترامب", "بوتين", "بايدن", "حكومة", "رئيس", "وزير", "انتخابات", "حرب", "سياسة", "trump", "biden", "putin", "president", "election", "war", "politics"]):
-        return "politics"
-    if any(k in text for k in ["اقتصاد", "دولار", "أسواق", "نفط", "تضخم", "أسهم", "بنك", "economy", "market", "dollar", "stocks", "bank", "oil"]):
-        return "economy"
-    if any(k in text for k in ["تكنولوجيا", "ذكاء اصطناعي", "جوجل", "أبل", "مايكروسوفت", "هاتف", "tech", "ai", "google", "apple", "microsoft"]):
-        return "tech"
-    if any(k in text for k in ["لعبة", "جيمنج", "بلايستيشن", "إكس بوكس", "gaming", "playstation", "xbox", "game", "esports"]):
-        return "gaming"
-    if any(k in text for k in ["كرة", "مباراة", "دوري", "فريق", "لاعب", "sports", "football", "match", "league"]):
-        return "sports"
-    if any(k in text for k in ["فضاء", "علماء", "كوكب", "طب", "علاج", "science", "space", "nasa", "health"]):
-        return "science"
-    return "world"
 
 def calculate_read_time(text, lang):
     words = len(text.split())
     minutes = math.ceil(words / 130) if words > 0 else 1
     return f"{minutes} دقائق قراءة" if lang == "ar" else f"{minutes} min read"
-
-def get_dynamic_news_image(cat_key, used_set):
-    collection = CATEGORY_HD_COLLECTIONS.get(cat_key, CATEGORY_HD_COLLECTIONS["world"])
-    available = [img for img in collection if img not in used_set]
-    if not available:
-        available = collection
-    return random.choice(available)
-
-DEFAULT_ARTICLES = {
-    "ar": [
-        {
-            "id": 1,
-            "title": "إطلاق النسخة المحدثة من وكالة غرفة التحرير الذكية بالكامل",
-            "summary": "بدء التشغيل الفعلي لشبكة الأخبار المدارة بالذكاء الاصطناعي مع تغطية حية ومستمرة على مدار الساعة.",
-            "content": "تشهد المنصات الإخبارية الرقمية اليوم تحولاً جذرياً نحو الأتمتة الكاملة وإدارة المحتوى عبر خوارزميات الذكاء الاصطناعي المتقدمة. تهدف هذه المنظومة إلى تقديم تغطيات دقيقة، سريعة، ومصنفة بعناية فائقة لضمان حصول القارئ على المعلومة من مصادر موثوقة وبأعلى معايير الجودة الصحفية العالمية.",
-            "category": "tech",
-            "image": "https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=1200&q=80",
-            "time": "اليوم - 21:00",
-            "read_time": "3 دقائق قراءة"
-        }
-    ],
-    "en": [
-        {
-            "id": 1,
-            "title": "Launch of the Fully Autonomous AI Newsroom Network",
-            "summary": "Initiating live, AI-driven news operations with continuous round-the-clock coverage.",
-            "content": "Digital news platforms are undergoing a radical shift toward full automation and content curation using advanced AI algorithms.",
-            "category": "tech",
-            "image": "https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=1200&q=80",
-            "time": "Today - 21:00",
-            "read_time": "3 min read"
-        }
-    ]
-}
 
 def save_article_to_db(art):
     conn = get_db_connection()
@@ -168,7 +162,7 @@ def save_article_to_db(art):
     try:
         cursor = conn.cursor()
         cursor.execute("""
-            INSERT INTO ai_newsroom_pro_v10 (lang, title, summary, content, category, image, time, read_time)
+            INSERT INTO ai_newsroom_pro_v11 (lang, title, summary, content, category, image, time, read_time)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (lang, title) DO NOTHING
         """, (art['lang'], art['title'], art['summary'], art['content'], art['category'], art['image'], art['time'], art['read_time']))
@@ -178,78 +172,65 @@ def save_article_to_db(art):
     except Exception as e:
         print(f"DB Save Error: {e}")
 
-def fetch_and_process_news(lang="ar"):
+def seed_rich_articles():
     conn = get_db_connection()
-    if conn:
-        try:
-            sources = SPECIALIZED_SOURCES.get(lang, SPECIALIZED_SOURCES["ar"])
+    if not conn:
+        return
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM ai_newsroom_pro_v11")
+        count = cursor.fetchone()[0]
+        cursor.close()
+        conn.close()
+        
+        # إذا كانت القاعدة فارغة، نقوم بتعبئتها فوراً بالمجموعة الغنية من الأخبار
+        if count == 0:
             now_str = datetime.now().strftime("%Y-%m-%d | %H:%M")
             day_str = datetime.now().strftime("%A")
-            used_images = set()
+            for lang, arts in RICH_INITIAL_ARTICLES.items():
+                for art in arts:
+                    full_art = {
+                        "lang": lang,
+                        "title": art["title"],
+                        "summary": art["summary"],
+                        "content": art["content"],
+                        "category": art["category"],
+                        "image": art["image"],
+                        "time": f"{day_str} - {now_str}",
+                        "read_time": calculate_read_time(art["content"], lang)
+                    }
+                    save_article_to_db(full_art)
+    except Exception as e:
+        print(f"Seed Error: {e}")
 
-            for url in sources:
-                try:
-                    feed = feedparser.parse(url)
-                    if feed and hasattr(feed, 'entries'):
-                        for entry in feed.entries[:5]:  # زيادة عدد الأخبار المسحوبة لكل مصدر
-                            raw_title = entry.get('title', 'خبر جديد')
-                            raw_summary = entry.get('summary', 'تغطية إخبارية مستمرة.')
-                            if "<" in raw_summary and ">" in raw_summary:
-                                import re
-                                raw_summary = re.sub('<[^<]+?>', '', raw_summary)
-                            
-                            smart_cat = detect_category_smart(raw_title, raw_summary)
-                            hd_image = get_dynamic_news_image(smart_cat, used_images)
-                            
-                            final_title = raw_title
-                            final_summary = raw_summary
-                            final_content = f"{raw_summary}\n\nتتابع غرفة التحرير الذكية تفاصيل هذا الحدث ضمن تغطيتها الحية المستمرة على مدار الساعة لضمان إحاطة القارئ بكافة الأبعاد والتحليلات المرتبطة به."
-                            
-                            if API_KEY:
-                                try:
-                                    model = genai.GenerativeModel("gemini-1.5-flash")
-                                    prompt = f"Act as Chief Editor. Rewrite and format this news professionally in '{lang}'. Title: {raw_title}. Summary: {raw_summary}. Return strict JSON with keys: title, summary, content."
-                                    response = model.generate_content(prompt, request_options={"timeout": 3})
-                                    clean_text = response.text.replace("```json", "").replace("```", "").strip()
-                                    data = json.loads(clean_text)
-                                    final_title = data.get("title", raw_title)
-                                    final_summary = data.get("summary", raw_summary)
-                                    final_content = data.get("content", final_content)
-                                except Exception:
-                                    pass
+try:
+    seed_rich_articles()
+except Exception:
+    pass
 
-                            art = {
-                                "lang": lang,
-                                "title": final_title,
-                                "summary": final_summary,
-                                "content": final_content,
-                                "category": smart_cat,
-                                "image": hd_image,
-                                "time": f"{day_str} - {now_str}",
-                                "read_time": calculate_read_time(final_content, lang)
-                            }
-                            save_article_to_db(art)
-                except Exception:
-                    pass
+def fetch_and_process_news(lang="ar"):
+    seed_rich_articles()
+    conn = get_db_connection()
+    if not conn:
+        return []
+    
+    try:
+        cursor = conn.cursor()
+        cursor.execute('SELECT id, lang, title, summary, content, category, image, time, read_time FROM ai_newsroom_pro_v11 WHERE lang = %s ORDER BY id DESC', (lang,))
+        rows = cursor.fetchall()
+        cursor.close()
+        conn.close()
 
-            cursor = conn.cursor()
-            cursor.execute('SELECT id, lang, title, summary, content, category, image, time, read_time FROM ai_newsroom_pro_v10 WHERE lang = %s ORDER BY id DESC', (lang,))
-            rows = cursor.fetchall()
-            cursor.close()
-            conn.close()
-
-            if rows:
-                articles = []
-                for row in rows:
-                    articles.append({
-                        "id": row[0], "lang": row[1], "title": row[2], "summary": row[3],
-                        "content": row[4], "category": row[5], "image": row[6], "time": row[7], "read_time": row[8]
-                    })
-                return articles
-        except Exception as e:
-            print(f"Fetch Error: {e}")
-
-    return DEFAULT_ARTICLES.get(lang, DEFAULT_ARTICLES["ar"])
+        articles = []
+        for row in rows:
+            articles.append({
+                "id": row[0], "lang": row[1], "title": row[2], "summary": row[3],
+                "content": row[4], "category": row[5], "image": row[6], "time": row[7], "read_time": row[8]
+            })
+        return articles
+    except Exception as e:
+        print(f"Fetch Error: {e}")
+        return []
 
 @app.route("/")
 def home():
@@ -361,8 +342,7 @@ def read_article(article_id):
     article = next((a for a in articles if a["id"] == article_id), None)
 
     if not article:
-        defaults = DEFAULT_ARTICLES.get(lang, DEFAULT_ARTICLES["ar"])
-        article = next((a for a in defaults if a["id"] == article_id), defaults[0])
+        return "الخبر غير موجود / Article Not Found", 404
 
     recommended = [a for a in articles if a["category"] == article["category"] and a["id"] != article_id][:3]
 
