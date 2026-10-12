@@ -27,6 +27,13 @@
       }
     };
   </script>
+  <script>
+    try {
+      document.documentElement.dataset.theme = localStorage.getItem('world-pulse-theme') || 'light';
+    } catch (_) {
+      document.documentElement.dataset.theme = 'light';
+    }
+  </script>
   <style>
     body { font-family: {% if lang == 'ar' %}'Cairo', sans-serif{% else %}'Inter', sans-serif{% endif %}; }
     .editorial-grid { background-image: radial-gradient(#cbd5e1 0.6px, transparent 0.6px); background-size: 13px 13px; }
@@ -38,6 +45,38 @@
       .ticker-dot { animation: pulse-dot 1.8s ease-in-out infinite; }
       @keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
     }
+    html[data-theme="dark"] { color-scheme: dark; }
+    html[data-theme="dark"] body { background: #0b1120; color: #edf2f7; }
+    html[data-theme="dark"] .bg-paper { background-color: #0b1120 !important; }
+    html[data-theme="dark"] header,
+    html[data-theme="dark"] footer { background-color: rgba(15, 23, 42, .97) !important; border-color: #293548 !important; }
+    html[data-theme="dark"] .bg-white { background-color: #111b2d !important; }
+    html[data-theme="dark"] .bg-slate-50 { background-color: #172235 !important; }
+    html[data-theme="dark"] .bg-slate-100 { background-color: #1e293b !important; }
+    html[data-theme="dark"] .text-ink { color: #f8fafc !important; }
+    html[data-theme="dark"] .text-slate-700,
+    html[data-theme="dark"] .text-slate-600 { color: #d5deea !important; }
+    html[data-theme="dark"] .text-slate-500,
+    html[data-theme="dark"] .text-slate-400 { color: #aab7ca !important; }
+    html[data-theme="dark"] .border-slate-100,
+    html[data-theme="dark"] .border-slate-200,
+    html[data-theme="dark"] .border-slate-200\/70,
+    html[data-theme="dark"] .border-slate-200\/80,
+    html[data-theme="dark"] .border-slate-300 { border-color: #293548 !important; }
+    html[data-theme="dark"] .ring-slate-200 { --tw-ring-color: #293548 !important; }
+    html[data-theme="dark"] .hover\:bg-white:hover { background-color: #1e293b !important; }
+    html[data-theme="dark"] .shadow-soft,
+    html[data-theme="dark"] .shadow-sm { box-shadow: 0 16px 45px rgba(0,0,0,.2) !important; }
+    .story-image-placeholder { display: flex; align-items: center; justify-content: center; overflow: hidden; background: #253047; color: rgba(255,255,255,.85); }
+    .story-image-placeholder[data-category="politics"] { background: linear-gradient(135deg, #18253a, #65323e); }
+    .story-image-placeholder[data-category="economy"] { background: linear-gradient(135deg, #153b37, #34465d); }
+    .story-image-placeholder[data-category="technology"] { background: linear-gradient(135deg, #192b4a, #3b3a70); }
+    .story-image-placeholder[data-category="gaming"] { background: linear-gradient(135deg, #33204c, #762d53); }
+    .story-image-placeholder[data-category="sports"] { background: linear-gradient(135deg, #164638, #425c35); }
+    .story-image-placeholder[data-category="science"] { background: linear-gradient(135deg, #183a53, #31616d); }
+    .story-image-placeholder[data-category="culture"] { background: linear-gradient(135deg, #4c2d32, #7a5838); }
+    .story-image-placeholder[data-category="world"] { background: linear-gradient(135deg, #273448, #4b5870); }
+    html[data-theme="dark"] .story-image-placeholder { filter: saturate(.82) brightness(.9); }
   </style>
 </head>
 <body class="min-h-screen bg-paper text-ink antialiased">
@@ -50,11 +89,24 @@
         <span class="hidden h-4 w-px bg-white/20 sm:block"></span>
         <span class="truncate text-white/70">{{ ui.tagline }}</span>
       </div>
-      <a href="{{ url_for('index', lang='en' if lang == 'ar' else 'ar') }}"
-         class="shrink-0 rounded-full border border-white/20 px-3 py-1 text-xs font-bold transition hover:border-white/60 hover:bg-white/10"
-         aria-label="{{ 'Switch language' if lang == 'ar' else 'تغيير اللغة' }}">
-        {{ 'EN' if lang == 'ar' else 'عربي' }}
-      </a>
+      <div class="flex shrink-0 items-center gap-2">
+        <button id="themeToggle" type="button" aria-pressed="false" aria-label="{{ ui.theme_toggle }}" title="{{ ui.theme_toggle }}"
+                class="inline-flex items-center gap-2 rounded-full border border-white/20 px-3 py-2 text-xs font-bold transition hover:border-white/60 hover:bg-white/10">
+          <svg id="sunIcon" viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M2 12h2m16 0h2M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42" stroke-linecap="round"/></svg>
+          <svg id="moonIcon" viewBox="0 0 24 24" class="hidden h-4 w-4" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M20.5 14.3A8.5 8.5 0 0 1 9.7 3.5 8.6 8.6 0 1 0 20.5 14.3Z" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span class="hidden sm:inline">{{ ui.theme_toggle }}</span>
+        </button>
+        <button id="refreshNews" type="button" aria-label="{{ ui.refresh_news }}" title="{{ ui.refresh_news }}"
+                class="inline-flex items-center gap-2 rounded-full bg-pulse px-3 py-2 text-xs font-extrabold text-white transition hover:bg-rose-500 disabled:cursor-wait disabled:opacity-70">
+          <svg id="refreshIcon" viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5" stroke-linecap="round" stroke-linejoin="round"/><path d="M5.6 9A7 7 0 0 1 18 6l2 6M4 12l2 6a7 7 0 0 0 12.4-3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span id="refreshButtonText" class="hidden sm:inline">{{ ui.refresh_news }}</span>
+        </button>
+        <a href="{{ url_for('index', lang='en' if lang == 'ar' else 'ar') }}"
+           class="shrink-0 rounded-full border border-white/20 px-3 py-2 text-xs font-bold transition hover:border-white/60 hover:bg-white/10"
+           aria-label="{{ 'Switch language' if lang == 'ar' else 'تغيير اللغة' }}">
+          {{ 'EN' if lang == 'ar' else 'عربي' }}
+        </a>
+      </div>
     </div>
   </div>
 
@@ -88,6 +140,11 @@
         {% endfor %}
       </div>
     </nav>
+    <div class="border-t border-slate-200/60">
+      <div class="mx-auto flex max-w-7xl items-center justify-end px-4 py-2 sm:px-6 lg:px-8">
+        <p id="newsStatusText" role="status" aria-live="polite" class="text-[11px] font-medium text-slate-500">{{ ui.auto_refresh.replace('{minutes}', news_refresh_interval|string) }}</p>
+      </div>
+    </div>
   </header>
 
   <main class="mx-auto max-w-7xl px-4 pb-16 pt-5 sm:px-6 sm:pt-8 lg:px-8">
@@ -153,7 +210,12 @@
             {% for story in stories %}
               <article class="group flex h-full flex-col overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-sm transition duration-300 hover:-translate-y-1 hover:border-slate-300 hover:shadow-soft">
                 <a href="{{ url_for('article', slug=story.slug, lang=lang) }}" class="relative block aspect-[16/9] overflow-hidden bg-slate-200" tabindex="-1" aria-hidden="true">
-                  <img src="{{ story.image_url }}" alt="" loading="lazy" class="h-full w-full object-cover transition duration-700 group-hover:scale-105" onerror="this.onerror=null;this.src='https://images.unsplash.com/photo-1504711434969-e33886168f5c?auto=format&fit=crop&w=1200&q=80';">
+                  <div class="story-image-placeholder absolute inset-0" data-category="{{ story.category }}" aria-label="{{ story.category_label }} image placeholder">
+                    <span class="select-none text-6xl font-black tracking-widest opacity-35">WP</span>
+                  </div>
+                  {% if story.image_url %}
+                    <img src="{{ story.image_url }}" alt="" loading="lazy" class="absolute inset-0 z-[1] h-full w-full object-cover transition duration-700 group-hover:scale-105" onerror="this.onerror=null;this.style.display='none';">
+                  {% endif %}
                   <span class="absolute {{ 'right-4' if lang == 'ar' else 'left-4' }} top-4 rounded-full border border-white/25 bg-ink/80 px-3 py-1.5 text-xs font-bold text-white backdrop-blur">{{ story.category_label }}</span>
                   {% if story.is_demo %}<span class="absolute bottom-3 {{ 'right-3' if lang == 'ar' else 'left-3' }} rounded-md bg-amber-100 px-2 py-1 text-[9px] font-extrabold text-amber-900">{{ ui.sample_badge }}</span>{% endif %}
                 </a>
@@ -197,7 +259,10 @@
 
       <article class="overflow-hidden rounded-[2rem] border border-slate-200/80 bg-white shadow-soft">
         <div class="relative aspect-[16/8] max-h-[540px] overflow-hidden bg-slate-200 sm:aspect-[16/7]">
-          <img src="{{ article.image_url }}" alt="" class="h-full w-full object-cover" onerror="this.onerror=null;this.src='https://images.unsplash.com/photo-1504711434969-e33886168f5c?auto=format&fit=crop&w=1600&q=80';">
+          <div class="story-image-placeholder absolute inset-0" data-category="{{ article.category }}" aria-hidden="true"><span class="select-none text-8xl font-black tracking-widest opacity-35">WP</span></div>
+          {% if article.image_url %}
+            <img src="{{ article.image_url }}" alt="" class="absolute inset-0 z-[1] h-full w-full object-cover" onerror="this.onerror=null;this.style.display='none';">
+          {% endif %}
           <div class="absolute inset-0 bg-gradient-to-t from-ink/75 via-ink/10 to-transparent"></div>
           {% if article.is_demo %}<span class="absolute {{ 'right-6' if lang == 'ar' else 'left-6' }} top-6 rounded-full bg-amber-100 px-3 py-1.5 text-[10px] font-extrabold text-amber-900">{{ ui.sample_badge }}</span>{% endif %}
           <div class="absolute inset-x-0 bottom-0 p-6 text-white sm:p-10 lg:p-12">
@@ -230,7 +295,12 @@
             <div class="space-y-5">
               {% for story in related_stories %}
                 <a href="{{ url_for('article', slug=story.slug, lang=lang) }}" class="group flex gap-3">
-                  <img src="{{ story.image_url }}" alt="" loading="lazy" class="h-20 w-24 shrink-0 rounded-xl object-cover bg-slate-200" onerror="this.onerror=null;this.src='https://images.unsplash.com/photo-1504711434969-e33886168f5c?auto=format&fit=crop&w=500&q=80';">
+                  <span class="relative block h-20 w-24 shrink-0 overflow-hidden rounded-xl bg-slate-200">
+                    <span class="story-image-placeholder absolute inset-0" data-category="{{ story.category }}" aria-hidden="true"><span class="text-lg font-black opacity-40">WP</span></span>
+                    {% if story.image_url %}
+                      <img src="{{ story.image_url }}" alt="" loading="lazy" class="absolute inset-0 z-[1] h-full w-full object-cover" onerror="this.onerror=null;this.style.display='none';">
+                    {% endif %}
+                  </span>
                   <span class="min-w-0">
                     <span class="mb-1 block text-[10px] font-extrabold text-pulse">{{ story.category_label }}</span>
                     <span class="line-clamp-3 block text-sm font-bold leading-6 transition group-hover:text-pulse">{{ story.title }}</span>
@@ -261,5 +331,117 @@
       <p class="text-[11px] font-medium text-slate-400">© {{ now_year if now_year is defined else 2026 }} {{ site_name }}</p>
     </div>
   </footer>
+  <script>
+    (() => {
+      const root = document.documentElement;
+      const themeButton = document.getElementById('themeToggle');
+      const sunIcon = document.getElementById('sunIcon');
+      const moonIcon = document.getElementById('moonIcon');
+      const refreshButton = document.getElementById('refreshNews');
+      const refreshButtonText = document.getElementById('refreshButtonText');
+      const refreshIcon = document.getElementById('refreshIcon');
+      const statusText = document.getElementById('newsStatusText');
+      const text = {
+        lightTheme: {{ ui.theme_toggle|tojson }},
+        refresh: {{ ui.refresh_news|tojson }},
+        refreshing: {{ ui.refreshing|tojson }},
+        autoRefresh: {{ ui.auto_refresh|tojson }},
+        interval: {{ news_refresh_interval|tojson }},
+        updated: {{ ui.last_updated|tojson }},
+        cooldown: {{ ui.refresh_cooldown|tojson }},
+        error: {{ ui.refresh_error|tojson }},
+        lang: {{ lang|tojson }}
+      };
+
+      function applyTheme(theme) {
+        root.dataset.theme = theme;
+        const dark = theme === 'dark';
+        if (sunIcon) sunIcon.classList.toggle('hidden', dark);
+        if (moonIcon) moonIcon.classList.toggle('hidden', !dark);
+        if (themeButton) themeButton.setAttribute('aria-pressed', String(dark));
+        try { localStorage.setItem('world-pulse-theme', theme); } catch (_) {}
+      }
+      applyTheme(root.dataset.theme || 'light');
+      themeButton?.addEventListener('click', () => applyTheme(root.dataset.theme === 'dark' ? 'light' : 'dark'));
+
+      function formatStatus(data) {
+        if (!statusText) return;
+        let value = text.autoRefresh.replace('{minutes}', String(text.interval));
+        if (data && data.last_refresh_at) {
+          const time = new Date(data.last_refresh_at);
+          if (!Number.isNaN(time.getTime())) {
+            const formatted = time.toLocaleString(text.lang === 'ar' ? 'ar-JO' : 'en-US', { dateStyle: 'medium', timeStyle: 'short' });
+            value += ' · ' + text.updated + ': ' + formatted;
+          }
+        }
+        statusText.textContent = value;
+      }
+
+      let knownRefreshAt = null;
+      async function loadStatus() {
+        try {
+          const response = await fetch('/api/news-status', { cache: 'no-store' });
+          if (!response.ok) return;
+          const status = await response.json();
+          if (knownRefreshAt !== null && status.last_refresh_at && status.last_refresh_at !== knownRefreshAt) {
+            window.location.reload();
+            return;
+          }
+          if (knownRefreshAt === null && status.last_refresh_at) knownRefreshAt = status.last_refresh_at;
+          else if (knownRefreshAt === null) knownRefreshAt = '';
+          formatStatus(status);
+        } catch (_) { /* Status display is optional; the news page stays usable. */ }
+      }
+      loadStatus();
+      // Refresh the visible story list after a scheduled/manual background fetch completes.
+      window.setInterval(loadStatus, 60000);
+
+      refreshButton?.addEventListener('click', async () => {
+        if (refreshButton.disabled) return;
+        refreshButton.disabled = true;
+        if (refreshButtonText) refreshButtonText.textContent = text.refreshing;
+        refreshIcon?.classList.add('animate-spin');
+        try {
+          let baselineAt = '';
+          try {
+            const baselineResponse = await fetch('/api/news-status', { cache: 'no-store' });
+            if (baselineResponse.ok) baselineAt = (await baselineResponse.json()).last_refresh_at || '';
+          } catch (_) {}
+          const response = await fetch('/api/refresh', { method: 'POST', headers: { 'Accept': 'application/json' }, cache: 'no-store' });
+          const result = await response.json();
+          if (result.state === 'cooldown') {
+            if (refreshButtonText) refreshButtonText.textContent = text.refresh;
+            if (statusText) statusText.textContent = text.cooldown;
+            return;
+          }
+          if (result.state === 'disabled') throw new Error('automatic refresh disabled');
+          for (let attempt = 0; attempt < 80; attempt++) {
+            await new Promise(resolve => setTimeout(resolve, 1500));
+            const statusResponse = await fetch('/api/news-status', { cache: 'no-store' });
+            if (!statusResponse.ok) continue;
+            const status = await statusResponse.json();
+            formatStatus(status);
+            const completedWithNewTimestamp = Boolean(status.last_refresh_at) && status.last_refresh_at !== baselineAt;
+            if (!status.running && status.state !== 'running' && completedWithNewTimestamp) {
+              if (status.state === 'error' || status.state === 'memory_only') {
+                if (statusText) statusText.textContent = text.error;
+                if (refreshButtonText) refreshButtonText.textContent = text.refresh;
+                return;
+              }
+              window.location.reload();
+              return;
+            }
+          }
+          if (statusText) statusText.textContent = text.error;
+        } catch (_) {
+          if (statusText) statusText.textContent = text.error;
+        } finally {
+          refreshIcon?.classList.remove('animate-spin');
+          refreshButton.disabled = false;
+          if (refreshButtonText) refreshButtonText.textContent = text.refresh;
+        }
+      });
+    })();
+  </script>
 </body>
 </html>
