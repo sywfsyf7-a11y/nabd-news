@@ -15,6 +15,7 @@ import logging
 import os
 import re
 import secrets
+import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -60,13 +61,13 @@ logger = logging.getLogger("world_pulse")
 SITE_NAME_AR = "نبض العالم"
 SITE_NAME_EN = "World Pulse"
 TIMEZONE = ZoneInfo(os.getenv("SITE_TIMEZONE", "Asia/Amman"))
-NEWS_REFRESH_MINUTES = max(5, int(os.getenv("NEWS_REFRESH_MINUTES", "20")))
+NEWS_REFRESH_MINUTES = max(5, int(os.getenv("NEWS_REFRESH_MINUTES", "15")))
 NEWS_RETRY_MINUTES = max(1, int(os.getenv("NEWS_RETRY_MINUTES", "3")))
 NEWS_AUTO_FETCH = os.getenv("NEWS_AUTO_FETCH", "true").lower() not in {"0", "false", "no"}
 RSS_TIMEOUT_SECONDS = max(2, int(os.getenv("RSS_TIMEOUT_SECONDS", "6")))
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
-MAX_ARTICLES_PER_REFRESH = max(1, min(8, int(os.getenv("MAX_ARTICLES_PER_REFRESH", "8"))))
+MAX_ARTICLES_PER_REFRESH = max(1, min(48, int(os.getenv("MAX_ARTICLES_PER_REFRESH", "24"))))
 
 CATEGORY_NAMES = {
     "politics": {"ar": "سياسة", "en": "Politics"},
@@ -102,6 +103,14 @@ UI_TEXT = {
         "search_hint": "استكشف الأخبار حسب القسم",
         "published": "نُشر",
         "open_source": "متابعة الخبر لدى المصدر",
+        "theme_toggle": "تبديل المظهر",
+        "refresh_news": "تحديث الأخبار",
+        "refreshing": "جاري تحديث الأخبار…",
+        "auto_refresh": "تتحدّث الأخبار كل {minutes} دقيقة",
+        "last_updated": "آخر تحديث",
+        "refresh_cooldown": "تم طلب التحديث مؤخراً، انتظر قليلاً ثم جرّب مجدداً.",
+        "refresh_error": "تعذّر التحديث الآن. تحقق من سجلات Render ومصادر الأخبار.",
+        "image_unavailable": "صورة غير متاحة",
     },
     "en": {
         "tagline": "The world, in one pulse.",
@@ -125,6 +134,14 @@ UI_TEXT = {
         "search_hint": "Explore stories by section",
         "published": "Published",
         "open_source": "Continue at the original source",
+        "theme_toggle": "Toggle appearance",
+        "refresh_news": "Refresh news",
+        "refreshing": "Refreshing news…",
+        "auto_refresh": "News refresh every {minutes} minutes",
+        "last_updated": "Last update",
+        "refresh_cooldown": "A refresh was requested recently. Please wait a moment and try again.",
+        "refresh_error": "Refresh failed. Check Render logs and news sources.",
+        "image_unavailable": "Image unavailable",
     },
 }
 
@@ -234,6 +251,9 @@ _SCHEMA_LOCK = threading.Lock()
 _SCHEMA_READY = False
 _DB_RETRY_AFTER = 0.0
 _DB_LOCK = threading.Lock()
+_META_CACHE_LOCK = threading.Lock()
+_META_CACHE: dict[str, str] = {}
+_META_CACHE_AT = 0.0
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS world_pulse_articles (
@@ -259,6 +279,11 @@ CREATE INDEX IF NOT EXISTS idx_world_pulse_published
     ON world_pulse_articles (published_at DESC NULLS LAST);
 CREATE INDEX IF NOT EXISTS idx_world_pulse_category
     ON world_pulse_articles (category);
+CREATE TABLE IF NOT EXISTS world_pulse_meta (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
 """
 
 
@@ -315,6 +340,70 @@ def _ensure_schema() -> bool:
             conn.close()
 
 
+
+def _write_refresh_meta(status: str, count: int, finished_at: str, error: str = "") -> bool:
+    """Persist refresh status so web workers and Render Cron jobs share one state."""
+    if not _ensure_schema():
+        return False
+    conn = _connect_db()
+    if conn is None:
+        return False
+    values = {
+        "last_refresh_at": finished_at,
+        "last_refresh_status": status,
+        "last_refresh_count": str(count),
+        "last_refresh_error": (error or "")[:500],
+    }
+    try:
+        with conn.cursor() as cur:
+            for key, value in values.items():
+                cur.execute(
+                    """INSERT INTO world_pulse_meta (key, value, updated_at)
+                       VALUES (%s, %s, NOW())
+                       ON CONFLICT (key) DO UPDATE SET
+                         value = EXCLUDED.value, updated_at = NOW()""",
+                    (key, value),
+                )
+        conn.commit()
+        global _META_CACHE, _META_CACHE_AT
+        with _META_CACHE_LOCK:
+            _META_CACHE.update(values)
+            _META_CACHE_AT = time.monotonic()
+        return True
+    except Exception:
+        conn.rollback()
+        logger.exception("Could not save news refresh status")
+        return False
+    finally:
+        conn.close()
+
+
+def _read_refresh_meta() -> dict[str, str]:
+    global _META_CACHE, _META_CACHE_AT
+    now = time.monotonic()
+    with _META_CACHE_LOCK:
+        if now - _META_CACHE_AT < 10:
+            return dict(_META_CACHE)
+    if not _ensure_schema():
+        return {}
+    conn = _connect_db()
+    if conn is None:
+        return {}
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT key, value FROM world_pulse_meta WHERE key LIKE 'last_refresh_%'")
+            result = {str(key): str(value) for key, value in cur.fetchall()}
+        with _META_CACHE_LOCK:
+            _META_CACHE = result
+            _META_CACHE_AT = time.monotonic()
+        return result
+    except Exception:
+        logger.debug("Could not read news refresh status", exc_info=True)
+        return {}
+    finally:
+        conn.close()
+
+
 def _db_fetch_all() -> list[dict[str, Any]]:
     if not _ensure_schema():
         return []
@@ -361,7 +450,10 @@ def _db_upsert_many(articles: list[dict[str, Any]]) -> bool:
         ON CONFLICT (source_url) DO UPDATE SET
             category = EXCLUDED.category,
             source_name = EXCLUDED.source_name,
-            image_url = EXCLUDED.image_url,
+            image_url = CASE
+                WHEN EXCLUDED.image_url <> '' THEN EXCLUDED.image_url
+                ELSE world_pulse_articles.image_url
+            END,
             title_ar = CASE WHEN EXCLUDED.title_ar <> '' THEN EXCLUDED.title_ar ELSE world_pulse_articles.title_ar END,
             title_en = CASE WHEN EXCLUDED.title_en <> '' THEN EXCLUDED.title_en ELSE world_pulse_articles.title_en END,
             summary_ar = CASE WHEN EXCLUDED.summary_ar <> '' THEN EXCLUDED.summary_ar ELSE world_pulse_articles.summary_ar END,
@@ -396,6 +488,11 @@ _STATE_LOCK = threading.Lock()
 _REFRESHING = False
 _LAST_REFRESH_ATTEMPT = 0.0
 _LAST_REFRESH_SUCCESS = 0.0
+_LAST_MANUAL_REFRESH = 0.0
+_LAST_REFRESH_AT = ""
+_LAST_REFRESH_COUNT = 0
+_REFRESH_STATE = "idle"
+_REFRESH_ERROR = ""
 _MEMORY_ARTICLES: dict[str, dict[str, Any]] = {}
 
 
@@ -426,23 +523,36 @@ def _parse_published(entry: Any) -> datetime | None:
 
 
 def _image_from_entry(entry: Any, category: str) -> str:
+    """Use publisher-provided imagery when present; never invent a repeated photo.
+
+    An empty URL is intentional: the template renders a designed category placeholder.
+    Image availability never decides whether an article is imported.
+    """
     for key in ("media_thumbnail", "media_content"):
         values = entry.get(key) or []
         for item in values:
-            if item.get("url", "").startswith(("https://", "http://")):
-                return item["url"]
+            url = str(item.get("url", "")).strip()
+            if url.startswith(("https://", "http://")):
+                return url
     for item in entry.get("links", []) or []:
-        href = item.get("href", "")
+        href = str(item.get("href", "")).strip()
         if href.startswith(("https://", "http://")) and (
             "image" in str(item.get("type", "")).lower()
             or re.search(r"\.(jpg|jpeg|png|webp)(\?|$)", href, re.I)
         ):
             return href
     for item in entry.get("enclosures", []) or []:
-        href = item.get("href") or item.get("url") or ""
-        if href.startswith(("https://", "http://")):
+        href = str(item.get("href") or item.get("url") or "").strip()
+        if href.startswith(("https://", "http://")) and re.search(r"\.(jpg|jpeg|png|webp)(\?|$)", href, re.I):
             return href
-    return CATEGORY_IMAGES.get(category, CATEGORY_IMAGES["world"])
+    # Some RSS entries embed a thumbnail directly in their summary/content HTML.
+    html_chunks = [str(entry.get("summary", "") or "")]
+    html_chunks.extend(str(part.get("value", "") or "") for part in (entry.get("content") or []))
+    for chunk in html_chunks:
+        match = re.search(r"<img\b[^>]*?src=[\"'](https?://[^\"']+)[\"']", chunk, re.I)
+        if match:
+            return html.unescape(match.group(1))
+    return ""
 
 
 def _parse_feed_task(category: str, lang: str) -> tuple[str, str, list[dict[str, Any]]]:
@@ -451,7 +561,7 @@ def _parse_feed_task(category: str, lang: str) -> tuple[str, str, list[dict[str,
         locale = {"hl": "ar", "gl": "JO", "ceid": "JO:ar"}
     else:
         locale = {"hl": "en-US", "gl": "US", "ceid": "US:en"}
-    params = {"q": query, **locale}
+    params = {"q": f"{query} when:7d", **locale}
     feed_url = "https://news.google.com/rss/search?" + urlencode(params)
     request_obj = Request(feed_url, headers={"User-Agent": "WorldPulseNews/1.0 (+RSS reader)"})
     try:
@@ -459,7 +569,7 @@ def _parse_feed_task(category: str, lang: str) -> tuple[str, str, list[dict[str,
             raw = response.read(2_000_000)
         feed = feedparser.parse(raw)
         items: list[dict[str, Any]] = []
-        for entry in feed.entries[:12]:
+        for entry in feed.entries[:20]:
             title = _clean_text(entry.get("title", ""), 350)
             url = str(entry.get("link", "")).strip()
             if not title or not url.startswith(("https://", "http://")):
@@ -495,6 +605,7 @@ def _slug_for_url(url: str) -> str:
 
 
 def _collect_rss_articles() -> list[dict[str, Any]]:
+    """Collect several recent stories per category; duplicate images never filter stories."""
     tasks = [(category, lang) for category in CATEGORY_NAMES for lang in ("ar", "en")]
     by_category: dict[str, list[dict[str, Any]]] = {key: [] for key in CATEGORY_NAMES}
     with ThreadPoolExecutor(max_workers=16) as pool:
@@ -508,20 +619,31 @@ def _collect_rss_articles() -> list[dict[str, Any]]:
 
     selected: list[dict[str, Any]] = []
     seen_urls: set[str] = set()
+    seen_titles: set[tuple[str, str]] = set()
+    per_category = max(1, int(os.getenv("MAX_ARTICLES_PER_CATEGORY", "4")))
     for category in CATEGORY_NAMES:
         candidates = sorted(
             by_category[category],
             key=lambda item: item.get("published_at") or datetime(1970, 1, 1, tzinfo=timezone.utc),
             reverse=True,
         )
+        category_count = 0
         for item in candidates:
-            url = item["source_url"]
-            if url in seen_urls:
+            url = item["source_url"].split("#", 1)[0]
+            title_key = (
+                str(item.get("original_language", "")),
+                re.sub(r"[^\w]", "", item.get("original_title", "").lower()),
+            )
+            if not url or url in seen_urls or title_key in seen_titles:
                 continue
             seen_urls.add(url)
+            seen_titles.add(title_key)
+            item["source_url"] = url
             item["slug"] = _slug_for_url(url)
             selected.append(item)
-            break  # One latest result per category keeps the first refresh light.
+            category_count += 1
+            if category_count >= per_category:
+                break
     selected.sort(key=lambda item: item.get("published_at") or datetime(1970, 1, 1, tzinfo=timezone.utc), reverse=True)
     return selected[:MAX_ARTICLES_PER_REFRESH]
 
@@ -541,7 +663,7 @@ def _base_article(raw: dict[str, Any]) -> dict[str, Any]:
         "source_url": raw["source_url"],
         "category": raw["category"],
         "source_name": raw.get("source_name") or "",
-        "image_url": raw.get("image_url") or CATEGORY_IMAGES[raw["category"]],
+        "image_url": raw.get("image_url") or "",
         "title_ar": title if original_lang == "ar" else "",
         "title_en": title if original_lang == "en" else "",
         "summary_ar": summary if original_lang == "ar" else "",
@@ -585,9 +707,9 @@ Input JSON: {json.dumps(payload, ensure_ascii=False)}"""
             contents=prompt,
             config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.2),
         )
-        text = (response.text or "").strip()
-        text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=re.I)
-        parsed = json.loads(text)
+        response_text = (response.text or "").strip()
+        response_text = re.sub(r"^```(?:json)?\s*|\s*```$", "", response_text, flags=re.I)
+        parsed = json.loads(response_text)
         stories = parsed.get("stories", []) if isinstance(parsed, dict) else parsed
         result: dict[int, dict[str, str]] = {}
         for story in stories:
@@ -613,58 +735,92 @@ def _reading_minutes(article: dict[str, Any]) -> int:
         "title_ar", "title_en", "summary_ar", "summary_en", "content_ar", "content_en"
     ))
     words = len(text.split())
-    # Count a bilingual article only once approximately; 200 wpm is a reasonable display estimate.
     return max(1, min(20, (words // 400) + 1))
 
 
-def _refresh_news_job() -> None:
-    global _REFRESHING, _LAST_REFRESH_SUCCESS
+def _record_refresh_result(status: str, count: int, error: str = "") -> bool:
+    global _LAST_REFRESH_AT, _LAST_REFRESH_COUNT, _REFRESH_STATE, _REFRESH_ERROR
+    finished_at = datetime.now(timezone.utc).isoformat()
+    with _STATE_LOCK:
+        _LAST_REFRESH_AT = finished_at
+        _LAST_REFRESH_COUNT = count
+        _REFRESH_STATE = status
+        _REFRESH_ERROR = (error or "")[:500]
+    return _write_refresh_meta(status, count, finished_at, error)
+
+
+def _refresh_news_job() -> bool:
+    """Fetch and store stories. Returns whether the result was persisted."""
+    global _REFRESHING, _LAST_REFRESH_SUCCESS, _REFRESH_STATE
+    with _STATE_LOCK:
+        _REFRESHING = True
+        _REFRESH_STATE = "running"
     try:
         raw_articles = _collect_rss_articles()
         if not raw_articles:
-            logger.info("RSS refresh returned no stories; sample content remains available")
-            return
+            _LAST_REFRESH_SUCCESS = time.monotonic()
+            meta_saved = _record_refresh_result("no_stories", 0)
+            logger.info("RSS refresh returned no stories; existing stories remain available")
+            return meta_saved
+
         translations = _translate_batch(raw_articles)
         ready: list[dict[str, Any]] = []
         for index, raw in enumerate(raw_articles):
             article = _base_article(raw)
             if index in translations:
                 article.update(translations[index])
-            # If Gemini was unavailable, keep only the source-language version rather than
-            # falsely presenting untranslated text as if it had been translated.
             article["read_minutes"] = _reading_minutes(article)
             ready.append(article)
             _MEMORY_ARTICLES[article["source_url"]] = article
-        _db_upsert_many(ready)
+
+        persisted = _db_upsert_many(ready)
         _LAST_REFRESH_SUCCESS = time.monotonic()
-        logger.info("News refresh complete: %s stories processed", len(ready))
-    except Exception:
+        status = "success" if persisted else "memory_only"
+        metadata_saved = _record_refresh_result(
+            status, len(ready), "" if persisted else "Database unavailable; stories remain in this worker's memory only"
+        )
+        logger.info("News refresh complete: %s stories processed; persisted=%s", len(ready), persisted)
+        return persisted and metadata_saved
+    except Exception as exc:
         logger.exception("Unexpected failure while refreshing news")
+        _record_refresh_result("error", 0, str(exc))
+        return False
     finally:
         with _STATE_LOCK:
             _REFRESHING = False
+            if _REFRESH_STATE == "running":
+                _REFRESH_STATE = "idle"
 
 
-def _maybe_start_refresh() -> None:
-    """Refresh in a daemon thread so a slow external feed never blocks the page render."""
-    global _REFRESHING, _LAST_REFRESH_ATTEMPT
+def _maybe_start_refresh(force: bool = False) -> str:
+    """Start a background refresh without blocking page rendering.
+
+    Normal refreshes are opportunistic on visits; Render Cron Jobs provide the reliable
+    schedule even when the web service has no traffic or is sleeping.
+    """
+    global _REFRESHING, _LAST_REFRESH_ATTEMPT, _LAST_MANUAL_REFRESH, _REFRESH_STATE
     if not NEWS_AUTO_FETCH:
-        return
+        return "disabled"
     now = time.monotonic()
     with _STATE_LOCK:
         if _REFRESHING:
-            return
+            return "running"
+        if force and now - _LAST_MANUAL_REFRESH < 45:
+            return "cooldown"
         interval = NEWS_REFRESH_MINUTES * 60 if _LAST_REFRESH_SUCCESS else NEWS_RETRY_MINUTES * 60
-        # On a newly started worker, retry slowly if there's already persisted data; otherwise
-        # make one initial attempt and let the fallback render immediately.
-        if _LAST_REFRESH_ATTEMPT and now - _LAST_REFRESH_ATTEMPT < min(interval, NEWS_RETRY_MINUTES * 60):
-            return
-        if _LAST_REFRESH_SUCCESS and now - _LAST_REFRESH_SUCCESS < interval:
-            return
+        if not force:
+            if _LAST_REFRESH_ATTEMPT and now - _LAST_REFRESH_ATTEMPT < min(interval, NEWS_RETRY_MINUTES * 60):
+                return "cooldown"
+            if _LAST_REFRESH_SUCCESS and now - _LAST_REFRESH_SUCCESS < interval:
+                return "fresh"
         _LAST_REFRESH_ATTEMPT = now
+        if force:
+            _LAST_MANUAL_REFRESH = now
         _REFRESHING = True
+        _REFRESH_STATE = "running"
     thread = threading.Thread(target=_refresh_news_job, name="world-pulse-rss-refresh", daemon=True)
     thread.start()
+    return "started"
 
 
 # ---------------------------------------------------------------------------
@@ -692,7 +848,11 @@ def _sample_articles() -> list[dict[str, Any]]:
 def _normalise_story(row: dict[str, Any], lang: str) -> dict[str, Any]:
     story = dict(row)
     story.setdefault("source_name", "")
-    story.setdefault("image_url", CATEGORY_IMAGES.get(story.get("category", "world"), CATEGORY_IMAGES["world"]))
+    story.setdefault("image_url", "")
+    # Older builds stored one generic image per category. Stop repeating those old photos.
+    category = story.get("category", "world")
+    if story.get("image_url") == CATEGORY_IMAGES.get(category):
+        story["image_url"] = ""
     story.setdefault("is_demo", False)
     if story.get("is_demo"):
         story["source_name"] = UI_TEXT[lang]["sample_source"]
@@ -704,8 +864,6 @@ def _normalise_story(row: dict[str, Any], lang: str) -> dict[str, Any]:
     story["read_minutes"] = max(1, int(story.get("read_minutes") or 1))
     if not story.get("slug"):
         story["slug"] = _slug_for_url(story.get("source_url", "world-pulse"))
-    if not story.get("image_url"):
-        story["image_url"] = CATEGORY_IMAGES.get(story.get("category", "world"), CATEGORY_IMAGES["world"])
     return story
 
 
@@ -726,22 +884,28 @@ def _all_live_articles() -> list[dict[str, Any]]:
 
 def _get_display_stories(lang: str) -> list[dict[str, Any]]:
     live = [row for row in _all_live_articles() if row.get(f"title_{lang}") and row.get("category") in CATEGORY_NAMES]
-    # Cover categories with labelled explanatory samples when live news is missing or
-    # not available in the selected language. This keeps every section useful without
-    # misrepresenting sample content as a real current event.
+    # Cover categories with explicitly labelled samples if the chosen language lacks live news.
     live_categories = {row.get("category") for row in live}
-    supplements = [
-        row for row in _sample_articles()
-        if row.get("category") not in live_categories
-    ]
+    supplements = [row for row in _sample_articles() if row.get("category") not in live_categories]
     combined = live + supplements
     combined.sort(
-        key=lambda item: (
-            item.get("published_at") or item.get("fetched_at") or datetime(1970, 1, 1, tzinfo=timezone.utc)
-        ),
+        key=lambda item: item.get("published_at") or item.get("fetched_at") or datetime(1970, 1, 1, tzinfo=timezone.utc),
         reverse=True,
     )
-    return [_normalise_story(row, lang) for row in combined]
+    output = [_normalise_story(row, lang) for row in combined]
+    # If publishers syndicate the same image across many stories, show it only once on
+    # this page. We retain every story and render a category illustration in its place.
+    seen_images: set[str] = set()
+    for story in output:
+        image_url = str(story.get("image_url") or "").strip()
+        if not image_url:
+            continue
+        key = image_url.split("?", 1)[0].rstrip("/").lower()
+        if key in seen_images:
+            story["image_url"] = ""
+        else:
+            seen_images.add(key)
+    return output
 
 
 def _find_article(slug: str, lang: str) -> dict[str, Any] | None:
@@ -817,6 +981,7 @@ def inject_shared_template_data() -> dict[str, Any]:
         "categories": [{"key": key, "label": value[lang]} for key, value in CATEGORY_NAMES.items()],
         "category_names": CATEGORY_NAMES,
         "category_images": CATEGORY_IMAGES,
+        "news_refresh_interval": NEWS_REFRESH_MINUTES,
         "now_year": datetime.now(TIMEZONE).year,
     }
 
@@ -840,6 +1005,41 @@ def index():
         related_stories=[],
         article=None,
     )
+
+
+@app.post("/api/refresh")
+def api_refresh():
+    state = _maybe_start_refresh(force=True)
+    code = 202 if state == "started" else 200
+    return {"state": state, "interval_minutes": NEWS_REFRESH_MINUTES}, code
+
+
+@app.get("/api/news-status")
+def api_news_status():
+    # An open browser tab keeps the normal refresh cycle alive even without navigation.
+    # Use a Render Cron Job as well when updates must run with no visitors at all.
+    _maybe_start_refresh()
+    # Cron Jobs run in a separate process; persisted metadata is the shared source of truth.
+    meta = _read_refresh_meta()
+    with _STATE_LOCK:
+        local = {
+            "state": _REFRESH_STATE,
+            "last_refresh_at": _LAST_REFRESH_AT,
+            "count": _LAST_REFRESH_COUNT,
+            "error": _REFRESH_ERROR,
+            "running": _REFRESHING,
+        }
+    if not local["running"]:
+        local_at = str(local.get("last_refresh_at") or "")
+        meta_at = str(meta.get("last_refresh_at") or "")
+        # Prefer whichever worker (web or cron) has the newest completed refresh.
+        if meta_at and (not local_at or meta_at >= local_at):
+            local["last_refresh_at"] = meta_at
+            local["count"] = int(meta.get("last_refresh_count", local["count"]) or 0)
+            local["state"] = meta.get("last_refresh_status", local["state"])
+            local["error"] = meta.get("last_refresh_error", local["error"])
+    local["interval_minutes"] = NEWS_REFRESH_MINUTES
+    return local, 200, {"Cache-Control": "no-store"}
 
 
 @app.get("/article/<slug>")
@@ -879,5 +1079,10 @@ def not_found(_error):
 
 
 if __name__ == "__main__":
-    # Local development only. Render should use Gunicorn, not Flask's debug server.
+    if "--refresh-news" in sys.argv:
+        # Render Cron Job command: python app.py --refresh-news
+        # Cron runs are separate processes, so successful results must be stored in PostgreSQL.
+        success = _refresh_news_job()
+        raise SystemExit(0 if success else 1)
+    # Local development only. Render web service should use Gunicorn.
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", "5000")), debug=False)
