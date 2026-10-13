@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#111827">
   <meta name="description" content="{{ ui.hero_text }}">
-  <title>{% if page == 'article' and article %}{{ article.title }} — {% endif %}{{ site_name }}</title>
+  <title>{% if page == 'article' and article %}{{ article.title }} — {% elif page == 'static' and static_page %}{{ static_page['title_ar' if lang == 'ar' else 'title_en'] }} — {% elif page == 'contact' %}{{ 'اتصل بنا' if lang == 'ar' else 'Contact us' }} — {% endif %}{{ site_name }}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -363,6 +363,53 @@
           </aside>
         </div>
       </article>
+
+    {% elif page == 'static' and static_page %}
+      <article class="mx-auto max-w-4xl rounded-3xl border border-slate-200 bg-white px-6 py-8 shadow-sm sm:px-10 sm:py-12">
+        <p class="mb-3 text-xs font-extrabold uppercase tracking-[.18em] text-pulse">{{ site_name }}</p>
+        <h1 class="text-3xl font-extrabold tracking-tight sm:text-4xl">{{ static_page['title_ar' if lang == 'ar' else 'title_en'] }}</h1>
+        <div class="mt-8 space-y-8">
+          {% for heading, body in static_sections %}
+            <section>
+              <h2 class="mb-2 text-lg font-extrabold">{{ heading }}</h2>
+              <p class="text-sm leading-8 text-slate-600">{{ body }}</p>
+            </section>
+          {% endfor %}
+        </div>
+        {% if static_page_key == 'about' %}
+          <a href="{{ url_for('contact', lang=lang) }}" class="mt-9 inline-flex rounded-full bg-pulse px-5 py-3 text-sm font-bold text-white transition hover:bg-rose-600">{{ 'تواصل معنا' if lang == 'ar' else 'Contact us' }}</a>
+        {% endif %}
+      </article>
+
+    {% elif page == 'contact' %}
+      <section class="mx-auto max-w-3xl rounded-3xl border border-slate-200 bg-white px-6 py-8 shadow-sm sm:px-10 sm:py-12">
+        <p class="mb-3 text-xs font-extrabold uppercase tracking-[.18em] text-pulse">{{ site_name }}</p>
+        <h1 class="text-3xl font-extrabold tracking-tight sm:text-4xl">{{ 'اتصل بنا' if lang == 'ar' else 'Contact us' }}</h1>
+        <p class="mt-4 text-sm leading-8 text-slate-600">{{ 'للاقتراحات والتصحيحات والاستفسارات، ابعث لنا رسالة من النموذج التالي.' if lang == 'ar' else 'Send us suggestions, corrections, or questions using the form below.' }}</p>
+        {% if contact_sent %}
+          <div class="mt-6 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-semibold leading-7 text-emerald-800" role="status">{{ 'وصلتنا رسالتك بنجاح، شكراً لتواصلك معنا.' if lang == 'ar' else 'Your message was sent successfully. Thank you for contacting us.' }}</div>
+        {% endif %}
+        {% if contact_error %}
+          <div class="mt-6 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-7 text-amber-900" role="alert">{{ contact_error }}{% if not contact_csrf or 'غير مفعّل' in contact_error or 'not configured' in contact_error %} <a class="font-bold underline underline-offset-2" href="mailto:syfsywf86@gmail.com">syfsywf86@gmail.com</a>{% endif %}</div>
+        {% endif %}
+        <form method="post" action="{{ url_for('contact', lang=lang) }}" class="mt-8 space-y-5">
+          <input type="hidden" name="csrf_token" value="{{ contact_csrf }}">
+          <div>
+            <label for="contact-name" class="mb-2 block text-sm font-bold">{{ 'الاسم' if lang == 'ar' else 'Name' }}</label>
+            <input id="contact-name" name="name" type="text" maxlength="100" required autocomplete="name" class="w-full rounded-xl border border-slate-300 bg-transparent px-4 py-3 text-sm outline-none focus:border-pulse">
+          </div>
+          <div>
+            <label for="contact-email" class="mb-2 block text-sm font-bold">{{ 'البريد الإلكتروني' if lang == 'ar' else 'Email address' }}</label>
+            <input id="contact-email" name="email" type="email" maxlength="254" required autocomplete="email" class="w-full rounded-xl border border-slate-300 bg-transparent px-4 py-3 text-sm outline-none focus:border-pulse">
+          </div>
+          <div>
+            <label for="contact-message" class="mb-2 block text-sm font-bold">{{ 'الرسالة' if lang == 'ar' else 'Message' }}</label>
+            <textarea id="contact-message" name="message" rows="6" maxlength="5000" required class="w-full resize-y rounded-xl border border-slate-300 bg-transparent px-4 py-3 text-sm leading-7 outline-none focus:border-pulse"></textarea>
+          </div>
+          <button type="submit" class="rounded-full bg-pulse px-6 py-3 text-sm font-extrabold text-white transition hover:bg-rose-600">{{ 'إرسال الرسالة' if lang == 'ar' else 'Send message' }}</button>
+        </form>
+        <p class="mt-7 border-t border-slate-100 pt-5 text-sm leading-7 text-slate-500">{{ 'أو راسلنا مباشرة على' if lang == 'ar' else 'Or email us directly at' }} <a class="font-bold text-pulse underline underline-offset-2" href="mailto:syfsywf86@gmail.com">syfsywf86@gmail.com</a>.</p>
+      </section>
 
     {% else %}
       <section class="mx-auto max-w-xl rounded-3xl border border-slate-200 bg-white px-6 py-16 text-center shadow-sm">
