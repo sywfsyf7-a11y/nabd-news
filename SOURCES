@@ -1,0 +1,38 @@
+# World Pulse — Publisher discovery catalog
+
+The domains below are used as **discovery filters** with Google News RSS. World Pulse does not fetch full article pages or poll the publishers' own RSS feeds. A publisher appearing here does not grant a right to reproduce or process its content commercially. The program skips identifiable results from providers with known restrictive terms unless permission is obtained.
+
+## 1. Politics
+- Arabic: Al Jazeera (`aljazeera.net`, rights-gated), Al Arabiya (`alarabiya.net`), Sky News Arabia (`skynewsarabia.com`), Asharq Al-Awsat (`aawsat.com`), Al-Quds Al-Arabi (`alquds.co.uk`).
+- English: Reuters (`reuters.com`, rights-gated), Associated Press (`apnews.com`, rights-gated), Politico (`politico.com`), BBC (`bbc.com`, rights-gated).
+
+## 2. Economy
+- Arabic: Asharq Business (`asharqbusiness.com`), CNBC Arabia (`cnbcarabia.com`), Mubasher (`mubasher.info`), Al Arabiya (`alarabiya.net`).
+- English: Bloomberg (`bloomberg.com`), Financial Times (`ft.com`), The Wall Street Journal (`wsj.com`), CNBC (`cnbc.com`), Reuters (`reuters.com`, rights-gated).
+
+## 3. Technology
+- Arabic: AIT News (`aitnews.com`), Tech-WD (`tech-wd.com`), Arab Hardware (`arabhardware.net`).
+- English: The Verge (`theverge.com`), TechCrunch (`techcrunch.com`, rights-gated), WIRED (`wired.com`), Ars Technica (`arstechnica.com`).
+
+## 4. Gaming
+- Arabic: Saudi Gamer (`saudigamer.com`), Arab Hardware (`arabhardware.net`).
+- English: IGN (`ign.com`), GameSpot (`gamespot.com`), Polygon (`polygon.com`), PC Gamer (`pcgamer.com`).
+
+## 5. Sports
+- Arabic: FilGoal (`filgoal.com`), Kooora (`kooora.com`), beIN SPORTS (`beinsports.com`).
+- English: ESPN (`espn.com`, rights-gated), Sky Sports (`skysports.com`), BBC Sport (`bbc.com`, rights-gated), Reuters (`reuters.com`, rights-gated).
+
+## 6. Science
+- Arabic: National Geographic Abu Dhabi (`ngalarabiya.com`), Al Jazeera (`aljazeera.net`, rights-gated), Al Arabiya (`alarabiya.net`), DW Arabic (`dw.com`).
+- English: NASA (`nasa.gov`), Space.com (`space.com`), Scientific American (`scientificamerican.com`), Live Science (`livescience.com`).
+
+## 7. Culture
+- Arabic: Al-Qafilah (`alqafilah.com`), Al Jazeera Culture (`aljazeera.net`, rights-gated), The New Arab (`alaraby.co.uk`), Al-Arab (`alarab.co.uk`).
+- English: Literary Hub (`lithub.com`), Artsy (`artsy.net`), The Guardian (`theguardian.com`, rights-gated).
+
+## 8. World
+- Arabic: France 24 Arabic (`france24.com`), BBC Arabic (`bbc.com`, rights-gated), DW Arabic (`dw.com`), Al Jazeera (`aljazeera.net`, rights-gated), Euronews (`euronews.com`).
+- English: Euronews (`euronews.com`), BBC World (`bbc.com`, rights-gated), Associated Press (`apnews.com`, rights-gated), Reuters (`reuters.com`, rights-gated).
+
+## Rights-gated sources
+The current blocklist skips identifiable results from BBC, Reuters, AP News, TechCrunch, ESPN, ScienceDaily, The Guardian and Al Jazeera. They are left in this catalog for visibility and for future use if World Pulse obtains an appropriate licence or written permission. The exact scope of publisher permissions differs by service and jurisdiction; verify the current terms before changing the gate.
