@@ -36,3 +36,7 @@ The domains below are used as **discovery filters** with Google News RSS. World 
 
 ## Rights-gated sources
 The current blocklist skips identifiable results from BBC, Reuters, AP News, TechCrunch, ESPN, ScienceDaily, The Guardian and Al Jazeera. They are left in this catalog for visibility and for future use if World Pulse obtains an appropriate licence or written permission. The exact scope of publisher permissions differs by service and jurisdiction; verify the current terms before changing the gate.
+
+## Image providers and controls
+
+Image sourcing and licence-validation logic is implemented in `app.py`. Its order is Wikimedia Commons with a strict Public Domain / CC0 / plain CC BY filter, manually reviewed assets from `approved_presskit_images.json`, then opt-in Unsplash and Pexels official APIs if their environment keys exist. Otherwise it uses the on-site CSS placeholder. See the **Image sourcing and rights safeguards** section in `README.md` for provider setup, captioning, and the manual press-kit manifest schema.
