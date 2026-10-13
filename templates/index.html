@@ -4,8 +4,14 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#111827">
-  <meta name="description" content="{{ ui.hero_text }}">
-  <title>{% if page == 'article' and article %}{{ article.title }} — {% endif %}{{ site_name }}</title>
+  <meta name="description" content="{% if page == 'article' and article %}{{ article.summary|striptags|truncate(155, True, '…') }}{% elif page == 'legal' %}{{ legal_body|striptags|truncate(155, True, '…') }}{% elif page == 'search' %}{{ ('نتائج البحث عن ' if lang == 'ar' else 'Search results for ') ~ (search_query or '') }}{% else %}{{ ui.hero_text }}{% endif %}">
+  {% if page == 'search' %}<meta name="robots" content="noindex,follow">{% else %}<meta name="robots" content="index,follow,max-image-preview:large">{% endif %}
+  <meta property="og:site_name" content="{{ site_name }}">
+  <meta property="og:type" content="{% if page == 'article' %}article{% else %}website{% endif %}">
+  <meta property="og:title" content="{% if page == 'article' and article %}{{ article.title }} — {% elif page == 'legal' %}{{ legal_title }} — {% endif %}{{ site_name }}">
+  <meta property="og:description" content="{% if page == 'article' and article %}{{ article.summary|striptags|truncate(155, True, '…') }}{% else %}{{ ui.hero_text }}{% endif %}">
+  {% if page == 'article' and article and article.image_url %}<meta property="og:image" content="{{ article.image_url }}">{% endif %}
+  <title>{% if page == 'article' and article %}{{ article.title }} — {% elif page == 'legal' %}{{ legal_title }} — {% elif page == 'search' %}{{ 'نتائج البحث' if lang == 'ar' else 'Search results' }} — {% endif %}{{ site_name }}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -123,12 +129,11 @@
           <span class="mt-0.5 block text-[10px] font-semibold uppercase tracking-[.22em] text-slate-500">{{ 'WORLD PULSE' if lang == 'ar' else 'NEWS · CONTEXT · PERSPECTIVE' }}</span>
         </span>
       </a>
-      <div class="hidden items-center gap-2 md:flex">
-        <span class="rounded-full bg-white px-3 py-2 text-xs font-semibold text-slate-500 ring-1 ring-slate-200">{{ ui.search_hint }}</span>
-        <span class="grid h-9 w-9 place-items-center rounded-full bg-white text-slate-500 ring-1 ring-slate-200" aria-hidden="true">
-          <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="7"/><path d="m16 16 4 4" stroke-linecap="round"/></svg>
-        </span>
-      </div>
+      <form action="{{ url_for('search', lang=lang) }}" method="get" role="search" class="hidden min-w-0 max-w-sm flex-1 items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 md:flex">
+        <label for="siteSearch" class="sr-only">{{ 'ابحث في الأخبار' if lang == 'ar' else 'Search news' }}</label>
+        <input id="siteSearch" name="q" value="{{ search_query if search_query is defined else '' }}" type="search" maxlength="160" required placeholder="{{ 'ابحث في الأخبار...' if lang == 'ar' else 'Search news...' }}" class="min-w-0 flex-1 bg-transparent text-sm outline-none" />
+        <button type="submit" aria-label="{{ 'بحث' if lang == 'ar' else 'Search' }}" class="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-pulse text-white"><svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="7"/><path d="m16 16 4 4" stroke-linecap="round"/></svg></button>
+      </form>
     </div>
     <nav class="border-t border-slate-200/70" aria-label="{{ 'الأقسام' if lang == 'ar' else 'News sections' }}">
       <div class="nav-scroll mx-auto flex max-w-7xl items-center gap-2 overflow-x-auto px-4 py-2.5 sm:px-6 lg:px-8">
@@ -147,8 +152,38 @@
     </div>
   </header>
 
+  <form action="{{ url_for('search', lang=lang) }}" method="get" role="search" class="mx-auto flex max-w-7xl items-center gap-2 px-4 pt-4 md:hidden sm:px-6 lg:px-8">
+    <label for="mobileSiteSearch" class="sr-only">{{ 'ابحث في الأخبار' if lang == 'ar' else 'Search news' }}</label>
+    <input id="mobileSiteSearch" name="q" value="{{ search_query if search_query is defined else '' }}" type="search" maxlength="160" required placeholder="{{ 'ابحث في الأخبار...' if lang == 'ar' else 'Search news...' }}" class="min-w-0 flex-1 rounded-full border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-pulse" />
+    <button type="submit" class="rounded-full bg-pulse px-4 py-3 text-sm font-bold text-white">{{ 'بحث' if lang == 'ar' else 'Search' }}</button>
+  </form>
   <main class="mx-auto max-w-7xl px-4 pb-16 pt-5 sm:px-6 sm:pt-8 lg:px-8">
-    {% if page == 'home' %}
+    {% if page == 'legal' %}
+      <section class="mx-auto max-w-3xl rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-10">
+        <h1 class="mb-5 text-3xl font-extrabold">{{ legal_title }}</h1>
+        <p class="whitespace-pre-line text-base leading-8 text-slate-600">{{ legal_body }}</p>
+        {% if legal_slug == 'contact' and contact_status is defined and contact_status %}
+          <div role="status" aria-live="polite" class="mt-5 rounded-2xl border px-4 py-3 text-sm leading-7 {% if contact_status == 'sent' %}border-emerald-200 bg-emerald-50 text-emerald-800{% elif contact_status == 'invalid' %}border-amber-200 bg-amber-50 text-amber-900{% else %}border-rose-200 bg-rose-50 text-rose-800{% endif %}">
+            {% if contact_status == 'sent' %}{{ 'تم إرسال رسالتك بنجاح، شكرًا لتواصلك.' if lang == 'ar' else 'Your message was sent successfully. Thank you.' }}
+            {% elif contact_status == 'invalid' %}{{ 'يرجى تعبئة الحقول والتأكد من صحة البريد الإلكتروني.' if lang == 'ar' else 'Please complete all fields and provide a valid email address.' }}
+            {% elif contact_status == 'failed' %}{{ 'تعذر إرسال الرسالة الآن. يرجى التواصل عبر syfsywf86@gmail.com.' if lang == 'ar' else 'We could not send your message. Please email syfsywf86@gmail.com.' }}{% endif %}
+          </div>
+        {% endif %}
+        {% if legal_slug == 'contact' %}
+          <form id="contact-form" action="{{ url_for('contact_submit', lang=lang) }}" method="post" class="mt-8 space-y-4">
+            <input type="hidden" name="csrf_token" value="{{ contact_csrf_token }}">
+            <div><label for="contactName" class="mb-1 block text-sm font-bold">{{ 'الاسم' if lang == 'ar' else 'Name' }}</label><input id="contactName" name="name" maxlength="100" required class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm" /></div>
+            <div><label for="contactEmail" class="mb-1 block text-sm font-bold">{{ 'البريد الإلكتروني' if lang == 'ar' else 'Email' }}</label><input id="contactEmail" type="email" name="email" maxlength="160" required class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm" /></div>
+            <div><label for="contactMessage" class="mb-1 block text-sm font-bold">{{ 'الرسالة' if lang == 'ar' else 'Message' }}</label><textarea id="contactMessage" name="message" maxlength="3000" rows="5" required class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm"></textarea></div>
+            <p class="text-xs leading-6 text-slate-500">{% if contact_smtp_enabled %}{{ 'سيتم إرسال رسالتك مباشرة من الموقع إلى syfsywf86@gmail.com.' if lang == 'ar' else 'Your message will be sent directly to syfsywf86@gmail.com.' }}{% else %}{{ 'سيُفتح تطبيق البريد لديك لإكمال الإرسال إلى syfsywf86@gmail.com. يمكن تفعيل الإرسال المباشر بإعداد SMTP في Render.' if lang == 'ar' else 'Your email app will open to complete sending to syfsywf86@gmail.com. Direct sending can be enabled with SMTP settings in Render.' }}{% endif %}</p>
+            <button type="submit" class="rounded-full bg-pulse px-5 py-3 text-sm font-bold text-white">{{ 'متابعة الإرسال' if lang == 'ar' else 'Continue to email' }}</button>
+          </form>
+        {% endif %}
+      </section>
+    {% elif page == 'search' %}
+      <section class="mb-6"><h1 class="text-3xl font-extrabold">{{ 'نتائج البحث' if lang == 'ar' else 'Search results' }}</h1><p class="mt-2 text-sm text-slate-500">{{ 'عبارة البحث: ' if lang == 'ar' else 'Search query: ' }}{{ search_query }}</p></section>
+      {% if stories %}<div class="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3">{% for story in stories %}<article class="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"><p class="mb-2 text-xs font-bold text-pulse">{{ story.category_label }} · {{ story.source_name or ui.source }}</p><h2 class="text-lg font-extrabold leading-8"><a href="{{ url_for('article', slug=story.slug, lang=lang) }}">{{ story.title }}</a></h2><p class="mt-3 line-clamp-4 text-sm leading-7 text-slate-600">{{ story.summary }}</p><a class="mt-4 inline-block text-sm font-bold text-pulse" href="{{ url_for('article', slug=story.slug, lang=lang) }}">{{ 'اقرأ الخبر' if lang == 'ar' else 'Read story' }} ←</a></article>{% endfor %}</div>{% else %}<p class="rounded-2xl border border-slate-200 bg-white p-8 text-slate-500">{{ 'لا توجد نتائج مطابقة. جرّب كلمات أخرى.' if lang == 'ar' else 'No matching results. Try different keywords.' }}</p>{% endif %}
+    {% elif page == 'home' %}
       <section class="mb-6 overflow-hidden rounded-[2rem] bg-ink text-white shadow-soft">
         <div class="relative grid gap-8 px-6 py-9 sm:px-10 sm:py-12 lg:grid-cols-[1.1fr_.9fr] lg:items-center lg:px-14 lg:py-14">
           <div class="pointer-events-none absolute inset-y-0 {{ 'left-0' if lang == 'ar' else 'right-0' }} hidden w-2/5 opacity-20 lg:block editorial-grid"></div>
@@ -223,7 +258,7 @@
                   {% if story.image_source != 'category' and story.image_credit %}
                     <p class="mb-2 text-[10px] leading-5 text-slate-400">{{ ui.photo_credit }}:
                       {% if story.image_credit_url %}<a href="{{ story.image_credit_url }}" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">{{ story.image_credit }}</a>{% else %}{{ story.image_credit }}{% endif %}
-                      {% if story.image_license_url %} · <a href="{{ story.image_license_url }}" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">{{ ui.photo_license }}</a>{% endif %}
+                      {% if story.image_license_name %} · {{ story.image_license_name }}{% endif %}{% if story.image_license_url %} · <a href="{{ story.image_license_url }}" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">{{ ui.photo_license }}</a>{% endif %}
                     </p>
                   {% endif %}
                   <div class="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-medium text-slate-500">
@@ -282,7 +317,7 @@
           <div class="border-b border-slate-100 px-6 py-3 text-[11px] leading-5 text-slate-400 sm:px-9 lg:px-12">
             {{ ui.photo_credit }}:
             {% if article.image_credit_url %}<a href="{{ article.image_credit_url }}" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">{{ article.image_credit }}</a>{% else %}{{ article.image_credit }}{% endif %}
-            {% if article.image_license_url %} · <a href="{{ article.image_license_url }}" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">{{ ui.photo_license }}</a>{% endif %}
+            {% if article.image_license_name %} · {{ article.image_license_name }}{% endif %}{% if article.image_license_url %} · <a href="{{ article.image_license_url }}" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">{{ ui.photo_license }}</a>{% endif %}
           </div>
         {% endif %}
 
@@ -291,6 +326,7 @@
             <div class="mb-8 rounded-2xl border-s-4 border-pulse bg-slate-50 p-5 sm:p-6">
               <p class="mb-2 text-xs font-extrabold uppercase tracking-wider text-pulse">{{ 'ملخص تنفيذي' if lang == 'ar' else 'Executive summary' }}</p>
               <p class="text-base font-semibold leading-8 text-slate-700">{{ article.summary }}</p>
+              {% if not article.is_demo %}<p class="mt-3 text-xs leading-6 text-slate-500">{{ 'ملخص وسياق تحريري بمساعدة الذكاء الاصطناعي استناداً إلى المعلومات المتاحة من المصدر؛ راجع المصدر الأصلي للتفاصيل والتحديثات.' if lang == 'ar' else 'AI-assisted editorial summary and context based on available source information; consult the original publisher for full details and updates.' }}</p>{% endif %}
             </div>
             {% if article.content %}
               <h2 class="mb-4 text-xl font-extrabold tracking-tight sm:text-2xl">{{ ui.article_details }}</h2>
@@ -313,7 +349,7 @@
                   <label for="articleQuestion" class="sr-only">{{ ui.ai_question_placeholder }}</label>
                   <textarea id="articleQuestion" name="question" rows="3" maxlength="500" required placeholder="{{ ui.ai_question_placeholder }}" class="w-full resize-y rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm leading-7 text-ink outline-none transition focus:border-pulse focus:ring-2 focus:ring-rose-500/15"></textarea>
                   <div class="flex flex-wrap items-center gap-3">
-                    <button id="articleAskButton" type="submit" {% if not ai_ask_enabled %}disabled{% endif %} class="rounded-full bg-pulse px-5 py-3 text-sm font-extrabold text-white transition hover:bg-rose-600 disabled:cursor-not-allowed disabled:opacity-50">{{ ui.ai_ask_button }}</button>
+                    <button id="articleAskButton" type="submit" {% if not ai_ask_enabled %}disabled{% endif %} class="inline-flex items-center gap-2 rounded-full bg-pulse px-5 py-3 text-sm font-extrabold text-white transition hover:bg-rose-600 disabled:cursor-not-allowed disabled:opacity-50"><svg id="askSpinner" class="hidden h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-opacity=".25" stroke-width="3"/><path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg><span>{{ ui.ai_ask_button }}</span></button>
                     <span id="articleAskStatus" role="status" aria-live="polite" class="text-xs leading-6 text-slate-500">{% if not ai_ask_enabled %}{{ ui.ai_disabled }}{% endif %}</span>
                   </div>
                 </form>
@@ -353,7 +389,7 @@
                   <p class="{{ 'mr-28' if lang == 'ar' else 'ml-28' }} -mt-3 text-[10px] leading-4 text-slate-400">
                     {{ ui.photo_credit }}:
                     {% if story.image_credit_url %}<a href="{{ story.image_credit_url }}" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">{{ story.image_credit }}</a>{% else %}{{ story.image_credit }}{% endif %}
-                    {% if story.image_license_url %} · <a href="{{ story.image_license_url }}" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">{{ ui.photo_license }}</a>{% endif %}
+                    {% if story.image_license_name %} · {{ story.image_license_name }}{% endif %}{% if story.image_license_url %} · <a href="{{ story.image_license_url }}" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">{{ ui.photo_license }}</a>{% endif %}
                   </p>
                 {% endif %}
               {% else %}
@@ -377,7 +413,14 @@
   <footer class="border-t border-slate-200 bg-white">
     <div class="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-8 sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
       <a href="{{ url_for('index', lang=lang) }}" class="flex items-center gap-2 font-extrabold"><span class="grid h-8 w-8 place-items-center rounded-xl bg-pulse text-white">WP</span>{{ site_name }}</a>
+      <div class="flex flex-wrap gap-x-4 gap-y-2 text-xs font-semibold text-slate-500">
+        <a class="hover:text-pulse" href="{{ url_for('legal_page', slug='privacy', lang=lang) }}">{{ 'سياسة الخصوصية' if lang == 'ar' else 'Privacy Policy' }}</a>
+        <a class="hover:text-pulse" href="{{ url_for('legal_page', slug='terms', lang=lang) }}">{{ 'شروط الاستخدام' if lang == 'ar' else 'Terms of Service' }}</a>
+        <a class="hover:text-pulse" href="{{ url_for('legal_page', slug='about', lang=lang) }}">{{ 'من نحن' if lang == 'ar' else 'About Us' }}</a>
+        <a class="hover:text-pulse" href="{{ url_for('legal_page', slug='contact', lang=lang) }}">{{ 'اتصل بنا' if lang == 'ar' else 'Contact Us' }}</a>
+      </div>
       <p class="text-xs leading-6 text-slate-500">{{ ui.footer }}</p>
+      <p class="text-xs text-slate-500"><a href="mailto:syfsywf86@gmail.com" class="underline underline-offset-4 hover:text-pulse">syfsywf86@gmail.com</a></p>
       <p class="text-[11px] font-medium text-slate-400">© {{ now_year if now_year is defined else 2026 }} {{ site_name }}</p>
     </div>
   </footer>
@@ -495,6 +538,7 @@
       const askForm = document.getElementById('articleAskForm');
       const askQuestion = document.getElementById('articleQuestion');
       const askButton = document.getElementById('articleAskButton');
+      const askSpinner = document.getElementById('askSpinner');
       const askStatus = document.getElementById('articleAskStatus');
       const askAnswer = document.getElementById('articleAskAnswer');
       const askChatGPT = document.getElementById('askChatGPT');
@@ -532,18 +576,23 @@
         }
         if (askButton?.disabled) return;
         askButton.disabled = true;
+        askSpinner?.classList.remove('hidden');
         if (askStatus) askStatus.textContent = askText.thinking;
         if (askAnswer) {
           askAnswer.classList.add('hidden');
           askAnswer.textContent = '';
         }
         try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 25000);
           const response = await fetch('/api/ask', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
             body: JSON.stringify({ slug: articleContext.slug, lang: articleContext.lang, question }),
-            cache: 'no-store'
+            cache: 'no-store',
+            signal: controller.signal
           });
+          clearTimeout(timeoutId);
           const data = await response.json().catch(() => ({}));
           if (!response.ok) {
             if (response.status === 429 || data.error === 'rate_limit') throw new Error('rate_limit');
@@ -557,10 +606,11 @@
           if (askStatus) askStatus.textContent = '';
         } catch (error) {
           if (askStatus) {
-            askStatus.textContent = error.message === 'rate_limit' ? askText.limit : error.message === 'disabled' ? askText.disabled : askText.error;
+            askStatus.textContent = error.message === 'rate_limit' ? askText.limit : error.message === 'disabled' ? askText.disabled : error.name === 'AbortError' ? (articleContext.lang === 'ar' ? 'تأخر الرد. حاول مرة أخرى بعد قليل.' : 'The response timed out. Please try again.') : askText.error;
           }
         } finally {
           if (askButton) askButton.disabled = false;
+          askSpinner?.classList.add('hidden');
         }
       });
     })();
