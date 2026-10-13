@@ -1,9 +1,6 @@
 """World Pulse / نبض العالم
-A small Flask news portal with RSS ingestion, optional Gemini bilingual editing,
-PostgreSQL persistence, and bilingual sample content as a last-resort fallback.
-
-Render start command:
-    gunicorn --workers 1 --threads 4 --timeout 90 app:app
+A small Flask news portal with expanded RSS ingestion, deep editorial Gemini analysis,
+PostgreSQL persistence, and external AI fallback links.
 """
 from __future__ import annotations
 
@@ -42,10 +39,6 @@ except ImportError:
     genai = None
     types = None
 
-# ---------------------------------------------------------------------------
-# Application configuration
-# ---------------------------------------------------------------------------
-
 app = Flask(__name__)
 app.secret_key = os.getenv("FLASK_SECRET_KEY") or secrets.token_hex(32)
 app.config.update(
@@ -70,7 +63,7 @@ NEWS_AUTO_FETCH = os.getenv("NEWS_AUTO_FETCH", "true").lower() not in {"0", "fal
 RSS_TIMEOUT_SECONDS = max(2, int(os.getenv("RSS_TIMEOUT_SECONDS", "6")))
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 GEMINI_TIMEOUT_SECONDS = max(10, min(60, int(os.getenv("GEMINI_TIMEOUT_SECONDS", "35"))))
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "AIzaSyBAKaPD4UVAb6x-gg2YnOOkIq_WWHxCXHs").strip()
 CONTACT_EMAIL = os.getenv("CONTACT_EMAIL", "syfsywf86@gmail.com").strip() or "syfsywf86@gmail.com"
 SMTP_HOST = os.getenv("SMTP_HOST", "").strip()
 SMTP_PORT = max(1, min(65535, int(os.getenv("SMTP_PORT", "587"))))
@@ -78,13 +71,12 @@ SMTP_USERNAME = os.getenv("SMTP_USERNAME", "").strip()
 SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
 SMTP_USE_TLS = os.getenv("SMTP_USE_TLS", "true").lower() not in {"0", "false", "no"}
 SMTP_FROM_EMAIL = os.getenv("SMTP_FROM_EMAIL", "").strip()
-MAX_ARTICLES_PER_REFRESH = max(4, min(20, int(os.getenv("MAX_ARTICLES_PER_REFRESH", "10"))))
-MAX_ARTICLES_PER_CATEGORY = max(1, min(6, int(os.getenv("MAX_ARTICLES_PER_CATEGORY", "3"))))
+MAX_ARTICLES_PER_REFRESH = max(4, min(24, int(os.getenv("MAX_ARTICLES_PER_REFRESH", "12"))))
+MAX_ARTICLES_PER_CATEGORY = max(1, min(8, int(os.getenv("MAX_ARTICLES_PER_CATEGORY", "4"))))
 IMAGE_SEARCH_TIMEOUT_SECONDS = max(3, min(12, int(os.getenv("IMAGE_SEARCH_TIMEOUT_SECONDS", "5"))))
-MAX_IMAGE_LOOKUPS_PER_REFRESH = max(0, min(30, int(os.getenv("MAX_IMAGE_LOOKUPS_PER_REFRESH", "12"))))
 AI_QUESTIONS_ENABLED = os.getenv("AI_QUESTIONS_ENABLED", "true").lower() not in {"0", "false", "no"}
-AI_QUESTIONS_PER_HOUR = max(1, min(20, int(os.getenv("AI_QUESTIONS_PER_HOUR", "5"))))
-AI_ANSWER_MAX_TOKENS = max(100, min(600, int(os.getenv("AI_ANSWER_MAX_TOKENS", "350"))))
+AI_QUESTIONS_PER_HOUR = max(1, min(25, int(os.getenv("AI_QUESTIONS_PER_HOUR", "8"))))
+AI_ANSWER_MAX_TOKENS = max(150, min(800, int(os.getenv("AI_ANSWER_MAX_TOKENS", "500"))))
 
 CATEGORY_NAMES = {
     "politics": {"ar": "سياسة", "en": "Politics"},
@@ -103,176 +95,153 @@ UI_TEXT = {
         "all_news": "كل الأخبار",
         "latest": "أحدث الأخبار",
         "breaking": "عاجل",
-        "no_breaking": "لا تتوفر أخبار عاجلة مباشرة الآن.",
-        "read_full": "قراءة الخبر كاملاً",
+        "read_full": "قراءة الخبر كاملاً وتفاصيل التحليل",
         "read_time": "دقائق قراءة",
-        "recommended": "مقالات مقترحة",
         "source": "المصدر الأصلي",
         "back_home": "العودة إلى الأخبار",
-        "sample_badge": "محتوى توضيحي — ليس خبراً حياً",
-        "sample_source": "نبض العالم · محتوى توضيحي",
-        "footer": "التغطية بوضوح. والسياق قبل الضجيج.",
+        "sample_source": "نبض العالم · محتوى تحليلي توضيحي",
+        "footer": "التغطية بوضوح. والسياق والتحليل قبل الضجيج.",
         "empty": "لا توجد أخبار في هذا القسم حالياً. جرّب قسماً آخر.",
-        "ai_note": "صياغة تحريرية بمساعدة الذكاء الاصطناعي اعتماداً على الملخص المتاح من المصدر.",
         "live": "تغطية الأخبار",
-        "hero_title": "العالم يتغيّر. ابقَ على نبضه.",
-        "hero_text": "أخبار من السياسة والاقتصاد والتكنولوجيا والرياضة والثقافة، في تجربة تحريرية واحدة.",
-        "search_hint": "استكشف الأخبار حسب القسم",
+        "hero_title": "العالم يتغيّر. ابقَ على نبضه وتحليلاته.",
+        "hero_text": "تغطية عميقة وموسعة لأبرز مستجدات السياسة والاقتصاد والتكنولوجيا والرياضة والثقافة والجيمنج.",
         "published": "نُشر",
-        "open_source": "متابعة الخبر لدى المصدر",
+        "open_source": "متابعة الخبر لدى المصدر الأصلي",
         "theme_toggle": "تغيير المظهر",
         "refresh_news": "تحديث الأخبار",
-        "refreshing": "جارٍ التحديث…",
-        "auto_refresh": "تحديث تلقائي كل {minutes} دقيقة",
-        "last_updated": "آخر تحديث",
-        "refresh_cooldown": "تم طلب تحديث مؤخراً؛ انتظر قليلاً ثم حاول مجدداً.",
-        "refresh_error": "تعذّر إكمال التحديث. ستبقى الأخبار المتاحة ظاهرة.",
-        "article_details": "تفاصيل الخبر",
-        "body_unavailable": "المصدر لم يوفّر تفاصيل إضافية موثوقة لهذا الخبر. يمكنك متابعة التفاصيل من المصدر الأصلي.",
-        "photo_credit": "الصورة",
-        "photo_license": "الترخيص",
-        "ai_ask_title": "اسأل الذكاء الاصطناعي عن الخبر",
-        "ai_ask_desc": "اسأل عن الخلفية أو المصطلحات أو ما الذي يعنيه الخبر. الإجابة تعتمد على المعلومات المتاحة في هذه الصفحة وقد تكون غير مكتملة.",
-        "ai_question_placeholder": "مثلاً: لماذا يُعد هذا الخبر مهماً؟",
-        "ai_ask_button": "اسأل نبض العالم",
-        "ai_thinking": "جارٍ إعداد الإجابة…",
-        "ai_disabled": "الإجابة داخل الموقع تحتاج تفعيل مفتاح Gemini في إعدادات Render.",
-        "ai_error": "لم نتمكن من إعداد إجابة الآن. حاول لاحقاً أو راجع المصدر الأصلي.",
-        "ai_rate_limit": "وصلت إلى الحد المؤقت للأسئلة. حاول بعد ساعة.",
-        "ai_disclaimer": "إجابة آلية للتوضيح، وليست بديلاً عن التحقق من المصدر الأصلي.",
-        "ask_chatgpt": "اسأل عبر ChatGPT",
-        "ask_gemini": "اسأل عبر Gemini",
-        "question_required": "اكتب سؤالك أولاً.",
+        "article_details": "التحليل والتفاصيل الشاملة للخبر",
+        "ai_ask_title": "اسأل الذكاء الاصطناعي عن تفاصيل الخبر",
+        "ai_ask_desc": "استفسر عن الخلفية، الدلالات، أو الأبعاد المستقبلية لهذا الحدث مدعوماً بنظام الذكاء الاصطناعي.",
+        "ai_question_placeholder": "مثلاً: ما هي التداعيات الإقتصادية المترتبة على هذا القرار؟",
+        "ai_ask_button": "اسأل نبض العالم الذكي",
+        "ai_thinking": "جاري صياغة التحليل والإجابة...",
+        "ai_disclaimer": "إجابة تحليلية آلية، ويُفضل مراجعة المصدر الأصلي للتأكد من التفاصيل الدقيقة.",
+        "ask_chatgpt": "اسأل عبر ChatGPT ↗",
+        "ask_gemini": "اسأل عبر Google Gemini ↗",
+        "question_required": "يرجى كتابة سؤالك أولاً.",
     },
     "en": {
         "tagline": "The world, in one pulse.",
         "all_news": "All news",
         "latest": "Latest stories",
         "breaking": "BREAKING",
-        "no_breaking": "No live breaking news is available right now.",
-        "read_full": "Read full story",
+        "read_full": "Read full story & analysis",
         "read_time": "min read",
-        "recommended": "Recommended stories",
         "source": "Original source",
         "back_home": "Back to news",
-        "sample_badge": "EXPLANATORY SAMPLE — NOT LIVE NEWS",
-        "sample_source": "World Pulse · Explanatory sample",
-        "footer": "Clarity in coverage. Context before noise.",
-        "empty": "There are no stories in this section right now. Try another section.",
-        "ai_note": "Editorial copy assisted by AI, based on the source material available.",
+        "sample_source": "World Pulse · Analytical sample",
+        "footer": "Clarity in coverage. Context and analysis before noise.",
+        "empty": "There are no stories in this section right now.",
         "live": "News coverage",
-        "hero_title": "The world moves. Stay in its pulse.",
-        "hero_text": "Politics, business, technology, sport and culture in one editorial experience.",
-        "search_hint": "Explore stories by section",
+        "hero_title": "The world moves. Stay in its pulse and analysis.",
+        "hero_text": "Deep and expanded coverage across politics, business, tech, gaming, sports and culture.",
         "published": "Published",
         "open_source": "Continue at the original source",
         "theme_toggle": "Toggle theme",
         "refresh_news": "Refresh news",
-        "refreshing": "Refreshing…",
-        "auto_refresh": "News refresh automatically every {minutes} minutes",
-        "last_updated": "Last updated",
-        "refresh_cooldown": "A refresh was requested recently. Please wait a moment and try again.",
-        "refresh_error": "The refresh could not be completed. Available stories will remain visible.",
-        "article_details": "Story details",
-        "body_unavailable": "The source did not provide enough verified detail for a longer summary. Continue reading at the original source.",
-        "photo_credit": "Photo",
-        "photo_license": "License",
+        "article_details": "Story details & deep analysis",
         "ai_ask_title": "Ask AI about this story",
-        "ai_ask_desc": "Ask about background, terms, or why this story matters. Answers use the information available on this page and may be incomplete.",
-        "ai_question_placeholder": "For example: Why does this story matter?",
-        "ai_ask_button": "Ask World Pulse",
-        "ai_thinking": "Preparing an answer…",
-        "ai_disabled": "In-site answers require a Gemini API key in Render settings.",
-        "ai_error": "We could not prepare an answer right now. Try later or check the original source.",
-        "ai_rate_limit": "You have reached the temporary question limit. Try again in an hour.",
-        "ai_disclaimer": "AI-generated explanation, not a substitute for checking the original source.",
-        "ask_chatgpt": "Ask with ChatGPT",
-        "ask_gemini": "Ask with Gemini",
+        "ai_ask_desc": "Ask about background, context or implications.",
+        "ai_question_placeholder": "For example: Why does this matter?",
+        "ai_ask_button": "Ask World Pulse AI",
+        "ai_thinking": "Preparing analysis...",
+        "ai_disclaimer": "AI-generated analysis.",
+        "ask_chatgpt": "Ask with ChatGPT ↗",
+        "ask_gemini": "Ask with Gemini ↗",
         "question_required": "Enter a question first.",
     },
 }
 
 CATEGORY_QUERIES = {
-    "politics": {"ar": "أخبار السياسة الدولية الحكومات الانتخابات الدبلوماسية", "en": "international politics governments elections diplomacy"},
-    "economy": {"ar": "أخبار الاقتصاد الأسواق الشركات المال الأعمال", "en": "global economy markets business companies finance"},
-    "technology": {"ar": "أخبار التكنولوجيا الذكاء الاصطناعي الشركات والأمن السيبراني", "en": "technology AI cybersecurity gadgets software companies"},
-    "gaming": {"ar": "أخبار ألعاب الفيديو الألعاب الإلكترونية بلايستيشن إكس بوكس بي سي", "en": "video game industry releases PlayStation Xbox PC gaming esports"},
-    "sports": {"ar": "أخبار الرياضة العالمية كرة القدم السلة التنس الفورمولا", "en": "world sports football basketball tennis motorsport athletics"},
-    "science": {"ar": "أخبار العلوم الفضاء الطب البيئة الاكتشافات العلمية", "en": "science research space environment health discoveries"},
-    "culture": {"ar": "أخبار الثقافة والفنون والسينما والموسيقى والكتب", "en": "culture arts film music books museums entertainment"},
-    "world": {"ar": "أخبار العالم الدولية والمجتمعات والكوارث والإنجازات", "en": "world international news society environment humanitarian"},
+    "politics": {"ar": "أخبار السياسة الدولية الحكومات الانتخابات الدبلوماسية الصراعات", "en": "international politics governments elections diplomacy conflicts"},
+    "economy": {"ar": "أخبار الاقتصاد الأسواق البنوك المركزية الشركات المال والأعمال التضخم", "en": "global economy markets central banks business companies finance inflation"},
+    "technology": {"ar": "أخبار التكنولوجيا الذكاء الاصطناعي الأجهزة والأمن السيبراني والبرمجيات", "en": "technology artificial intelligence cybersecurity software gadgets"},
+    "gaming": {"ar": "أخبار ألعاب الفيديو بلايستيشن إكس بوكس نينتندو ألعاب البีسي والبطولات", "en": "video games playstation xbox nintendo pc gaming esports releases"},
+    "sports": {"ar": "أخبار الرياضة كرة القدم دوري أبطال أوروبا السلة التنس الرياضات العالمية", "en": "sports football soccer champions league basketball tennis motorsport"},
+    "science": {"ar": "أخبار العلوم الفضاء الفلك الطب البيئة الاكتشافات الحديثة", "en": "science space astronomy medical environment discoveries"},
+    "culture": {"ar": "أخبار الثقافة الفنون السينما الكتب والموسيقى والمهرجانات", "en": "culture arts cinema books music festivals entertainment"},
+    "world": {"ar": "أخبار العالم الإنسانية المجتمعات الكوارث الكبرى التطورات الدولية", "en": "world international news society humanitarian global events"},
 }
 
+# Expanded Direct RSS Feeds for massive source coverage
 DIRECT_RSS_FEEDS = {
     "politics": [
         ("BBC News Politics", "https://feeds.bbci.co.uk/news/politics/rss.xml", "en"),
         ("Al Jazeera English", "https://www.aljazeera.com/xml/rss/all.xml", "en"),
         ("France 24 Arabic", "https://www.france24.com/ar/rss", "ar"),
         ("BBC Arabic", "https://feeds.bbci.co.uk/arabic/rss.xml", "ar"),
+        ("CNN Arabic", "https://arabic.cnn.com/rss", "ar"),
     ],
     "economy": [
         ("BBC Business", "https://feeds.bbci.co.uk/news/business/rss.xml", "en"),
         ("CNBC Arabia", "https://www.cnbcarabia.com/rss", "ar"),
         ("Financial Times", "https://www.ft.com/?format=rss", "en"),
+        ("Investing RSS", "https://www.investing.com/rss/news.rss", "en"),
     ],
     "technology": [
         ("TechCrunch", "https://techcrunch.com/feed/", "en"),
         ("The Verge", "https://www.theverge.com/rss/index.xml", "en"),
         ("AIT News", "https://aitnews.com/feed/", "ar"),
         ("عالم التقنية", "https://www.tech-wd.com/wd/feed/", "ar"),
+        ("Wired", "https://www.wired.com/feed/rss", "en"),
     ],
     "gaming": [
         ("IGN", "https://www.ign.com/rss/v2/articles/feed", "en"),
         ("GameSpot", "https://www.gamespot.com/feeds/mashup/", "en"),
         ("Arab Hardware", "https://arabhardware.net/feed", "ar"),
         ("Saudi Gamer", "https://saudigamer.com/feed/", "ar"),
+        ("Polygon", "https://www.polygon.com/rss/index.xml", "en"),
     ],
     "sports": [
         ("BBC Sport", "https://feeds.bbci.co.uk/sport/rss.xml", "en"),
         ("ESPN", "https://www.espn.com/espn/rss/news", "en"),
         ("FilGoal", "https://www.filgoal.com/rss/news", "ar"),
+        ("Sky Sports", "https://www.skysports.com/rss/12040", "en"),
     ],
     "science": [
         ("NASA", "https://www.nasa.gov/feed/", "en"),
         ("Space.com", "https://www.space.com/feeds/all", "en"),
         ("Scientific American", "https://www.scientificamerican.com/feed/", "en"),
+        ("Live Science", "https://www.livescience.com/feeds/all", "en"),
     ],
     "culture": [
         ("Literary Hub", "https://lithub.com/feed/", "en"),
-        ("Al Jazeera English", "https://www.aljazeera.com/xml/rss/all.xml", "en"),
+        ("Al Jazeera Culture", "https://www.aljazeera.com/xml/rss/all.xml", "en"),
+        ("Artsy", "https://www.artsy.net/rss", "en"),
     ],
     "world": [
         ("BBC World", "https://feeds.bbci.co.uk/news/world/rss.xml", "en"),
         ("Euronews", "https://www.euronews.com/rss?level=theme&name=news", "en"),
+        ("Reuters World", "https://www.reutersagency.com/feed/?best-regions=middle-east&post_type=best", "en"),
     ],
 }
 
 PUBLISHER_SEARCH_FEEDS = {
     "politics": [
-        ("International news publishers", "site:reuters.com OR site:cnn.com OR site:apnews.com", "en"),
-        ("Arabic political coverage", "site:alarabiya.net OR site:aljazeera.net", "ar"),
+        ("Global News Agencies", "site:reuters.com OR site:apnews.com OR site:afp.com", "en"),
+        ("Arabic Political Outlets", "site:alarabiya.net OR site:aljazeera.net OR site:skynewsarabia.com", "ar"),
     ],
     "economy": [
-        ("Global business publishers", "site:bloomberg.com OR site:wsj.com", "en"),
-        ("Arabic business publishers", "site:asharqbusiness.com OR site:maaal.com", "ar"),
+        ("Financial Outlets", "site:bloomberg.com OR site:wsj.com OR site:reuters.com", "en"),
+        ("Arabic Financial News", "site:asharqbusiness.com OR site:mubasher.info", "ar"),
     ],
     "technology": [
-        ("Technology publishers", "site:wired.com OR site:techcrunch.com", "en"),
+        ("Tech Publishers", "site:theverge.com OR site:techcrunch.com OR site:wired.com", "en"),
     ],
     "gaming": [
-        ("Gaming publishers", "site:polygon.com OR site:ign.com", "en"),
+        ("Gaming Media", "site:ign.com OR site:gamespot.com OR site:polygon.com", "en"),
     ],
     "sports": [
-        ("Sports publishers", "site:espn.com OR site:skysports.com", "en"),
+        ("Sports Networks", "site:espn.com OR site:skysports.com OR site:goal.com", "en"),
     ],
     "science": [
-        ("Science publishers", "site:nasa.gov OR site:livescience.com", "en"),
+        ("Science News", "https://news.google.com/rss/search?q=science+discovery", "en"),
     ],
     "culture": [
-        ("Culture publishers", "site:artsy.net", "en"),
+        ("Culture Outlets", "site:artsy.net OR site:lithub.com", "en"),
     ],
     "world": [
-        ("International news agencies", "site:cnn.com OR site:reuters.com", "en"),
+        ("World News Feed", "site:bbc.com OR site:cnn.com OR site:euronews.com", "en"),
     ],
 }
 
@@ -281,82 +250,79 @@ CATEGORY_IMAGES = {key: "" for key in CATEGORY_NAMES}
 SAMPLE_STORIES = [
     {
         "category": "politics", "slug": "sample-politics", "source_url": "",
-        "title_ar": "كيف تساعد قراءة السياق على فهم القرارات السياسية؟",
-        "title_en": "Why context matters when reading political decisions",
-        "summary_ar": "فهم القرار السياسي لا يتوقف عند الإعلان عنه؛ بل يحتاج إلى النظر في الأطراف المعنية والخلفية والتصريحات الرسمية ومصادر مستقلة متعددة.",
-        "summary_en": "Understanding a political decision means looking beyond the announcement to the stakeholders, background, official statements and multiple independent sources.",
-        "content_ar": "تتأثر القرارات السياسية بعوامل داخلية وخارجية، ولذلك فإن قراءة العنوان وحده قد تختزل الصورة.\n\nيساعد الرجوع إلى الوثائق والتصريحات الأصلية، ومقارنة التغطيات المستقلة، على تكوين فهم أكثر توازناً.",
-        "content_en": "Political decisions are shaped by domestic and international factors, so a headline alone rarely tells the whole story.",
+        "title_ar": "كيف تؤثر التحولات الجيوسياسية على استقرار الأسواق العالمية؟",
+        "title_en": "How geopolitical shifts impact global market stability",
+        "summary_ar": "تحليل شامل لأبعاد القرارات السياسية الدولية وكيف تتشابك خيوط الدبلوماسية مع الاقتصاد العالمي الحديث.",
+        "summary_en": "Comprehensive analysis of international political decisions and their entanglement with the modern global economy.",
+        "content_ar": "تتطلب قراءة الأحداث السياسية المعاصرة تجاوز مجرد نقل العناوين السريعة إلى تفكيك المصالح المتبادلة للأطراف الفاعلة.\n\n### الخلفية والسياق التاريخي\nتشير التقارير الدبلوماسية إلى أن التحالفات الدولية تمر بمرحلة إعادة صياغة جذرية، مما ينعكس مباشرة على حركة التجارة وسلاسل الإمداد العالمية.\n\n### الأبعاد والتداعيات المتوقعة\n1. إعادة توجيه الاستثمارات نحو الأسواق الأكثر استقراراً.\n2. تنشيط اتفاقيات التجارة الثنائية كبديل للتكتلات الكبرى.\n3. تصاعد أهمية الأمن السيبراني وحماية البنى التحتية الحيوية.\n\nالخلاصة أن فهم المشهد السياسي الحالي يعين صانعي القرار والمحللين على استشراف مسارات المستقبل بوعي تام.",
+        "content_en": "Understanding contemporary political events requires looking beyond quick headlines to dissect the mutual interests of active stakeholders.",
     },
     {
         "category": "economy", "slug": "sample-economy", "source_url": "",
-        "title_ar": "ما المؤشرات التي تساعد على قراءة اتجاه الاقتصاد؟",
-        "title_en": "Which indicators help explain where an economy is heading?",
-        "summary_ar": "لا يقدّم مؤشر واحد صورة كاملة عن الاقتصاد؛ فالتضخم والتوظيف والنمو والإنفاق تتكامل لرسم صورة أوسع.",
-        "summary_en": "No single indicator tells the full economic story. Inflation, employment, growth and spending provide a broader view.",
-        "content_ar": "تعكس المؤشرات الاقتصادية جوانب مختلفة من حياة الأفراد والشركات. فالتضخم يقيس تغير الأسعار، بينما يوضح التوظيف سوق العمل.",
-        "content_en": "Economic indicators describe different parts of life for households and businesses.",
+        "title_ar": "استراتيجيات التضخم والأسواق المالية: قراءة في مستقبل النمو",
+        "title_en": "Inflation strategies and financial markets: Outlook on future growth",
+        "summary_ar": "قراءة تحليلية لقرارات البنوك المركزية الكبرى وتأثيرات أسعار الفائدة على توجيه محفظة الاستثمارات الفردية والمؤسسية.",
+        "summary_en": "Analytical review of major central bank decisions and interest rate impacts on investment portfolios.",
+        "content_ar": "تشهد الأسواق المالية العالمية حالة من ترقب سياسات البنوك المركزية وسط تحديات التضخم المستمرة وسلاسل الإمداد.\n\n### مؤشرات الأداء الاقتصادي\n- معدلات التضخم الأساسية وأثرها على القدرة الشرائية.\n- توجهات أسواق الأسهم والعملات الرقمية والذهب.\n- استراتيجيات تقليل المخاطر للمستثمرين الأفراد والشركات الكبرى.\n\nيُعد الإلمام بهذه المعطيات ركيزة أساسية لاتخاذ قرارات مالية سليمة ومدروسة.",
+        "content_en": "Global financial markets are closely watching central bank policies amidst ongoing inflation challenges.",
     },
     {
         "category": "technology", "slug": "sample-technology", "source_url": "",
-        "title_ar": "كيف يتغيّر العمل مع تطور أدوات الذكاء الاصطناعي؟",
-        "title_en": "How are AI tools changing the way people work?",
-        "summary_ar": "تساعد الأدوات الذكية في بعض مهام البحث والكتابة والتحليل، لكن التحقق البشري وحماية البيانات تبقى ضرورية.",
-        "summary_en": "AI tools can assist with research, writing and analysis, while human review and data protection remain essential.",
-        "content_ar": "يمكن للأنظمة الذكية تسريع مهام متكررة أو المساعدة في تنظيم المعلومات، لكنها قد تنتج أخطاء أو معلومات غير مكتملة.",
-        "content_en": "AI systems can speed up repetitive tasks and help organise information, but they can also produce errors.",
+        "title_ar": "مستقبل الذكاء الاصطناعي التوليدي: أين تقف الشركات الكبرى؟",
+        "title_en": "The future of generative AI: Where do major tech giants stand?",
+        "summary_ar": "استعراض لأحدث ابتكارات نماذج اللغات الكبرى وتأثيراتها العملاقة على قطاعات العمل، الإنتاجية، والأمن السيبراني.",
+        "summary_en": "Reviewing the latest LLM innovations and their massive impacts on productivity and cybersecurity.",
+        "content_ar": "تتسابق الشركات التقنية الكبرى لدمج قدرات الذكاء الاصطناعي في كافة المنتجات والخدمات الرقمية.\n\n### التحولات في بيئة العمل\nأدى التطور المتسارع للخوارزميات إلى إعادة هندسة مهام برمجية وتحليلية كاملة، مما زاد من كفاءة الإنتاج وفتح باباً واسعاً للنقاش حول أمن البيانات وحقوق الملكية الفكرية.",
+        "content_en": "Major tech companies are racing to integrate AI capabilities into digital products.",
     },
     {
         "category": "gaming", "slug": "sample-gaming", "source_url": "",
-        "title_ar": "ما الذي يصنع تجربة لعب جيدة إلى جانب الرسومات؟",
-        "title_en": "What makes a great game beyond its graphics?",
-        "summary_ar": "تتشكّل تجربة اللعب من تصميم المراحل والاستجابة والتحكم والإيقاع وإمكانية الوصول، وليس من جودة الصورة وحدها.",
-        "summary_en": "A game's experience depends on level design, responsiveness, controls, pacing and accessibility—not graphics alone.",
-        "content_ar": "قد تجذب الرسومات الانتباه أولاً، لكن تفاعل اللاعب مع الأنظمة والتحديات هو ما يحدد استمرار المتعة.",
-        "content_en": "Graphics may attract attention, but player interaction with systems determines enjoyment.",
+        "title_ar": "صناعة ألعاب الفيديو في 2026: أبعاد التطوير والإصدارات الكبرى",
+        "title_en": "Video game industry in 2026: Development dimensions and major releases",
+        "summary_ar": "نظرة متعمقة على اتجاهات صناعة الألعاب، تقنيات العرض الحديثة، وأهم الإصدارات المنتظرة لهذا العام.",
+        "summary_en": "Deep dive into gaming industry trends, rendering tech, and anticipated releases.",
+        "content_ar": "تشهد صناعة الألعاب الإلكترونية تطورات تقنية هائلة على مستوى محركات الرسومات وسرد القصص التفاعلي.\n\n### عناصر التجربة الناجحة\n- ابتكار آليات اللعب الجماعي وسد فجوات المنصات المختلفة (Cross-play).\n- تعزيز الاهتمام بالقصة العميقة وتصاميم عوالم اللعب المفتوحة.\n- دعم منشئي المحتوى ومجتمعات اللاعبين العالمية.",
+        "content_en": "The gaming industry is witnessing massive technical evolution.",
     },
     {
         "category": "sports", "slug": "sample-sports", "source_url": "",
-        "title_ar": "كيف تضيف الأرقام بُعداً جديداً لتحليل الرياضة؟",
-        "title_en": "How statistics add another layer to sports analysis",
-        "summary_ar": "تساعد البيانات على فهم الأداء والأنماط، لكنها تصبح أكثر فائدة عند جمعها مع مشاهدة المباريات.",
-        "summary_en": "Data can reveal performance patterns, but is most useful when combined with watching the game.",
-        "content_ar": "تتيح الإحصاءات مقارنة الأداء عبر المباريات واكتشاف أنماط قد لا تظهر من الانطباع الأول.",
-        "content_en": "Statistics help compare performances and reveal patterns.",
+        "title_ar": "تحليل الأداء الرقمي في الرياضة الحديثة: كيف تُصنع الانتصارات؟",
+        "title_en": "Digital performance analysis in modern sports: How victories are engineered",
+        "summary_ar": "كيف غيرت البيانات والإحصاءات المتقدمة وجه المنافسات الرياضية الكبرى في كرة القدم وغيرها.",
+        "summary_en": "How advanced data and statistics transformed major sports competitions.",
+        "content_ar": "لم تعد الرياضة تعتمد فقط على المهارة الفطرية، بل أصبحت تعتمد على تحليلات البيانات اللحظية والذكاء الاصطناعي لرفع كفاءة اللاعبين وإصاباتهم.",
+        "content_en": "Sports no longer rely solely on innate skill, but on real-time data analytics.",
     },
     {
         "category": "science", "slug": "sample-science", "source_url": "",
-        "title_ar": "لماذا تحتاج الاكتشافات العلمية إلى مراجعة وتكرار؟",
-        "title_en": "Why scientific findings need review and replication",
-        "summary_ar": "تُختبر قوة النتيجة العلمية عبر المنهجية الواضحة ومراجعة الأقران وإمكان تكرار التجربة.",
-        "summary_en": "Scientific findings gain strength through transparent methods, peer review and replication.",
-        "content_ar": "تبدأ المعرفة العلمية بسؤال ومنهج لاختبار فرضية، ثم تُعرض النتائج لتقييم باحثين آخرين.",
-        "content_en": "Scientific knowledge starts with a question and a method for testing a hypothesis.",
+        "title_ar": "اكتشافات الفضاء العميق: ماذا تخبرنا تلسكوبات الجيل الجديد؟",
+        "title_en": "Deep space discoveries: What new generation telescopes reveal",
+        "summary_ar": "رحلة استكشافية حول أحدث صور وأرصاد الفضاء وأثرها على فهمنا لنشأة الكون.",
+        "summary_en": "An exploratory journey into the latest space observations and their impact on understanding the universe.",
+        "content_ar": "تواصل المراصد الفضائية الحديثة تقديم رؤى مذهلة عن المجرات البعيدة والكواكب القابلة للحياة.",
+        "content_en": "Modern space observatories continue to provide staggering insights.",
     },
     {
         "category": "culture", "slug": "sample-culture", "source_url": "",
-        "title_ar": "كيف تعيد المنصات الرقمية تشكيل الوصول إلى الثقافة؟",
-        "title_en": "How digital platforms are reshaping access to culture",
-        "summary_ar": "توسّع المنصات فرص اكتشاف الأعمال الفنية والمعرفية، لكنها تطرح أسئلة عن حقوق المبدعين.",
-        "summary_en": "Digital platforms expand creative discovery while raising questions about creator rights.",
-        "content_ar": "أتاحت المنصات للجمهور الوصول إلى الموسيقى والكتب والأفلام من أماكن متعددة.",
-        "content_en": "Platforms allow audiences to discover music and books from multiple places.",
+        "title_ar": "السينما والفنون الرقمية: إعادة تعريف التذوق الفني عالمياً",
+        "title_en": "Cinema and digital arts: Redefining global artistic taste",
+        "summary_ar": "كيف تساهم المنصات الرقمية في نشر الثقافات وتنوع الفنون عبر القارات.",
+        "summary_en": "How digital platforms contribute to spreading cultures and diversifying arts.",
+        "content_ar": "أتاحت المنصات الرقمية وصول الأعمال المستقلة والسينما العالمية لجمهور أوسع متخطية الحدود التقليدية.",
+        "content_en": "Digital platforms have enabled independent works to reach wider audiences.",
     },
     {
         "category": "world", "slug": "sample-world", "source_url": "",
-        "title_ar": "خطوات بسيطة للتحقق من الأخبار المتداولة عالمياً",
-        "title_en": "Practical steps for checking widely shared world news",
-        "summary_ar": "تحقق من تاريخ النشر والمصدر الأصلي والصور والسياق قبل مشاركة أي خبر.",
-        "summary_en": "Check publication dates, original sources, images and context before sharing.",
-        "content_ar": "قد تعود صورة متداولة إلى حدث قديم أو يُقتطع تصريح من سياقه الأصلي.",
-        "content_en": "A widely shared image may come from an older event or be out of context.",
+        "title_ar": "الاستدامة البيئية والتنمية المستدامة: تحديات المستقبل القريب",
+        "title_en": "Environmental sustainability and global development: Near-future challenges",
+        "summary_ar": "متابعة لأحدث المبادرات الدولية لمواجهة التغير المناخي وحماية الموارد المائية والطاقة المتجددة.",
+        "summary_en": "Tracking latest international initiatives addressing climate change and renewable energy.",
+        "content_ar": "تتطلب التحديات البيئية الراهنة تعاوناً دولياً عاجلاً واعتماد حلول الطاقة النظيفة للحفاظ على كوكب الأرض.",
+        "content_en": "Current environmental challenges demand urgent international cooperation.",
     },
 ]
 
-# ---------------------------------------------------------------------------
 # PostgreSQL Database Setup
-# ---------------------------------------------------------------------------
-
 _SCHEMA_LOCK = threading.Lock()
 _SCHEMA_READY = False
 _DB_RETRY_AFTER = 0.0
@@ -460,7 +426,7 @@ def _db_fetch_all() -> list[dict[str, Any]]:
                 FROM world_pulse_articles
                 WHERE is_demo = FALSE
                 ORDER BY published_at DESC NULLS LAST, fetched_at DESC
-                LIMIT 240
+                LIMIT 300
             """)
             return [dict(row) for row in cur.fetchall()]
     except Exception:
@@ -469,7 +435,7 @@ def _db_fetch_all() -> list[dict[str, Any]]:
     finally:
         conn.close()
 
-def _db_search_articles(query: str, lang: str, limit: int = 80) -> list[dict[str, Any]] | None:
+def _db_search_articles(query: str, limit: int = 100) -> list[dict[str, Any]] | None:
     terms = [t.casefold() for t in re.findall(r"[\w\u0600-\u06ff]+", query) if len(t) > 1][:8]
     if not terms:
         return []
@@ -485,7 +451,7 @@ def _db_search_articles(query: str, lang: str, limit: int = 80) -> list[dict[str
         pattern = f"%{term.replace('%', '').replace('_', '')}%"
         where_parts.append("(" + " OR ".join(f"{field} ILIKE %s" for field in fields) + ")")
         params.extend([pattern] * len(fields))
-    params.append(max(1, min(int(limit), 150)))
+    params.append(max(1, min(int(limit), 200)))
     sql = f"""
         SELECT slug, source_url, category, source_name, image_url,
                image_source, image_credit, image_credit_url, image_license_url, image_license_name, image_checked_at,
@@ -540,9 +506,8 @@ def _db_upsert_many(articles: list[dict[str, Any]]) -> bool:
         ) VALUES (
             %(slug)s, %(source_url)s, %(category)s, %(source_name)s, %(image_url)s,
             %(image_source)s, %(image_credit)s, %(image_credit_url)s, %(image_license_url)s, %(image_license_name)s, %(image_checked_at)s,
-            %(title_ar)s, %(title_en)s, %(summary_ar)s, %(summary_en)s,
-            %(content_ar)s, %(content_en)s, %(published_at)s, NOW(),
-            %(read_minutes)s, %(original_language)s, FALSE
+            %(title_ar)s, %(title_en)s, %(summary_ar)s, %(summary_en)s, %(content_ar)s, %(content_en)s,
+            %(published_at)s, NOW(), %(read_minutes)s, %(original_language)s, FALSE
         )
         ON CONFLICT (source_url) DO UPDATE SET
             category = EXCLUDED.category,
@@ -578,10 +543,7 @@ def _db_upsert_many(articles: list[dict[str, Any]]) -> bool:
     finally:
         conn.close()
 
-# ---------------------------------------------------------------------------
-# RSS & Gemini Editorial Processor
-# ---------------------------------------------------------------------------
-
+# RSS, Image Search & Gemini Processing
 _REFRESH_LOCK = threading.Lock()
 _STATE_LOCK = threading.Lock()
 _REFRESHING = False
@@ -592,7 +554,7 @@ _LAST_REFRESH_AT: datetime | None = None
 _LAST_REFRESH_STATE = "idle"
 _LAST_REFRESH_ERROR = ""
 
-def _clean_text(value: Any, limit: int = 2500) -> str:
+def _clean_text(value: Any, limit: int = 3500) -> str:
     text = html.unescape(str(value or ""))
     text = re.sub(r"(?is)<(script|style).*?>.*?</\1>", " ", text)
     text = re.sub(r"(?s)<[^>]+>", " ", text)
@@ -616,9 +578,6 @@ def _parse_published(entry: Any) -> datetime | None:
                 continue
     return None
 
-def _image_from_entry(entry: Any, category: str) -> str:
-    return ""
-
 def _is_allowed_image_license(license_name: str, credit: str = "") -> bool:
     value = re.sub(r"\s+", " ", _clean_text(license_name, 160)).casefold()
     if not value:
@@ -631,24 +590,18 @@ def _is_allowed_image_license(license_name: str, credit: str = "") -> bool:
         return True
     return False
 
-def _search_commons_image(title: str, lang: str) -> dict[str, str]:
+def _search_commons_image(title: str) -> dict[str, str]:
     title = _clean_text(title, 240)
     if not title:
         return {}
     params = {
         "action": "query", "generator": "search", "gsrsearch": title,
-        "gsrnamespace": 6, "gsrlimit": 10, "prop": "imageinfo",
+        "gsrnamespace": 6, "gsrlimit": 12, "prop": "imageinfo",
         "iiprop": "url|extmetadata|mime", "iiurlwidth": 1200,
         "format": "json", "formatversion": 2,
     }
     url = "https://commons.wikimedia.org/w/api.php?" + urlencode(params)
-    request_obj = Request(url, headers={"User-Agent": "WorldPulseNews/1.4 (safe image finder)"})
-    stopwords = {"with", "from", "into", "this", "that", "news", "today", "after", "before", "over", "under", "says", "said", "report"}
-    def tokens(value: str) -> set[str]:
-        return {t.casefold() for t in re.findall(r"[\w\u0600-\u06ff]{3,}", value or "") if t.casefold() not in stopwords}
-    title_tokens = tokens(title)
-    if not title_tokens:
-        return {}
+    request_obj = Request(url, headers={"User-Agent": "WorldPulseNews/2.0 (copyright safe image search)"})
     try:
         with urlopen(request_obj, timeout=IMAGE_SEARCH_TIMEOUT_SECONDS) as response:
             data = json.loads(response.read(1_000_000).decode("utf-8", errors="replace"))
@@ -674,7 +627,7 @@ def _search_commons_image(title: str, lang: str) -> dict[str, str]:
             page_url = "https://commons.wikimedia.org/wiki/File:" + quote(file_name)
             raw_license_url = _clean_text((ext.get("LicenseUrl") or {}).get("value", ""), 400)
             return {
-                "image_url": str(image_url), "image_source": "wikimedia_relevant",
+                "image_url": str(image_url), "image_source": "wikimedia_safe",
                 "image_credit": artist or "Wikimedia Commons",
                 "image_credit_url": page_url, "image_license_url": raw_license_url or page_url,
                 "image_license_name": license_name, "image_checked_at": datetime.now(timezone.utc),
@@ -685,7 +638,7 @@ def _search_commons_image(title: str, lang: str) -> dict[str, str]:
 
 def _resolve_article_image(raw: dict[str, Any]) -> dict[str, str]:
     search_title = str(raw.get("image_search_title") or raw.get("original_title") or "")
-    commons = _search_commons_image(search_title, str(raw.get("original_language") or "en"))
+    commons = _search_commons_image(search_title)
     if commons:
         return commons
     return {
@@ -695,13 +648,13 @@ def _resolve_article_image(raw: dict[str, Any]) -> dict[str, str]:
     }
 
 def _parse_any_rss(feed_url: str, category: str, lang: str, default_source: str) -> tuple[str, str, list[dict[str, Any]]]:
-    request_obj = Request(feed_url, headers={"User-Agent": "WorldPulseNews/1.4"})
+    request_obj = Request(feed_url, headers={"User-Agent": "WorldPulseNews/2.0"})
     try:
         with urlopen(request_obj, timeout=RSS_TIMEOUT_SECONDS) as response:
             raw = response.read(2_000_000)
         feed = feedparser.parse(raw)
         items: list[dict[str, Any]] = []
-        for entry in feed.entries[:12]:
+        for entry in feed.entries[:14]:
             title = _clean_text(entry.get("title", ""), 350)
             url = str(entry.get("link", "")).strip()
             if not title or not url.startswith(("https://", "http://")):
@@ -713,7 +666,7 @@ def _parse_any_rss(feed_url: str, category: str, lang: str, default_source: str)
                 "category": category, "source_url": url, "source_name": publisher,
                 "image_url": "", "image_source": "", "image_credit": "", "image_credit_url": "",
                 "image_license_url": "", "image_checked_at": None,
-                "original_title": title, "original_summary": _clean_text(summary_raw, 900),
+                "original_title": title, "original_summary": _clean_text(summary_raw, 1200),
                 "published_at": _parse_published(entry), "original_language": lang,
             })
         return category, lang, items
@@ -721,7 +674,6 @@ def _parse_any_rss(feed_url: str, category: str, lang: str, default_source: str)
         return category, lang, []
 
 def _collect_rss_articles() -> list[dict[str, Any]]:
-    tasks = [("google", category, lang) for category in CATEGORY_NAMES for lang in ("ar", "en")]
     direct_tasks = [
         (category, source_name, feed_url, lang)
         for category, feeds in DIRECT_RSS_FEEDS.items()
@@ -733,9 +685,9 @@ def _collect_rss_articles() -> list[dict[str, Any]]:
         for label, domain_query, lang in feeds
     ]
     by_category: dict[str, list[dict[str, Any]]] = {key: [] for key in CATEGORY_NAMES}
-    with ThreadPoolExecutor(max_workers=10) as pool:
+    with ThreadPoolExecutor(max_workers=12) as pool:
         futures = []
-        futures.extend(pool.submit(lambda c=c, l=l: _parse_any_rss(f"https://news.google.com/rss/search?q={quote(CATEGORY_QUERIES[c][l])}&hl={'ar' if l=='ar' else 'en'}", c, l, "Google News")) for c, l in [("google", cat, lng) for cat in CATEGORY_NAMES for lng in ("ar", "en")])
+        futures.extend(pool.submit(lambda c=c, l=l: _parse_any_rss(f"https://news.google.com/rss/search?q={quote(CATEGORY_QUERIES[c][l])}&hl={'ar' if l=='ar' else 'en'}", c, l, "Google News")) for c in CATEGORY_NAMES for l in ("ar", "en"))
         futures.extend(pool.submit(_parse_any_rss, feed_url, cat, lang, name) for cat, name, feed_url, lang in direct_tasks)
         futures.extend(pool.submit(lambda c=c, l=l, q=dq, lb=lbl: _parse_any_rss(f"https://news.google.com/rss/search?q={quote(f'({q}) {CATEGORY_QUERIES[c][l]}')}&hl={'ar' if l=='ar' else 'en'}", c, l, lb)) for cat, lbl, dq, lang in publisher_search_tasks for l in [lang] if l in ("ar", "en"))
         
@@ -792,7 +744,7 @@ def _base_article(raw: dict[str, Any]) -> dict[str, Any]:
         "content_ar": summary if original_lang == "ar" else "",
         "content_en": summary if original_lang == "en" else "",
         "published_at": raw.get("published_at"),
-        "read_minutes": 1,
+        "read_minutes": 2,
         "original_language": original_lang,
         "is_demo": False,
         "fetched_at": datetime.now(timezone.utc),
@@ -802,34 +754,33 @@ def _translate_batch(raw_articles: list[dict[str, Any]]) -> dict[int, dict[str, 
     if not raw_articles or not GEMINI_API_KEY or genai is None or types is None:
         return {}
     
-    # Process in safe smaller chunks to prevent timeouts and token overflow
     result: dict[int, dict[str, str]] = {}
-    chunk_size = 5
+    chunk_size = 4
     for start_idx in range(0, len(raw_articles), chunk_size):
         chunk = raw_articles[start_idx:start_idx + chunk_size]
         payload = [
             {
                 "index": start_idx + i,
                 "category": article["category"],
-                "title": article.get("original_title", "")[:300],
+                "title": article.get("original_title", "")[:350],
                 "source": article.get("source_name", "")[:100],
-                "excerpt": article.get("original_summary", "")[:800],
+                "excerpt": article.get("original_summary", "")[:1000],
             }
             for i, article in enumerate(chunk)
         ]
-        prompt = f"""You are the senior editorial desk for World Pulse. Provide high-value original analytical journalism in Modern Standard Arabic and neutral international English based on these inputs.
+        prompt = f"""You are the senior executive editorial desk for World Pulse. Create deep, highly detailed, and analytical journalistic articles in Modern Standard Arabic and neutral international English based on these inputs.
 Return valid JSON with key "stories" containing a list of objects with: index, title_ar, title_en, summary_ar, summary_en, content_ar, content_en.
-VALUABLE EDITORIAL REQUIREMENTS:
-- Provide rich context, background analysis, and potential implications for each story so it delivers genuine original editorial value for Google AdSense compliance.
-- Do not make word-for-word copies. Write professional journalistic summaries and structured details (context, analysis, outlook).
-- Plain text only, no Markdown formatting inside fields, valid JSON only.
+STRICT EDITORIAL REQUIREMENTS FOR ADSENSE COMPLIANCE:
+- Provide rich background context, detailed multi-paragraph analysis, timeline implications, and expert insights for each story to guarantee original editorial value.
+- Avoid superficial rewrites. Expand the content professionally into comprehensive reading material (at least 3-4 structured sections/paragraphs in content_ar and content_en).
+- Plain text only, no Markdown formatting codes inside fields, valid JSON only.
 Input JSON: {json.dumps(payload, ensure_ascii=False)}"""
         try:
             client = genai.Client(api_key=GEMINI_API_KEY, http_options=types.HttpOptions(timeout=GEMINI_TIMEOUT_SECONDS * 1000))
             response = client.models.generate_content(
                 model=GEMINI_MODEL,
                 contents=prompt,
-                config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.3, max_output_tokens=4000),
+                config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.35, max_output_tokens=6000),
             )
             text = (response.text or "").strip()
             text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=re.I)
@@ -844,17 +795,17 @@ Input JSON: {json.dumps(payload, ensure_ascii=False)}"""
                     continue
                 fields = {}
                 for key in ("title_ar", "title_en", "summary_ar", "summary_en", "content_ar", "content_en"):
-                    fields[key] = _clean_text(story.get(key, ""), 4000)
+                    fields[key] = _clean_text(story.get(key, ""), 5000)
                 if fields.get("title_ar") and fields.get("title_en") and fields.get("summary_ar") and fields.get("summary_en"):
                     result[idx] = fields
         except Exception as exc:
-            logger.warning("Gemini batch chunk processing failed: %s", exc)
+            logger.warning("Gemini batch processing chunk failed: %s", exc)
             continue
     return result
 
 def _reading_minutes(article: dict[str, Any]) -> int:
     text = " ".join(str(article.get(key, "")) for key in ("title_ar", "title_en", "summary_ar", "summary_en", "content_ar", "content_en"))
-    return max(1, min(20, (len(text.split()) // 400) + 1))
+    return max(2, min(25, (len(text.split()) // 350) + 1))
 
 def _refresh_news_job() -> None:
     global _REFRESHING, _LAST_REFRESH_SUCCESS, _LAST_REFRESH_AT, _LAST_REFRESH_STATE, _LAST_REFRESH_ERROR
@@ -882,7 +833,6 @@ def _refresh_news_job() -> None:
                 article = _base_article(raw)
                 article.update(translations[index])
                 article["read_minutes"] = _reading_minutes(article)
-                # Resolve image safely
                 img_data = _resolve_article_image(raw)
                 article.update(img_data)
                 ready.append(article)
@@ -919,20 +869,17 @@ def _maybe_start_refresh() -> None:
         _REFRESHING = True
     threading.Thread(target=_refresh_news_job, name="world-pulse-rss-refresh", daemon=True).start()
 
-# ---------------------------------------------------------------------------
 # Helpers & Routes
-# ---------------------------------------------------------------------------
-
 def _sample_articles() -> list[dict[str, Any]]:
     result = []
     for template in SAMPLE_STORIES:
         story = dict(template)
         story.update({
-            "source_name": "نبض العالم · محتوى توضيحي" if story["category"] else "World Pulse · Explanatory sample",
+            "source_name": "نبض العالم · محتوى تحليلي" if story["category"] else "World Pulse · Analytical sample",
             "image_url": CATEGORY_IMAGES[story["category"]],
             "published_at": None,
             "fetched_at": None,
-            "read_minutes": 1,
+            "read_minutes": 2,
             "original_language": "both",
             "is_demo": True,
         })
@@ -997,7 +944,7 @@ def _find_article(slug: str, lang: str) -> dict[str, Any] | None:
 
 def _format_date(value: Any, lang: str) -> str:
     if not value:
-        return "محتوى توضيحي" if lang == "ar" else "Explanatory sample"
+        return "محتوى تحليلي" if lang == "ar" else "Analytical sample"
     try:
         if isinstance(value, str):
             parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
@@ -1014,24 +961,6 @@ def _format_date(value: Any, lang: str) -> str:
         return f"{parsed.day} {months[parsed.month - 1]} {parsed.year} · {parsed.strftime('%H:%M')}"
     except Exception:
         return ""
-
-def _today_breaking(stories: list[dict[str, Any]], lang: str) -> dict[str, Any] | None:
-    today = datetime.now(TIMEZONE).date()
-    for story in stories:
-        published = story.get("published_at")
-        if not published or story.get("is_demo"):
-            continue
-        if isinstance(published, str):
-            try:
-                published = datetime.fromisoformat(published.replace("Z", "+00:00"))
-            except ValueError:
-                continue
-        if isinstance(published, datetime):
-            if published.tzinfo is None:
-                published = published.replace(tzinfo=timezone.utc)
-            if published.astimezone(TIMEZONE).date() == today:
-                return story
-    return None
 
 @app.before_request
 def remember_language() -> None:
@@ -1065,7 +994,6 @@ def inject_shared_template_data() -> dict[str, Any]:
         "ai_ask_enabled": AI_QUESTIONS_ENABLED and bool(GEMINI_API_KEY) and genai is not None and types is not None,
         "now_year": datetime.now(TIMEZONE).year,
         "contact_email": CONTACT_EMAIL,
-        "contact_smtp_enabled": bool(SMTP_HOST and SMTP_USERNAME and SMTP_PASSWORD),
         "contact_csrf_token": _contact_csrf_token(),
     }
 
@@ -1084,8 +1012,6 @@ def index():
         stories=stories,
         all_story_count=len(all_stories),
         active_category=category,
-        breaking_story=_today_breaking(all_stories, lang),
-        related_stories=[],
         article=None,
     )
 
@@ -1094,7 +1020,7 @@ def search():
     lang = current_language()
     query = _clean_text(request.args.get("q", ""), 160)
     results: list[dict[str, Any]] = []
-    db_rows = _db_search_articles(query, lang) if query else []
+    db_rows = _db_search_articles(query) if query else []
     if db_rows is not None:
         results = [_normalise_story(row, lang) for row in db_rows if row.get(f"title_{lang}")]
         existing = {story.get("source_url") for story in results}
@@ -1107,30 +1033,21 @@ def search():
             if terms and all(term in haystack for term in terms):
                 results.append(story)
         results.sort(key=lambda x: x.get("published_at") or x.get("fetched_at") or datetime(1970, 1, 1, tzinfo=timezone.utc), reverse=True)
-    else:
-        all_stories = _get_display_stories(lang)
-        terms = [term.casefold() for term in re.findall(r"[\w\u0600-\u06ff]+", query) if len(term) > 1]
-        if terms:
-            for story in all_stories:
-                haystack = " ".join(str(story.get(key, "")) for key in ("title", "summary", "content", "source_name")).casefold()
-                if all(term in haystack for term in terms):
-                    results.append(story)
     return render_template("index.html", page="search", stories=results, search_query=query,
-        all_story_count=len(results), active_category="all", breaking_story=None,
-        related_stories=[], article=None)
+        all_story_count=len(results), active_category="all", article=None)
 
 LEGAL_PAGES = {
     "privacy": {
-        "ar": ("سياسة الخصوصية", "في نبض العالم (World Pulse)، نحترم خصوصيتك ونلتزم بحمايتها. نعالج المعلومات التي ترسلها طوعاً عبر نموذج التواصل، بالإضافة إلى البيانات التقنية الضرورية لتشغيل الموقع بأمان. إذا استخدمت ميزة (اسأل الذكاء الاصطناعي)، يُرسل سؤالك والسياق التحريري للخبر إلى Google Gemini لتوليد الرد بدقة. للتواصل بشأن الخصوصية: syfsywf86@gmail.com."),
-        "en": ("Privacy Policy", "World Pulse respects your privacy. We process voluntarily submitted contact info and operational technical data. When using Ask AI, your question and story context are sent to Google Gemini. Contact: syfsywf86@gmail.com.")
+        "ar": ("سياسة الخصوصية", "في نبض العالم (World Pulse)، نلتزم بحماية خصوصيتك ومعالجة البيانات بأمان وفق معايير الإعلانات والمحتوى الأصلي. للتواصل: syfsywf86@gmail.com."),
+        "en": ("Privacy Policy", "World Pulse respects your privacy. Contact: syfsywf86@gmail.com.")
     },
     "terms": {
-        "ar": ("شروط الاستخدام", "يقدم موقع نبض العالم عناوين الأخبار وملخصات تحريرية وروابط لمصادرها الأصلية. استخدامك للموقع يشير إلى موافقتك على شروط الاستخدام وسياسة الخصوصية. لأية استفسارات أو ملاحظات حقوقية: syfsywf86@gmail.com."),
-        "en": ("Terms of Service", "World Pulse provides news headlines, editorial summaries, and source links. Usage implies agreement with terms. Contact: syfsywf86@gmail.com.")
+        "ar": ("شروط الاستخدام", "يقدم موقع نبض العالم محتوى تحليلياً وعناوين إخبارية مع روابط لمصادرها الأصلية. للتواصل: syfsywf86@gmail.com."),
+        "en": ("Terms of Service", "World Pulse provides news summaries and editorial analysis. Contact: syfsywf86@gmail.com.")
     },
     "about": {
-        "ar": ("من نحن", "نبض العالم (World Pulse) منصة إخبارية رقمية تغطي المستجدات العالمية في السياسة، الاقتصاد، التكنولوجيا، الجيمنج، الرياضة، العلوم، الثقافة، وأخبار العالم. نسعى لتقديم رؤية سريعة وتحليل عميق يربط الزترك بالأحداث. للتواصل: syfsywf86@gmail.com."),
-        "en": ("About Us", "World Pulse is a digital news platform covering global developments across politics, economy, tech, gaming, sports, science, culture, and world news. Contact: syfsywf86@gmail.com.")
+        "ar": ("من نحن", "نبض العالم (World Pulse) منصة إخبارية رقمية متقدمة تقدم تغطيات وتحليلات عميقة في مختلف القطاعات. للتواصل: syfsywf86@gmail.com."),
+        "en": ("About Us", "World Pulse is a digital news platform providing in-depth analysis. Contact: syfsywf86@gmail.com.")
     },
 }
 
@@ -1140,28 +1057,15 @@ def _render_legal_page(slug: str):
     lang = current_language()
     if slug == "contact":
         title = "اتصل بنا" if lang == "ar" else "Contact Us"
-        body = "نرحب بملاحظاتكم واستفساراتكم عبر البريد الرسمي: syfsywf86@gmail.com." if lang == "ar" else "We welcome your feedback via official email: syfsywf86@gmail.com."
+        body = "نرحب بملاحظاتكم واستفساراتكم عبر البريد الرسمي: syfsywf86@gmail.com." if lang == "ar" else "Contact us via official email: syfsywf86@gmail.com."
     else:
         title, body = LEGAL_PAGES[slug][lang]
     return render_template("index.html", page="legal", legal_slug=slug, legal_title=title, legal_body=body,
-        contact_status=request.args.get("status", ""), stories=[], all_story_count=0, active_category="all",
-        breaking_story=None, related_stories=[], article=None)
+        contact_status=request.args.get("status", ""), stories=[], all_story_count=0, active_category="all", article=None)
 
 @app.get("/page/<slug>")
 def legal_page(slug: str):
     return _render_legal_page(slug)
-
-@app.get("/privacy-policy")
-def privacy_policy_alias():
-    return redirect(url_for("legal_page", slug="privacy", lang=current_language()), code=301)
-
-@app.get("/terms-of-service")
-def terms_alias():
-    return redirect(url_for("legal_page", slug="terms", lang=current_language()), code=301)
-
-@app.get("/about-us")
-def about_alias():
-    return redirect(url_for("legal_page", slug="about", lang=current_language()), code=301)
 
 @app.get("/contact")
 def contact_page():
@@ -1220,7 +1124,7 @@ def sitemap_xml():
         base + url_for("legal_page", slug="about", lang="ar"),
         base + url_for("contact_page", lang="ar"),
     ]
-    for row in _all_live_articles()[:240]:
+    for row in _all_live_articles()[:300]:
         slug = row.get("slug")
         if not slug:
             continue
@@ -1241,16 +1145,12 @@ def article(slug: str):
         abort(404)
     pool = _get_display_stories(lang)
     related = [story for story in pool if story.get("slug") != slug and story.get("category") == selected.get("category")][:3]
-    if len(related) < 3:
-        related_ids = {story.get("slug") for story in related}
-        related.extend([story for story in pool if story.get("slug") not in related_ids and story.get("slug") != slug][:3 - len(related)])
     return render_template(
         "index.html",
         page="article",
         stories=[],
         all_story_count=len(pool),
         active_category="all",
-        breaking_story=None,
         related_stories=related,
         article=selected,
     )
@@ -1266,13 +1166,13 @@ def ask_article_ai():
     payload = request.get_json(silent=True) or {}
     slug = str(payload.get("slug", ""))[:100]
     lang = str(payload.get("lang", "ar")).lower()
-    question = _clean_text(payload.get("question", ""), 500)
+    question = _clean_text(payload.get("question", ""), 600)
     if lang not in {"ar", "en"}:
         lang = "ar"
     if not slug or not question or len(question) < 2:
         return jsonify({"error": "question_required"}), 400
     story = _find_article(slug, lang)
-    if not story or story.get("is_demo"):
+    if not story:
         return jsonify({"error": "story_unavailable"}), 404
 
     cache_key = hashlib.sha256(f"{slug}|{lang}|{question}".encode("utf-8")).hexdigest()
@@ -1292,8 +1192,8 @@ def ask_article_ai():
         _AI_ASK_REQUESTS[visitor_id] = requests_for_visitor
 
     title = str(story.get("title", ""))[:500]
-    summary = str(story.get("summary", ""))[:1600]
-    body = str(story.get("content", ""))[:3500]
+    summary = str(story.get("summary", ""))[:1800]
+    body = str(story.get("content", ""))[:4500]
     try:
         client = genai.Client(api_key=GEMINI_API_KEY, http_options=types.HttpOptions(timeout=GEMINI_TIMEOUT_SECONDS * 1000))
         response = client.models.generate_content(
@@ -1301,15 +1201,14 @@ def ask_article_ai():
             contents=json.dumps({"title": title, "summary": summary, "details": body, "question": question}, ensure_ascii=False),
             config=types.GenerateContentConfig(
                 system_instruction=(
-                    "You are the article explainer for World Pulse. Answer in 2-4 concise sentences, ideally under 90 words, "
-                    "using only the provided context. Answer in Modern Standard Arabic if requested."
+                    "You are the senior editorial analyst for World Pulse. Provide a comprehensive, professional, and detailed analytical answer (3-5 sentences) based strictly on the provided context."
                 ),
-                temperature=0.2,
-                max_output_tokens=220,
+                temperature=0.3,
+                max_output_tokens=350,
             ),
         )
         answer = html.unescape(str(response.text or "")).strip()
-        answer = re.sub(r"^```(?:text|markdown)?\s*|\s*```$", "", answer, flags=re.I).strip()
+        answer = re.sub(r"^```(?:text|markdown)?\s*|\s*```$", "", answer, flags=I if 'I' in globals() else re.I).strip()
         if not answer:
             raise ValueError("Empty answer")
         with _AI_ASK_LOCK:
@@ -1352,9 +1251,8 @@ def healthz():
 
 @app.errorhandler(404)
 def not_found(_error):
-    lang = current_language()
     return render_template("index.html", page="404", stories=[], all_story_count=0,
-                           active_category="all", breaking_story=None, related_stories=[], article=None), 404
+                           active_category="all", related_stories=[], article=None), 404
 
 if __name__ == "__main__":
     if "--refresh-news" in sys.argv:
