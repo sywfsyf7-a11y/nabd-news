@@ -73,7 +73,13 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 MAX_ARTICLES_PER_REFRESH = max(8, min(40, int(os.getenv("MAX_ARTICLES_PER_REFRESH", "24"))))
 MAX_ARTICLES_PER_CATEGORY = max(1, min(8, int(os.getenv("MAX_ARTICLES_PER_CATEGORY", "4"))))
 IMAGE_SEARCH_TIMEOUT_SECONDS = max(3, min(12, int(os.getenv("IMAGE_SEARCH_TIMEOUT_SECONDS", "5"))))
-MAX_IMAGE_LOOKUPS_PER_REFRESH = max(0, min(40, int(os.getenv("MAX_IMAGE_LOOKUPS_PER_REFRESH", "24"))))
+MAX_IMAGE_LOOKUPS_PER_REFRESH = max(0, min(40, int(os.getenv("MAX_IMAGE_LOOKUPS_PER_REFRESH", "8"))))
+UNSPLASH_ACCESS_KEY = os.getenv("UNSPLASH_ACCESS_KEY", "").strip()
+PEXELS_API_KEY = os.getenv("PEXELS_API_KEY", "").strip()
+IMAGE_CACHE_MAX_AGE_SECONDS = max(3600, int(os.getenv("IMAGE_CACHE_MAX_AGE_HOURS", "168")) * 3600)
+TRUSTED_REUSABLE_IMAGE_SOURCES = {
+    "wikimedia_relevant", "unsplash_api", "pexels_api", "presskit_approved"
+}
 
 CATEGORY_NAMES = {
     "politics": {"ar": "سياسة", "en": "Politics"},
@@ -119,6 +125,10 @@ UI_TEXT = {
         "article_details": "تفاصيل الخبر",
         "photo_credit": "الصورة",
         "photo_license": "الترخيص",
+        "photo_provider": "المصدر",
+        "illustrative_image": "صورة توضيحية",
+        "photo_page": "صفحة الصورة",
+        "photos_provided_by_pexels": "صور مقدّمة من Pexels",
     },
     "en": {
         "tagline": "The world, in one pulse.",
@@ -152,6 +162,10 @@ UI_TEXT = {
         "article_details": "Story details",
         "photo_credit": "Photo",
         "photo_license": "License",
+        "photo_provider": "Image provider",
+        "illustrative_image": "Illustrative image",
+        "photo_page": "Photo page",
+        "photos_provided_by_pexels": "Photos provided by Pexels",
     },
 }
 
@@ -235,16 +249,22 @@ def _publisher_requires_license(source_name: str = "", source_urls: tuple[str, .
             return True
     return False
 
-CATEGORY_IMAGES = {
-    "politics": "https://images.unsplash.com/photo-1529107386315-e1a2ed48a620?auto=format&fit=crop&w=1400&q=82",
-    "economy": "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?auto=format&fit=crop&w=1400&q=82",
-    "technology": "https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=1400&q=82",
-    "gaming": "https://images.unsplash.com/photo-1542751371-adc38448a05e?auto=format&fit=crop&w=1400&q=82",
-    "sports": "https://images.unsplash.com/photo-1461896836934-ffe607ba8211?auto=format&fit=crop&w=1400&q=82",
-    "science": "https://images.unsplash.com/photo-1532094349884-543bc11b234d?auto=format&fit=crop&w=1400&q=82",
-    "culture": "https://images.unsplash.com/photo-1513364776144-60967b0f800f?auto=format&fit=crop&w=1400&q=82",
-    "world": "https://images.unsplash.com/photo-1526778548025-fa2f459cd5c1?auto=format&fit=crop&w=1400&q=82",
+# No hard-coded stock images: the existing category-colored CSS placeholder is the safe fallback.
+# The legacy URL set below is used only to purge old stored values during database migration;
+# it is never used as a default or shown on the site.
+# Keep these empty values for compatibility with older helper paths; they are not image URLs.
+CATEGORY_IMAGES = {category: "" for category in CATEGORY_NAMES}
+LEGACY_CATEGORY_IMAGE_URLS = {
+    "https://images.unsplash.com/photo-1529107386315-e1a2ed48a620?auto=format&fit=crop&w=1400&q=82",
+    "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?auto=format&fit=crop&w=1400&q=82",
+    "https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=1400&q=82",
+    "https://images.unsplash.com/photo-1542751371-adc38448a05e?auto=format&fit=crop&w=1400&q=82",
+    "https://images.unsplash.com/photo-1461896836934-ffe607ba8211?auto=format&fit=crop&w=1400&q=82",
+    "https://images.unsplash.com/photo-1532094349884-543bc11b234d?auto=format&fit=crop&w=1400&q=82",
+    "https://images.unsplash.com/photo-1513364776144-60967b0f800f?auto=format&fit=crop&w=1400&q=82",
+    "https://images.unsplash.com/photo-1526778548025-fa2f459cd5c1?auto=format&fit=crop&w=1400&q=82",
 }
+LEGACY_IMAGE_URLS = LEGACY_CATEGORY_IMAGE_URLS
 
 # Clearly labelled educational sample stories used only if live articles are absent.
 SAMPLE_STORIES = [
@@ -342,6 +362,7 @@ CREATE TABLE IF NOT EXISTS world_pulse_articles (
     image_source TEXT NOT NULL DEFAULT '',
     image_credit TEXT NOT NULL DEFAULT '',
     image_credit_url TEXT NOT NULL DEFAULT '',
+    image_provider_url TEXT NOT NULL DEFAULT '',
     image_license_url TEXT NOT NULL DEFAULT '',
     image_checked_at TIMESTAMPTZ NULL,
     title_ar TEXT NOT NULL DEFAULT '',
@@ -363,6 +384,7 @@ CREATE INDEX IF NOT EXISTS idx_world_pulse_category
 ALTER TABLE world_pulse_articles ADD COLUMN IF NOT EXISTS image_source TEXT NOT NULL DEFAULT '';
 ALTER TABLE world_pulse_articles ADD COLUMN IF NOT EXISTS image_credit TEXT NOT NULL DEFAULT '';
 ALTER TABLE world_pulse_articles ADD COLUMN IF NOT EXISTS image_credit_url TEXT NOT NULL DEFAULT '';
+ALTER TABLE world_pulse_articles ADD COLUMN IF NOT EXISTS image_provider_url TEXT NOT NULL DEFAULT '';
 ALTER TABLE world_pulse_articles ADD COLUMN IF NOT EXISTS image_license_url TEXT NOT NULL DEFAULT '';
 ALTER TABLE world_pulse_articles ADD COLUMN IF NOT EXISTS image_checked_at TIMESTAMPTZ NULL;
 """
@@ -414,9 +436,14 @@ def _ensure_schema() -> bool:
                 cur.execute("""
                     UPDATE world_pulse_articles
                     SET image_url = '', image_source = 'none', image_credit = '',
-                        image_credit_url = '', image_license_url = '', image_checked_at = NOW()
-                    WHERE image_source IN ('publisher_rss', 'publisher_page')
-                """)
+                        image_credit_url = '', image_provider_url = '', image_license_url = '', image_checked_at = NULL
+                    WHERE image_source IN ('publisher_rss', 'publisher_page', 'category')
+                       OR image_url = ANY(%s)
+                       OR (image_source = 'wikimedia_relevant' AND NOT (
+                            image_license_url ~* 'https?://creativecommons\\.org/licenses/by/(2\\.0|3\\.0|4\\.0)/?$'
+                            OR image_license_url ~* 'https?://creativecommons\\.org/publicdomain/(zero|mark)/1\\.0/?$'
+                       ))
+                """, (list(LEGACY_IMAGE_URLS),))
             conn.commit()
             _SCHEMA_READY = True
             return True
@@ -438,7 +465,7 @@ def _db_fetch_all() -> list[dict[str, Any]]:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute("""
                 SELECT slug, source_url, category, source_name, image_url,
-                       image_source, image_credit, image_credit_url, image_license_url, image_checked_at,
+                       image_source, image_credit, image_credit_url, image_provider_url, image_license_url, image_checked_at,
                        title_ar, title_en, summary_ar, summary_en,
                        content_ar, content_en, published_at, fetched_at,
                        read_minutes, original_language, is_demo
@@ -469,7 +496,7 @@ def _db_fetch_articles_needing_editorial(limit: int = 4) -> list[dict[str, Any]]
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute("""
                 SELECT slug, source_url, category, source_name, image_url,
-                       image_source, image_credit, image_credit_url, image_license_url, image_checked_at,
+                       image_source, image_credit, image_credit_url, image_provider_url, image_license_url, image_checked_at,
                        title_ar, title_en, summary_ar, summary_en,
                        content_ar, content_en, published_at, fetched_at,
                        read_minutes, original_language, is_demo
@@ -506,11 +533,12 @@ def _raw_from_stored_article(row: dict[str, Any]) -> dict[str, Any]:
         "source_url": row.get("source_url", ""),
         "category": row.get("category", "world"),
         "source_name": row.get("source_name", ""),
-        "image_url": row.get("image_url", "") if row.get("image_source") == "wikimedia_relevant" else "",
-        "image_source": row.get("image_source", "") if row.get("image_source") == "wikimedia_relevant" else "none",
-        "image_credit": row.get("image_credit", "") if row.get("image_source") == "wikimedia_relevant" else "",
-        "image_credit_url": row.get("image_credit_url", "") if row.get("image_source") == "wikimedia_relevant" else "",
-        "image_license_url": row.get("image_license_url", "") if row.get("image_source") == "wikimedia_relevant" else "",
+        "image_url": row.get("image_url", "") if row.get("image_source") in TRUSTED_REUSABLE_IMAGE_SOURCES else "",
+        "image_source": row.get("image_source", "") if row.get("image_source") in TRUSTED_REUSABLE_IMAGE_SOURCES else "none",
+        "image_credit": row.get("image_credit", "") if row.get("image_source") in TRUSTED_REUSABLE_IMAGE_SOURCES else "",
+        "image_credit_url": row.get("image_credit_url", "") if row.get("image_source") in TRUSTED_REUSABLE_IMAGE_SOURCES else "",
+        "image_provider_url": row.get("image_provider_url", "") if row.get("image_source") in TRUSTED_REUSABLE_IMAGE_SOURCES else "",
+        "image_license_url": row.get("image_license_url", "") if row.get("image_source") in TRUSTED_REUSABLE_IMAGE_SOURCES else "",
         "image_checked_at": row.get("image_checked_at"),
         "original_title": title,
         "original_summary": summary,
@@ -551,12 +579,12 @@ def _db_upsert_many(articles: list[dict[str, Any]]) -> bool:
     sql = """
         INSERT INTO world_pulse_articles (
             slug, source_url, category, source_name, image_url,
-            image_source, image_credit, image_credit_url, image_license_url, image_checked_at,
+            image_source, image_credit, image_credit_url, image_provider_url, image_license_url, image_checked_at,
             title_ar, title_en, summary_ar, summary_en, content_ar, content_en,
             published_at, fetched_at, read_minutes, original_language, is_demo
         ) VALUES (
             %(slug)s, %(source_url)s, %(category)s, %(source_name)s, %(image_url)s,
-            %(image_source)s, %(image_credit)s, %(image_credit_url)s, %(image_license_url)s, %(image_checked_at)s,
+            %(image_source)s, %(image_credit)s, %(image_credit_url)s, %(image_provider_url)s, %(image_license_url)s, %(image_checked_at)s,
             %(title_ar)s, %(title_en)s, %(summary_ar)s, %(summary_en)s,
             %(content_ar)s, %(content_en)s, %(published_at)s, NOW(),
             %(read_minutes)s, %(original_language)s, FALSE
@@ -565,23 +593,27 @@ def _db_upsert_many(articles: list[dict[str, Any]]) -> bool:
             category = EXCLUDED.category,
             source_name = EXCLUDED.source_name,
             image_url = CASE
-                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant') AND world_pulse_articles.image_url <> ''
+                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'unsplash_api', 'pexels_api', 'presskit_approved') AND world_pulse_articles.image_url <> ''
                     THEN world_pulse_articles.image_url
                 ELSE EXCLUDED.image_url END,
             image_source = CASE
-                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant') AND world_pulse_articles.image_url <> ''
+                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'unsplash_api', 'pexels_api', 'presskit_approved') AND world_pulse_articles.image_url <> ''
                     THEN world_pulse_articles.image_source
                 ELSE EXCLUDED.image_source END,
             image_credit = CASE
-                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant') AND world_pulse_articles.image_url <> ''
+                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'unsplash_api', 'pexels_api', 'presskit_approved') AND world_pulse_articles.image_url <> ''
                     THEN world_pulse_articles.image_credit
                 ELSE EXCLUDED.image_credit END,
             image_credit_url = CASE
-                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant') AND world_pulse_articles.image_url <> ''
+                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'unsplash_api', 'pexels_api', 'presskit_approved') AND world_pulse_articles.image_url <> ''
                     THEN world_pulse_articles.image_credit_url
                 ELSE EXCLUDED.image_credit_url END,
+            image_provider_url = CASE
+                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'unsplash_api', 'pexels_api', 'presskit_approved') AND world_pulse_articles.image_url <> ''
+                    THEN world_pulse_articles.image_provider_url
+                ELSE EXCLUDED.image_provider_url END,
             image_license_url = CASE
-                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant') AND world_pulse_articles.image_url <> ''
+                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'unsplash_api', 'pexels_api', 'presskit_approved') AND world_pulse_articles.image_url <> ''
                     THEN world_pulse_articles.image_license_url
                 ELSE EXCLUDED.image_license_url END,
             image_checked_at = COALESCE(EXCLUDED.image_checked_at, world_pulse_articles.image_checked_at),
@@ -652,37 +684,70 @@ def _parse_published(entry: Any) -> datetime | None:
 
 
 def _image_from_entry(entry: Any, category: str) -> str:
-    """Do not reuse publisher-supplied RSS images without a verified reuse licence."""
+    """Never reuse publisher-provided thumbnails without a separately verified reuse licence."""
     return ""
 
 
+_IMAGE_STOPWORDS = {
+    "with", "from", "into", "this", "that", "news", "today", "after", "before", "over", "under",
+    "says", "said", "report", "reports", "update", "latest", "breaking", "world", "international",
+    "about", "could", "would", "amid", "their", "what", "when", "where", "will", "been", "have",
+    "أخبار", "العالم", "اليوم", "هذا", "هذه", "بعد", "قبل", "على", "إلى", "عن", "مع", "في", "من",
+    "يقول", "قال", "تقرير", "تطورات", "عاجل", "الجديد", "التي", "الذي", "خلال", "حول", "بعدما",
+}
+
+
+def _image_tokens(value: str) -> set[str]:
+    return {t.casefold() for t in re.findall(r"[\w\u0600-\u06ff]{3,}", value or "") if t.casefold() not in _IMAGE_STOPWORDS}
+
+
+def _image_match_score(title: str, description: str) -> float:
+    """Conservative title-to-image metadata match; generic photos must not masquerade as event photos."""
+    title_tokens = _image_tokens(title)
+    if not title_tokens:
+        return 0.0
+    image_tokens = _image_tokens(description)
+    overlap_count = len(title_tokens & image_tokens)
+    required = 1 if len(title_tokens) <= 4 else 2
+    overlap_ratio = overlap_count / max(1, len(title_tokens))
+    if overlap_count < required or overlap_ratio < 0.12:
+        return 0.0
+    return overlap_ratio + min(overlap_count, 4) * 0.025
+
+
+def _https_url(value: Any, allowed_hosts: set[str] | None = None) -> str:
+    url = str(value or "").strip()
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return ""
+    if parsed.scheme != "https" or not parsed.hostname:
+        return ""
+    host = parsed.hostname.casefold().rstrip(".")
+    if allowed_hosts and not any(host == allowed or host.endswith("." + allowed) for allowed in allowed_hosts):
+        return ""
+    return url
+
+
 def _search_commons_image(title: str, lang: str) -> dict[str, str]:
-    """Find a reusable image only when its title/description strongly matches the story."""
+    """Find a story-related Commons image, accepting only PD, CC0 or CC BY (not BY-SA/NC/ND)."""
     title = _clean_text(title, 240)
     if not title:
         return {}
     params = {
         "action": "query", "generator": "search", "gsrsearch": title,
-        "gsrnamespace": 6, "gsrlimit": 10, "prop": "imageinfo",
+        "gsrnamespace": 6, "gsrlimit": 12, "prop": "imageinfo",
         "iiprop": "url|extmetadata|mime", "iiurlwidth": 1400,
         "format": "json", "formatversion": 2,
     }
     url = "https://commons.wikimedia.org/w/api.php?" + urlencode(params)
-    request_obj = Request(url, headers={"User-Agent": "WorldPulseNews/1.2 (news image finder; Wikimedia Commons API)"})
-    stopwords = {
-        "with", "from", "into", "this", "that", "news", "today", "after", "before", "over", "under",
-        "says", "said", "report", "reports", "update", "latest", "breaking", "world", "international",
-        "أخبار", "العالم", "اليوم", "هذا", "هذه", "بعد", "قبل", "على", "إلى", "عن", "مع", "في", "من",
-        "يقول", "قال", "تقرير", "تطورات", "عاجل", "الجديد", "التي", "الذي", "خلال",
-    }
-    def tokens(value: str) -> set[str]:
-        return {t.casefold() for t in re.findall(r"[\w\u0600-\u06ff]{3,}", value or "") if t.casefold() not in stopwords}
-    title_tokens = tokens(title)
+    request_obj = Request(url, headers={"User-Agent": "WorldPulseNews/1.3 (news image finder; Wikimedia Commons API; contact site owner)"})
+    title_tokens = _image_tokens(title)
     if not title_tokens:
         return {}
     try:
         with urlopen(request_obj, timeout=IMAGE_SEARCH_TIMEOUT_SECONDS) as response:
-            data = json.loads(response.read(1_500_000).decode("utf-8", errors="replace"))
+            data = json.loads(response.read(1_800_000).decode("utf-8", errors="replace"))
         pages = data.get("query", {}).get("pages", [])
         if isinstance(pages, dict):
             pages = list(pages.values())
@@ -696,47 +761,41 @@ def _search_commons_image(title: str, lang: str) -> dict[str, str]:
             if mime not in {"image/jpeg", "image/png", "image/webp"}:
                 continue
             page_title = str(page.get("title", ""))
-            if re.search(r"(?i)\b(logo|icon|wordmark|commons-logo|flag icon)\b", page_title):
+            if re.search(r"(?i)\b(logo|icon|wordmark|commons-logo|flag icon|map icon)\b", page_title):
                 continue
             ext = info.get("extmetadata") or {}
             license_short = _clean_text((ext.get("LicenseShortName") or {}).get("value", ""), 100).casefold()
-            license_url_raw = _clean_text((ext.get("LicenseUrl") or {}).get("value", ""), 400).casefold()
-            # Commercially reusable licenses only. NC and ND variants are explicitly rejected.
-            allowed_license = (
-                "public domain" in license_short
-                or license_short in {"cc0", "cc0 1.0", "cc zero"}
-                or bool(re.search(r"\bcc\s*by\b", license_short))
-            )
-            forbidden_license = any(term in license_short for term in ("noncommercial", "non-commercial", "no derivatives", "no-derivatives", "by-nc", "by-nd"))
-            allowed_url = (
-                "creativecommons.org/publicdomain/" in license_url_raw
-                or "creativecommons.org/licenses/by/" in license_url_raw
-            )
-            if forbidden_license or not (allowed_license or allowed_url):
+            license_url = _https_url(html.unescape((ext.get("LicenseUrl") or {}).get("value", "")), {"creativecommons.org"})
+            license_url_path = urlparse(license_url).path.casefold() if license_url else ""
+            # Keep the allowlist deliberately narrow: CC BY-SA is not included in this site's policy.
+            is_cc0_url = bool(re.search(r"/publicdomain/zero/1\.0/?$", license_url_path))
+            is_pd_url = bool(re.search(r"/publicdomain/mark/1\.0/?$", license_url_path))
+            is_cc_by_url = bool(re.search(r"/licenses/by/(?:2\.0|3\.0|4\.0)/?$", license_url_path))
+            # Require an explicit, supported licence URL; a text label alone is insufficient.
+            license_ok = is_pd_url or is_cc0_url or is_cc_by_url
+            forbidden = any(term in license_short for term in ("noncommercial", "non-commercial", "no derivatives", "no-derivatives", "by-nc", "by-nd", "by-sa", "share alike"))
+            if not license_ok or forbidden:
                 continue
-            desc_raw = (ext.get("ImageDescription") or {}).get("value", "")
-            desc = _clean_text(desc_raw, 1000)
-            combined_tokens = tokens(page_title + " " + desc)
-            overlap_count = len(title_tokens & combined_tokens)
-            overlap = overlap_count / max(1, len(title_tokens))
-            # Don't guess: one generic overlapping word is not enough to label a photo as relevant.
-            minimum_matches = 1 if len(title_tokens) == 1 else 2
-            if overlap_count < minimum_matches or overlap < (0.28 if len(title_tokens) > 3 else 0.40):
+            image_url = _https_url(info.get("thumburl") or info.get("url"), {"wikimedia.org", "wikipedia.org"})
+            if not image_url:
                 continue
-            image_url = info.get("thumburl") or info.get("url") or ""
-            if not str(image_url).startswith("https://"):
+            desc = _clean_text((ext.get("ImageDescription") or {}).get("value", ""), 1000)
+            score = _image_match_score(title, page_title + " " + desc)
+            if score <= 0:
                 continue
-            file_name = page_title.split(":", 1)[-1].replace(" ", "_")
-            page_url = "https://commons.wikimedia.org/wiki/File:" + quote(file_name)
+            file_page_url = "https://commons.wikimedia.org/wiki/" + quote(page_title.replace(" ", "_"), safe=":_()!,.'-")
             artist = _clean_text((ext.get("Artist") or {}).get("value", ""), 180)
             credit = artist or "Wikimedia Commons"
-            license_url = _clean_text((ext.get("LicenseUrl") or {}).get("value", ""), 400)
+            # The Commons file page is always linked, so users can see attribution and source licensing.
             result = {
-                "image_url": str(image_url), "image_source": "wikimedia_relevant",
-                "image_credit": credit, "image_credit_url": page_url,
-                "image_license_url": license_url if license_url.startswith("https://") else page_url,
+                "image_url": image_url,
+                "image_source": "wikimedia_relevant",
+                "image_credit": credit,
+                "image_credit_url": file_page_url,
+                "image_provider_url": file_page_url,
+                "image_license_url": license_url,
+                "image_checked_at": datetime.now(timezone.utc),
             }
-            score = overlap + min(overlap_count, 4) * 0.025
             if best is None or score > best[0]:
                 best = (score, result)
         return best[1] if best else {}
@@ -745,38 +804,218 @@ def _search_commons_image(title: str, lang: str) -> dict[str, str]:
         return {}
 
 
-def _resolve_article_image(raw: dict[str, Any]) -> dict[str, str]:
-    # Reuse an existing image only when the saved source is our license-checked Commons result.
-    existing = str(raw.get("image_url") or "").strip()
-    if existing and raw.get("image_source") == "wikimedia_relevant" and existing not in set(CATEGORY_IMAGES.values()):
-        return {
-            "image_url": existing,
-            "image_source": "wikimedia_relevant",
-            "image_credit": raw.get("image_credit") or "Wikimedia Commons",
-            "image_credit_url": raw.get("image_credit_url") or "",
-            "image_license_url": raw.get("image_license_url", ""),
-            "image_checked_at": raw.get("image_checked_at") or datetime.now(timezone.utc),
-        }
+def _search_pexels_image(title: str) -> dict[str, str]:
+    """Use Pexels only through its official API and retain required platform/photographer attribution."""
+    if not PEXELS_API_KEY or not title:
+        return {}
+    query = _clean_text(title, 100)
+    params = urlencode({"query": query, "per_page": 10, "orientation": "landscape"})
+    request_obj = Request(
+        "https://api.pexels.com/v1/search?" + params,
+        headers={"Authorization": PEXELS_API_KEY, "User-Agent": "WorldPulseNews/1.3 (+image sourcing)"},
+    )
+    try:
+        with urlopen(request_obj, timeout=IMAGE_SEARCH_TIMEOUT_SECONDS) as response:
+            data = json.loads(response.read(1_500_000).decode("utf-8", errors="replace"))
+        best: tuple[float, dict[str, str]] | None = None
+        for photo in data.get("photos", [])[:10]:
+            src = photo.get("src") or {}
+            image_url = _https_url(src.get("large") or src.get("large2x") or src.get("medium"), {"pexels.com"})
+            photo_page = _https_url(photo.get("url"), {"pexels.com"})
+            photographer = _clean_text(photo.get("photographer", ""), 160)
+            photographer_url = _https_url(photo.get("photographer_url"), {"pexels.com"})
+            if not image_url or not photo_page or not photographer:
+                continue
+            score = _image_match_score(title, " ".join([str(photo.get("alt", "")), photographer]))
+            if score <= 0:
+                continue
+            result = {
+                "image_url": image_url,
+                "image_source": "pexels_api",
+                "image_credit": photographer,
+                "image_credit_url": photographer_url or photo_page,
+                "image_provider_url": photo_page,
+                "image_license_url": "https://www.pexels.com/license/",
+                "image_checked_at": datetime.now(timezone.utc),
+            }
+            if best is None or score > best[0]:
+                best = (score, result)
+        return best[1] if best else {}
+    except Exception as exc:
+        logger.debug("Pexels image search failed for %r: %s", title, exc)
+        return {}
 
-    search_title = str(raw.get("image_search_title") or raw.get("original_title") or "")
-    commons = _search_commons_image(search_title, str(raw.get("original_language") or "en"))
-    if commons:
-        commons["image_checked_at"] = datetime.now(timezone.utc)
-        return commons
+
+def _with_unsplash_tracking(url: Any) -> str:
+    """Add required attribution tracking to Unsplash page links, never to image URLs."""
+    safe = _https_url(url, {"unsplash.com"})
+    if not safe:
+        return ""
+    parsed = urlparse(safe)
+    query = parsed.query
+    additions = "utm_source=world_pulse&utm_medium=referral"
+    if "utm_source=" not in query:
+        query = query + ("&" if query else "") + additions
+    return parsed._replace(query=query).geturl()
+
+
+def _search_unsplash_image(title: str) -> dict[str, str]:
+    """Use official Unsplash API results, keep returned CDN URL unchanged, and attribute photographer + Unsplash."""
+    if not UNSPLASH_ACCESS_KEY or not title:
+        return {}
+    params = urlencode({"query": _clean_text(title, 100), "per_page": 10, "orientation": "landscape", "content_filter": "high"})
+    request_obj = Request(
+        "https://api.unsplash.com/search/photos?" + params,
+        headers={
+            "Authorization": "Client-ID " + UNSPLASH_ACCESS_KEY,
+            "Accept-Version": "v1",
+            "User-Agent": "WorldPulseNews/1.3 (+image sourcing)",
+        },
+    )
+    try:
+        with urlopen(request_obj, timeout=IMAGE_SEARCH_TIMEOUT_SECONDS) as response:
+            data = json.loads(response.read(1_500_000).decode("utf-8", errors="replace"))
+        best: tuple[float, dict[str, str]] | None = None
+        for photo in data.get("results", [])[:10]:
+            urls = photo.get("urls") or {}
+            # Unsplash's API guidelines require using URLs returned by the API; do not rewrite these URLs.
+            image_url = _https_url(urls.get("regular") or urls.get("small"), {"images.unsplash.com"})
+            links = photo.get("links") or {}
+            user = photo.get("user") or {}
+            user_links = user.get("links") or {}
+            photo_page = _with_unsplash_tracking(links.get("html"))
+            photographer = _clean_text(user.get("name", ""), 160)
+            photographer_url = _with_unsplash_tracking(user_links.get("html"))
+            if not image_url or not photo_page or not photographer:
+                continue
+            description = " ".join([
+                str(photo.get("alt_description", "")), str(photo.get("description", "")),
+                " ".join(_clean_text(tag.get("title", ""), 80) for tag in photo.get("tags", [])[:12] if isinstance(tag, dict)),
+            ])
+            score = _image_match_score(title, description)
+            if score <= 0:
+                continue
+            result = {
+                "image_url": image_url,
+                "image_source": "unsplash_api",
+                "image_credit": photographer,
+                "image_credit_url": photographer_url or photo_page,
+                "image_provider_url": photo_page,
+                "image_license_url": "https://unsplash.com/license",
+                "image_checked_at": datetime.now(timezone.utc),
+            }
+            if best is None or score > best[0]:
+                best = (score, result)
+        return best[1] if best else {}
+    except Exception as exc:
+        logger.debug("Unsplash image search failed for %r: %s", title, exc)
+        return {}
+
+
+def _search_approved_presskit_image(title: str, category: str) -> dict[str, str]:
+    """Only use press-kit assets that the site owner manually reviewed and explicitly approved."""
+    manifest_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "approved_presskit_images.json")
+    try:
+        with open(manifest_path, "r", encoding="utf-8") as manifest_file:
+            entries = json.load(manifest_file)
+    except (OSError, ValueError, TypeError):
+        return {}
+    if not isinstance(entries, list):
+        return {}
+    best: tuple[float, dict[str, str]] | None = None
+    title_tokens = _image_tokens(title)
+    for entry in entries[:500]:
+        if not isinstance(entry, dict) or entry.get("approved_for_commercial_use") is not True:
+            continue
+        if entry.get("category") not in (None, "", category):
+            continue
+        image_url = _https_url(entry.get("image_url"))
+        image_page = _https_url(entry.get("image_page_url"))
+        credit = _clean_text(entry.get("credit", ""), 160)
+        credit_url = _https_url(entry.get("credit_url")) or image_page
+        license_url = _https_url(entry.get("license_url"))
+        license_name = _clean_text(entry.get("license_name", ""), 180)
+        keywords = entry.get("keywords", [])
+        if not isinstance(keywords, list):
+            continue
+        keyword_text = " ".join(_clean_text(term, 80) for term in keywords[:30])
+        description = _clean_text(entry.get("description", ""), 500)
+        if not (image_url and image_page and credit and license_url and license_name and keyword_text):
+            continue
+        score = _image_match_score(title, keyword_text + " " + description)
+        if score <= 0:
+            continue
+        result = {
+            "image_url": image_url,
+            "image_source": "presskit_approved",
+            "image_credit": credit,
+            "image_credit_url": credit_url,
+            "image_provider_url": image_page,
+            "image_license_url": license_url,
+            "image_checked_at": datetime.now(timezone.utc),
+        }
+        if best is None or score > best[0]:
+            best = (score, result)
+    return best[1] if best else {}
+
+
+def _search_any_reusable_image(title: str, lang: str = "en", category: str = "world") -> dict[str, str]:
+    """Provider priority: verified Commons, owner-approved press kit, then opt-in stock-photo APIs."""
+    for finder in (
+        lambda: _search_commons_image(title, lang),
+        lambda: _search_approved_presskit_image(title, category),
+        lambda: _search_pexels_image(title),
+        lambda: _search_unsplash_image(title),
+    ):
+        result = finder()
+        if result:
+            return result
+    return {}
+
+
+def _resolve_article_image(raw: dict[str, Any]) -> dict[str, Any]:
+    existing = str(raw.get("image_url") or "").strip()
+    source = str(raw.get("image_source") or "")
+    if existing and source in TRUSTED_REUSABLE_IMAGE_SOURCES and existing not in LEGACY_IMAGE_URLS:
+        checked = raw.get("image_checked_at")
+        if isinstance(checked, str):
+            try:
+                checked = datetime.fromisoformat(checked.replace("Z", "+00:00"))
+            except ValueError:
+                checked = None
+        if isinstance(checked, datetime) and checked.tzinfo is None:
+            checked = checked.replace(tzinfo=timezone.utc)
+        if isinstance(checked, datetime) and (datetime.now(timezone.utc) - checked.astimezone(timezone.utc)).total_seconds() < IMAGE_CACHE_MAX_AGE_SECONDS:
+            return {
+                "image_url": existing,
+                "image_source": source,
+                "image_credit": raw.get("image_credit") or "",
+                "image_credit_url": raw.get("image_credit_url") or "",
+                "image_provider_url": raw.get("image_provider_url") or "",
+                "image_license_url": raw.get("image_license_url") or "",
+                "image_checked_at": checked,
+            }
+
+    search_title = _clean_text(raw.get("image_search_title") or raw.get("original_title") or "", 240)
+    if search_title:
+        result = _search_any_reusable_image(search_title, str(raw.get("original_language") or "en"), str(raw.get("category") or "world"))
+        if result:
+            result["image_checked_at"] = datetime.now(timezone.utc)
+            return result
 
     return {
-        # Do not recycle a generic section photograph as if it were specific to this story.
         "image_url": "",
         "image_source": "none",
         "image_credit": "",
         "image_credit_url": "",
+        "image_provider_url": "",
         "image_license_url": "",
         "image_checked_at": datetime.now(timezone.utc),
     }
 
 
 def _enrich_article_images(raw_articles: list[dict[str, Any]]) -> None:
-    """Resolve missing thumbnails in parallel; reuse saved images to avoid repeated API calls."""
+    """Find article-relevant pictures while preserving attribution and licence metadata."""
     known_images: dict[str, dict[str, Any]] = {}
     try:
         for row in _db_fetch_all():
@@ -791,39 +1030,44 @@ def _enrich_article_images(raw_articles: list[dict[str, Any]]) -> None:
     skip_image_lookup: set[str] = set()
     now_utc = datetime.now(timezone.utc)
     for item in raw_articles:
-        if item.get("image_source") == "wikimedia_relevant" and item.get("image_url"):
+        source_url = str(item.get("source_url") or "")
+        input_source = str(item.get("image_source") or "")
+        input_checked = item.get("image_checked_at")
+        if isinstance(input_checked, str):
+            try:
+                input_checked = datetime.fromisoformat(input_checked.replace("Z", "+00:00"))
+            except ValueError:
+                input_checked = None
+        if isinstance(input_checked, datetime) and input_checked.tzinfo is None:
+            input_checked = input_checked.replace(tzinfo=timezone.utc)
+        if (input_source in TRUSTED_REUSABLE_IMAGE_SOURCES and item.get("image_url")
+                and isinstance(input_checked, datetime)
+                and (now_utc - input_checked.astimezone(timezone.utc)).total_seconds() < IMAGE_CACHE_MAX_AGE_SECONDS):
             continue
-        # Older database rows may contain publisher thumbnails; remove them unless a
-        # reuse-compatible Commons licence was recorded and checked.
+
+        # Never carry forward an unverified publisher thumbnail or a legacy hard-coded stock URL.
         item.update({
             "image_url": "", "image_source": "none", "image_credit": "",
-            "image_credit_url": "", "image_license_url": "",
+            "image_credit_url": "", "image_provider_url": "", "image_license_url": "",
         })
-        source_url = str(item.get("source_url") or "")
         cached = known_images.get(source_url)
         cached_source = str((cached or {}).get("image_source") or "")
-        # Publisher-supplied images are preferred. Only reuse Commons images tagged as
-        # passed by the stricter relevance filter; old generic/low-confidence matches are rechecked.
-        trusted_cached_sources = {"wikimedia_relevant"}
-        if (cached and cached.get("image_url") and cached.get("image_url") not in set(CATEGORY_IMAGES.values())
-                and cached_source in trusted_cached_sources):
+        if (cached and cached.get("image_url") and cached_source in TRUSTED_REUSABLE_IMAGE_SOURCES
+                and str(cached.get("image_url")) not in LEGACY_IMAGE_URLS):
             checked = cached.get("image_checked_at")
-            if cached_source != "wikimedia_relevant" or not checked:
-                reuse = True
-            else:
-                if isinstance(checked, str):
-                    try:
-                        checked = datetime.fromisoformat(checked.replace("Z", "+00:00"))
-                    except ValueError:
-                        checked = None
-                if isinstance(checked, datetime) and checked.tzinfo is None:
-                    checked = checked.replace(tzinfo=timezone.utc)
-                reuse = isinstance(checked, datetime) and (now_utc - checked.astimezone(timezone.utc)).total_seconds() < 7 * 24 * 60 * 60
-            if reuse:
-                for key in ("image_url", "image_source", "image_credit", "image_credit_url", "image_license_url", "image_checked_at"):
-                    if cached.get(key):
+            if isinstance(checked, str):
+                try:
+                    checked = datetime.fromisoformat(checked.replace("Z", "+00:00"))
+                except ValueError:
+                    checked = None
+            if isinstance(checked, datetime) and checked.tzinfo is None:
+                checked = checked.replace(tzinfo=timezone.utc)
+            if isinstance(checked, datetime) and (now_utc - checked.astimezone(timezone.utc)).total_seconds() < IMAGE_CACHE_MAX_AGE_SECONDS:
+                for key in ("image_url", "image_source", "image_credit", "image_credit_url", "image_provider_url", "image_license_url", "image_checked_at"):
+                    if cached.get(key) not in (None, ""):
                         item[key] = cached[key]
-        elif cached and cached.get("image_source") in {"none", "duplicate_removed"} and cached.get("image_checked_at"):
+                continue
+        if cached and cached.get("image_source") in {"none", "duplicate_removed"} and cached.get("image_checked_at"):
             checked = cached.get("image_checked_at")
             if isinstance(checked, str):
                 try:
@@ -834,19 +1078,16 @@ def _enrich_article_images(raw_articles: list[dict[str, Any]]) -> None:
                 if checked.tzinfo is None:
                     checked = checked.replace(tzinfo=timezone.utc)
                 if (now_utc - checked.astimezone(timezone.utc)).total_seconds() < 12 * 60 * 60:
-                    item["image_url"] = ""
-                    item["image_source"] = "none"
                     item["image_checked_at"] = checked
                     skip_image_lookup.add(source_url)
 
     pending = [
         item for item in raw_articles
-        if (not item.get("image_url") or item.get("image_url") in set(CATEGORY_IMAGES.values()))
-        and str(item.get("source_url") or "") not in skip_image_lookup
+        if not item.get("image_url") and str(item.get("source_url") or "") not in skip_image_lookup
     ][:MAX_IMAGE_LOOKUPS_PER_REFRESH]
     if not pending:
         return
-    with ThreadPoolExecutor(max_workers=6) as pool:
+    with ThreadPoolExecutor(max_workers=4) as pool:
         futures = {pool.submit(_resolve_article_image, item): item for item in pending}
         for future in as_completed(futures):
             item = futures[future]
@@ -854,8 +1095,11 @@ def _enrich_article_images(raw_articles: list[dict[str, Any]]) -> None:
                 item.update(future.result())
             except Exception:
                 logger.exception("Could not resolve image for article %s", item.get("source_url"))
-                item.update(_resolve_article_image({**item, "source_url": "", "original_title": ""}))
-
+                item.update({
+                    "image_url": "", "image_source": "none", "image_credit": "",
+                    "image_credit_url": "", "image_provider_url": "", "image_license_url": "",
+                    "image_checked_at": datetime.now(timezone.utc),
+                })
 
 def _parse_any_rss(feed_url: str, category: str, lang: str, default_source: str) -> tuple[str, str, list[dict[str, Any]]]:
     request_obj = Request(feed_url, headers={"User-Agent": "WorldPulseNews/1.2 (+RSS news reader; contact site owner)"})
@@ -888,7 +1132,7 @@ def _parse_any_rss(feed_url: str, category: str, lang: str, default_source: str)
             items.append({
                 "category": category, "source_url": url, "source_name": publisher,
                 "image_url": "", "image_source": "none", "image_credit": "",
-                "image_credit_url": "", "image_license_url": "", "image_checked_at": None,
+                "image_credit_url": "", "image_provider_url": "", "image_license_url": "", "image_checked_at": None,
                 "original_title": title, "original_summary": _clean_text(summary_raw, 500),
                 "published_at": _parse_published(entry), "original_language": lang,
             })
@@ -1000,6 +1244,7 @@ def _base_article(raw: dict[str, Any]) -> dict[str, Any]:
         "image_source": raw.get("image_source") or ("none" if not raw.get("image_url") else "publisher_rss"),
         "image_credit": raw.get("image_credit", ""),
         "image_credit_url": raw.get("image_credit_url", ""),
+        "image_provider_url": raw.get("image_provider_url", ""),
         "image_license_url": raw.get("image_license_url", ""),
         "image_checked_at": raw.get("image_checked_at"),
         "title_ar": title if original_lang == "ar" else "",
@@ -1119,6 +1364,7 @@ def _avoid_repeated_news_photos(raw_articles: list[dict[str, Any]]) -> None:
     """Prefer one article-specific image per story, re-searching collisions when possible."""
     seen: set[str] = set()
     alt_lookups = 0
+    max_alternative_lookups = min(2, MAX_IMAGE_LOOKUPS_PER_REFRESH // 4)
     ordered = sorted(
         raw_articles,
         key=lambda item: item.get("published_at") or datetime(1970, 1, 1, tzinfo=timezone.utc),
@@ -1135,10 +1381,10 @@ def _avoid_repeated_news_photos(raw_articles: list[dict[str, Any]]) -> None:
             continue
 
         alternative: dict[str, str] = {}
-        if alt_lookups < MAX_IMAGE_LOOKUPS_PER_REFRESH:
+        if alt_lookups < max_alternative_lookups:
             alt_lookups += 1
             query = str(item.get("image_search_title") or item.get("original_title") or "")
-            alternative = _search_commons_image(query, str(item.get("original_language") or "en"))
+            alternative = _search_any_reusable_image(query, str(item.get("original_language") or "en"), str(item.get("category") or "world"))
         candidate_url = str(alternative.get("image_url") or "")
         candidate = urlparse(candidate_url)
         candidate_identity = f"{candidate.scheme.lower()}://{candidate.netloc.lower()}{candidate.path.rstrip('/')}" if candidate.netloc else candidate_url
@@ -1152,6 +1398,7 @@ def _avoid_repeated_news_photos(raw_articles: list[dict[str, Any]]) -> None:
                 "image_source": "duplicate_removed",
                 "image_credit": "",
                 "image_credit_url": "",
+                "image_provider_url": "",
                 "image_license_url": "",
                 "image_checked_at": datetime.now(timezone.utc),
             })
@@ -1308,6 +1555,7 @@ def _normalise_story(row: dict[str, Any], lang: str) -> dict[str, Any]:
     story.setdefault("image_source", "")
     story.setdefault("image_credit", "")
     story.setdefault("image_credit_url", "")
+    story.setdefault("image_provider_url", "")
     story.setdefault("image_license_url", "")
     story.setdefault("is_demo", False)
     if story.get("is_demo"):
