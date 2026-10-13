@@ -1,385 +1,349 @@
-<!DOCTYPE html>
-<html lang="ar" dir="rtl">
+<!doctype html>
+<html lang="{{ lang }}" dir="{{ dir }}">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>نبض العالم | World Pulse</title>
-  <meta name="description" content="World Pulse - منصة إخبارية ذكية ثنائية اللغة">
-  <meta name="theme-color" content="#b91c1c">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script>
-    tailwind.config = {
-      theme: { extend: { colors: { brand: { DEFAULT: '#b91c1c', dark: '#7f1d1d' } } } }
-    };
-  </script>
-  <style>
-    html[lang="ar"] body { font-family: 'Cairo', system-ui, sans-serif; }
-    html[lang="en"] body { font-family: 'Inter', system-ui, sans-serif; }
-    body { background: #f5f5f4; color: #1c1917; }
-    .clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-    .clamp-3 { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
-    .card { transition: transform .2s ease, box-shadow .2s ease; }
-    .card:hover { transform: translateY(-3px); box-shadow: 0 12px 28px -12px rgba(0,0,0,.25); }
-    .card img { transition: transform .5s ease; }
-    .card:hover img { transform: scale(1.04); }
-    .skeleton { background: linear-gradient(90deg,#e7e5e4 25%,#f5f5f4 37%,#e7e5e4 63%); background-size: 400% 100%; animation: sk 1.4s ease infinite; }
-    @keyframes sk { 0% { background-position: 100% 50%; } 100% { background-position: 0 50%; } }
-    .ticker-dot { animation: pulse 1.4s infinite; }
-    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
-    .article-body p { margin-bottom: 1.25rem; line-height: 2; font-size: 1.125rem; }
-    nav::-webkit-scrollbar { display: none; }
-  </style>
-</head>
-<body class="min-h-screen flex flex-col">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ page_title }}</title>
+<meta name="description" content="{{ meta_desc }}">
+<link rel="canonical" href="{{ canonical }}">
+<link rel="alternate" hreflang="ar" href="{{ alt_ar }}">
+<link rel="alternate" hreflang="en" href="{{ alt_en }}">
+<link rel="alternate" hreflang="x-default" href="{{ alt_ar }}">
+<meta property="og:site_name" content="{{ site_name }}">
+<meta property="og:type" content="{{ 'article' if view == 'article' else 'website' }}">
+<meta property="og:title" content="{{ page_title }}">
+<meta property="og:description" content="{{ meta_desc }}">
+<meta property="og:url" content="{{ canonical }}">
+{% if og_image %}<meta property="og:image" content="{{ og_image }}">{% endif %}
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230B7285'/%3E%3Cpath d='M5 21h22' stroke='white' stroke-width='2.5' stroke-linecap='round'/%3E%3Cpath d='M9 21a7 7 0 0 1 14 0' fill='none' stroke='white' stroke-width='2.5' stroke-linecap='round'/%3E%3C/svg%3E">
 
-  <!-- شريط الأخبار العاجلة -->
-  <div id="breaking" class="bg-brand text-white hidden">
-    <div class="max-w-7xl mx-auto px-4 py-2 flex items-center gap-3 text-sm">
-      <span class="flex items-center gap-2 font-extrabold bg-white text-brand px-3 py-1 rounded shrink-0">
-        <span class="ticker-dot w-2 h-2 rounded-full bg-brand"></span>
-        <span id="breaking-label"></span>
-      </span>
-      <a id="breaking-link" href="#/" class="truncate font-semibold hover:underline"></a>
+<script>
+/* تطبيق المظهر المحفوظ قبل الرسم لتفادي الوميض */
+(function () {
+  try {
+    var s = localStorage.getItem('theme');
+    var dark = s ? s === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches;
+    if (dark) document.documentElement.classList.add('dark');
+  } catch (e) {}
+})();
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = {
+  darkMode: 'class',
+  theme: { extend: { fontFamily: { sans: ['"IBM Plex Sans Arabic"', '"IBM Plex Sans"', 'system-ui', 'Segoe UI', 'Tahoma', 'sans-serif'] } } }
+};
+</script>
+<style>
+  :root { --bg:#F3F5F7; --surface:#FFFFFF; --ink:#101A23; --muted:#546677; --line:#DCE2E8; --accent:#0B7285; --accent-ink:#FFFFFF; }
+  .dark { --bg:#0A0F14; --surface:#121A22; --ink:#E8EDF2; --muted:#98A8B7; --line:#243040; --accent:#4FC3D4; --accent-ink:#06222A; }
+  body { background:var(--bg); color:var(--ink); }
+  .surface { background:var(--surface); }
+  .bordered { border:1px solid var(--line); }
+  .b-line { border-color:var(--line); }
+  .muted { color:var(--muted); }
+  .accent { color:var(--accent); }
+  .btn { background:var(--accent); color:var(--accent-ink); }
+  .btn:hover { filter:brightness(1.08); }
+  .ctext { color:var(--c); } .dark .ctext { color:var(--cd); }
+  .cdot { background:var(--c); } .dark .cdot { background:var(--cd); }
+  .ph { background:linear-gradient(135deg, var(--c), color-mix(in srgb, var(--c) 55%, #000)); color:#fff; }
+  .prose-ofuq p { line-height:1.95; font-size:1.075rem; }
+  .prose-ofuq { max-width:68ch; }
+  :focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+  .nav-scroll { scrollbar-width:none; } .nav-scroll::-webkit-scrollbar { display:none; }
+  @media (prefers-reduced-motion: reduce) { * { transition:none !important; animation:none !important; } }
+</style>
+{% if adsense_client %}<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client={{ adsense_client }}" crossorigin="anonymous"></script>{% endif %}
+{% if view == 'article' %}<script type="application/ld+json">{{ ld|tojson }}</script>{% endif %}
+</head>
+
+{# ───────── مكوّنات مشتركة ───────── #}
+{% macro tag(c) %}<span class="ctext inline-flex items-center gap-1.5 text-sm font-semibold" style="--c:{{ c.color }};--cd:{{ c.dark }}"><span class="cdot inline-block w-2 h-2 rounded-full"></span>{{ c[lang] }}</span>{% endmacro %}
+
+{% macro media(a, ratio) %}{% if a.image_url %}<img src="{{ a.image_url }}" alt="{{ a.title }}" loading="lazy" decoding="async" class="w-full {{ ratio }} object-cover bg-black/5">{% else %}<div class="ph w-full {{ ratio }} flex items-end p-4" style="--c:{{ a.cat.color }}" role="img" aria-label="{{ a.cat[lang] }}"><span class="text-3xl font-bold opacity-90 leading-none">{{ a.cat[lang] }}</span></div>{% endif %}{% endmacro %}
+
+{% macro card(a) %}
+<article class="surface bordered rounded overflow-hidden flex flex-col">
+  <a href="{{ u('/article/' ~ a.slug) }}" class="block" tabindex="-1" aria-hidden="true">{{ media(a, 'aspect-[16/9]') }}</a>
+  <div class="p-4 flex flex-col gap-2 flex-1">
+    {{ tag(a.cat) }}
+    <h3 class="font-bold leading-snug text-lg"><a href="{{ u('/article/' ~ a.slug) }}" class="hover:underline">{{ a.title }}</a></h3>
+    <p class="muted text-sm leading-relaxed line-clamp-3">{{ a.summary }}</p>
+    <div class="muted text-xs mt-auto pt-2 flex gap-3"><span>{{ a.source_name }}</span><span>{{ a.date }}</span></div>
+  </div>
+</article>
+{% endmacro %}
+
+<body class="font-sans antialiased min-h-screen flex flex-col">
+
+<header class="surface border-b b-line sticky top-0 z-30">
+  <div class="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between gap-3">
+    <a href="{{ u('/') }}" class="flex items-center gap-2 font-bold text-2xl tracking-tight" aria-label="{{ site_name }}">
+      <svg width="26" height="26" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7" fill="var(--accent)"/><path d="M5 21h22" stroke="var(--accent-ink)" stroke-width="2.5" stroke-linecap="round"/><path d="M9 21a7 7 0 0 1 14 0" fill="none" stroke="var(--accent-ink)" stroke-width="2.5" stroke-linecap="round"/></svg>
+      {{ site_name }}
+    </a>
+    <div class="flex items-center gap-2">
+      <a href="{{ switch_url }}" hreflang="{{ 'en' if lang == 'ar' else 'ar' }}" class="bordered b-line rounded px-3 h-9 inline-flex items-center text-sm font-medium hover:bg-black/5 dark:hover:bg-white/10">{{ t.lang_btn }}</a>
+      <button id="theme-toggle" type="button" aria-label="{{ t.theme }}" title="{{ t.theme }}" class="bordered b-line rounded w-9 h-9 inline-flex items-center justify-center hover:bg-black/5 dark:hover:bg-white/10">
+        <svg class="dark:hidden" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+        <svg class="hidden dark:block" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+      </button>
     </div>
   </div>
+  <nav class="border-t b-line" aria-label="{{ t.home }}">
+    <ul class="max-w-6xl mx-auto px-4 flex gap-1 overflow-x-auto nav-scroll text-[15px]">
+      {% for slug, c in cats.items() %}
+      <li class="shrink-0"><a href="{{ u('/category/' ~ slug) }}" class="block px-3 py-2.5 border-b-2 {{ 'font-bold' if cat_slug == slug else 'muted hover:text-[var(--ink)]' }}" style="border-color:{{ c.color if cat_slug == slug else 'transparent' }}" {% if cat_slug == slug %}aria-current="page"{% endif %}>{{ c[lang] }}</a></li>
+      {% endfor %}
+    </ul>
+  </nav>
+</header>
 
-  <!-- الهيدر -->
-  <header class="bg-white border-b border-stone-200 sticky top-0 z-40 shadow-sm">
-    <div class="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between gap-3">
-      <a href="#/" class="flex items-center gap-2 shrink-0" aria-label="Home">
-        <span class="w-9 h-9 rounded-lg bg-brand text-white grid place-items-center font-extrabold text-lg">N</span>
-        <span class="leading-tight">
-          <span id="site-name" class="block font-extrabold text-xl text-stone-900"></span>
-          <span id="site-sub" class="block text-[11px] text-stone-500 tracking-wide"></span>
-        </span>
-      </a>
+<main class="flex-1 w-full max-w-6xl mx-auto px-4 py-6">
 
-      <nav id="nav-desktop" class="hidden lg:flex items-center gap-1 overflow-x-auto" aria-label="Sections"></nav>
+{# ═════════ الرئيسية ═════════ #}
+{% if view == 'home' %}
+  {% if not featured %}
+    <p class="surface bordered rounded p-8 text-center muted">{{ t.empty }}</p>
+  {% else %}
+  <section class="grid lg:grid-cols-5 gap-6 items-stretch">
+    <a href="{{ u('/article/' ~ featured.slug) }}" class="lg:col-span-3 block rounded overflow-hidden bordered">{{ media(featured, 'aspect-[16/10]') }}</a>
+    <div class="lg:col-span-2 flex flex-col gap-3 justify-center">
+      {{ tag(featured.cat) }}
+      <h1 class="font-bold text-3xl lg:text-4xl leading-tight"><a href="{{ u('/article/' ~ featured.slug) }}" class="hover:underline">{{ featured.title }}</a></h1>
+      <p class="muted leading-relaxed">{{ featured.summary }}</p>
+      <div class="muted text-sm flex gap-3"><span>{{ featured.source_name }}</span><span>{{ featured.date }}</span></div>
+    </div>
+  </section>
 
-      <div class="flex items-center gap-2">
-        <button id="lang-btn" type="button"
-          class="px-3 py-2 rounded-lg border border-stone-300 text-sm font-bold hover:bg-stone-100 transition"></button>
-        <button id="menu-btn" type="button" aria-label="Menu" aria-expanded="false"
-          class="lg:hidden p-2 rounded-lg border border-stone-300 hover:bg-stone-100">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
-        </button>
+  {% if latest %}
+  <section class="mt-10">
+    <h2 class="font-bold text-xl mb-4">{{ t.latest }}</h2>
+    <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">{% for a in latest %}{{ card(a) }}{% endfor %}</div>
+  </section>
+  {% endif %}
+
+  {% for slug, c in cats.items() %}{% set list = by_cat[slug] %}{% if list %}
+  <section class="mt-10">
+    <div class="flex items-center justify-between border-b-2 pb-2 mb-4" style="border-color:{{ c.color }}">
+      <h2 class="font-bold text-xl">{{ c[lang] }}</h2>
+      <a href="{{ u('/category/' ~ slug) }}" class="text-sm font-medium accent hover:underline">{{ t.more }}</a>
+    </div>
+    <ul class="grid md:grid-cols-2 gap-x-8 gap-y-4">
+      {% for a in list %}
+      <li class="flex gap-4 items-start">
+        {% if a.image_url %}<a href="{{ u('/article/' ~ a.slug) }}" class="shrink-0 w-28 rounded overflow-hidden" tabindex="-1" aria-hidden="true">{{ media(a, 'aspect-[4/3]') }}</a>{% endif %}
+        <div>
+          <h3 class="font-semibold leading-snug"><a href="{{ u('/article/' ~ a.slug) }}" class="hover:underline">{{ a.title }}</a></h3>
+          <div class="muted text-xs mt-1.5 flex gap-3"><span>{{ a.source_name }}</span><span>{{ a.date }}</span></div>
+        </div>
+      </li>
+      {% endfor %}
+    </ul>
+  </section>
+  {% endif %}{% endfor %}
+  {% endif %}
+
+{# ═════════ القسم ═════════ #}
+{% elif view == 'category' %}
+  <header class="mb-6 border-b-2 pb-3" style="border-color:{{ cat.color }}"><h1 class="font-bold text-3xl">{{ cat[lang] }}</h1></header>
+  {% if items %}
+    <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">{% for a in items %}{{ card(a) }}{% endfor %}</div>
+    <nav class="mt-8 flex justify-between text-sm font-medium">
+      <span>{% if page > 1 %}<a class="bordered b-line rounded px-4 py-2 inline-block hover:bg-black/5 dark:hover:bg-white/10" href="{{ u('/category/' ~ cat_slug ~ '?page=' ~ (page - 1)) }}" rel="prev">{{ t.prev }}</a>{% endif %}</span>
+      <span>{% if has_next %}<a class="bordered b-line rounded px-4 py-2 inline-block hover:bg-black/5 dark:hover:bg-white/10" href="{{ u('/category/' ~ cat_slug ~ '?page=' ~ (page + 1)) }}" rel="next">{{ t.next }}</a>{% endif %}</span>
+    </nav>
+  {% else %}<p class="surface bordered rounded p-8 text-center muted">{{ t.empty }}</p>{% endif %}
+
+{# ═════════ صفحة الخبر ═════════ #}
+{% elif view == 'article' %}
+  <article class="max-w-3xl mx-auto">
+    <div class="flex items-center gap-2 text-sm muted mb-3">
+      <a href="{{ u('/') }}" class="hover:underline">{{ t.home }}</a><span aria-hidden="true">/</span>
+      <a href="{{ u('/category/' ~ a.category) }}" class="hover:underline">{{ a.cat[lang] }}</a>
+    </div>
+    <h1 class="font-bold text-3xl md:text-4xl leading-tight">{{ a.title }}</h1>
+
+    <div class="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm muted">
+      <span>{{ t.source }}: <a class="accent font-medium hover:underline" href="{{ a.source_url }}" target="_blank" rel="nofollow noopener noreferrer">{{ a.source_name }}</a></span>
+      <time datetime="{{ a.published_at.isoformat() }}">{{ t.published }} {{ a.date }}</time>
+      {% if a.minutes %}<span>{{ a.minutes }} {{ t.read_time }}</span>{% endif %}
+    </div>
+
+    <figure class="mt-6">
+      <div class="rounded overflow-hidden bordered">{{ media(a, 'aspect-[16/9]') }}</div>
+      <figcaption class="muted text-xs mt-2 leading-relaxed">
+        {% if a.image_url %}
+          {{ t.photo }}: {{ a.image_credit }} —
+          {% if a.image_license_url %}<a class="underline" href="{{ a.image_license_url }}" target="_blank" rel="noopener noreferrer license">{{ a.image_license }}</a>{% else %}{{ a.image_license }}{% endif %} —
+          <a class="underline" href="{{ a.image_page }}" target="_blank" rel="noopener noreferrer">Wikimedia Commons</a>.
+          {{ t.photo_note }}
+        {% endif %}
+      </figcaption>
+    </figure>
+
+    {% if a.summary %}
+    <div class="mt-6 surface bordered rounded p-5 border-s-4" style="border-inline-start-color:var(--accent)">
+      <div class="font-bold mb-1">{{ t.summary }}</div>
+      <p class="leading-relaxed">{{ a.summary }}</p>
+    </div>
+    {% endif %}
+
+    <div class="prose-ofuq mt-8">
+      {% for s in a.sections %}
+        <h2 class="font-bold text-xl mt-8 mb-2">{{ s.heading }}</h2>
+        <p>{{ s.text }}</p>
+      {% endfor %}
+    </div>
+
+    <p class="mt-8 text-sm muted border-t b-line pt-4">{{ t.ai_note }}
+      <a class="accent underline" href="{{ a.source_url }}" target="_blank" rel="nofollow noopener noreferrer">{{ t.follow }}</a>
+    </p>
+
+    {# صندوق الذكاء الاصطناعي #}
+    <section id="ask" class="mt-10 surface bordered rounded p-5"
+             data-slug="{{ a.slug }}" data-lang="{{ lang }}" data-title="{{ a.title }}" data-summary="{{ a.summary }}"
+             data-source="{{ a.source_name }}" data-url="{{ a.source_url }}"
+             data-asking="{{ t.asking }}" data-error="{{ t.ask_error }}" data-empty="{{ t.ask_empty }}" data-hint="{{ t.gemini_hint }}">
+      <h2 class="font-bold text-lg mb-3">{{ t.ask_title }}</h2>
+      <label for="ask-q" class="sr-only">{{ t.ask_title }}</label>
+      <textarea id="ask-q" rows="3" maxlength="500" placeholder="{{ t.ask_placeholder }}" class="w-full rounded bordered b-line bg-transparent p-3 leading-relaxed"></textarea>
+      <div class="mt-3 flex items-center gap-3">
+        <button id="ask-btn" type="button" class="btn rounded px-5 h-10 font-semibold">{{ t.ask_btn }}</button>
+        <span id="ask-status" class="muted text-sm" role="status"></span>
       </div>
-    </div>
-    <nav id="nav-mobile" class="lg:hidden hidden border-t border-stone-200 bg-white px-4 py-3 grid grid-cols-2 sm:grid-cols-3 gap-2" aria-label="Sections"></nav>
-  </header>
+      <div id="ask-answer" class="mt-4 whitespace-pre-line leading-relaxed hidden border-t b-line pt-4" aria-live="polite"></div>
+      <div class="mt-5 border-t b-line pt-4">
+        <p class="muted text-sm mb-3">{{ t.fallback }}</p>
+        <div class="flex flex-wrap gap-3">
+          <button id="go-chatgpt" type="button" class="bordered b-line rounded px-4 h-10 text-sm font-medium hover:bg-black/5 dark:hover:bg-white/10">{{ t.open_chatgpt }}</button>
+          <button id="go-gemini" type="button" class="bordered b-line rounded px-4 h-10 text-sm font-medium hover:bg-black/5 dark:hover:bg-white/10">{{ t.open_gemini }}</button>
+        </div>
+      </div>
+    </section>
 
-  <main id="app" class="flex-1 max-w-7xl w-full mx-auto px-4 py-6"></main>
+    {% if related %}
+    <section class="mt-12">
+      <h2 class="font-bold text-xl mb-4">{{ t.related }}</h2>
+      <div class="grid sm:grid-cols-2 gap-5">{% for r in related %}{{ card(r) }}{% endfor %}</div>
+    </section>
+    {% endif %}
+  </article>
 
-  <footer class="bg-stone-900 text-stone-400 mt-10">
-    <div class="max-w-7xl mx-auto px-4 py-8 text-sm flex flex-col sm:flex-row gap-2 justify-between items-center">
-      <span id="footer-name" class="font-bold text-white"></span>
-      <span id="footer-note"></span>
+{# ═════════ صفحات ثابتة ═════════ #}
+{% elif view == 'page' %}
+  <article class="max-w-3xl mx-auto">
+    <h1 class="font-bold text-3xl mb-6">{{ title }}</h1>
+    <div class="prose-ofuq">
+      {% for h, p in blocks %}<h2 class="font-bold text-xl mt-8 mb-2">{{ h }}</h2><p>{{ p }}</p>{% endfor %}
     </div>
-  </footer>
+    {% if show_updated %}<p class="muted text-sm mt-8">{{ 'آخر تحديث' if lang == 'ar' else 'Last updated' }}: {{ updated }}</p>{% endif %}
+  </article>
+
+{# ═════════ اتصل بنا ═════════ #}
+{% elif view == 'contact' %}
+  <section class="max-w-xl mx-auto">
+    <h1 class="font-bold text-3xl mb-2">{{ t.contact }}</h1>
+    <p class="muted mb-6">{{ t.c_direct }} <a class="accent underline" href="mailto:{{ email }}">{{ email }}</a></p>
+    {% if status == 'sent' %}<div class="surface bordered rounded p-4 mb-6 border-s-4" style="border-inline-start-color:#0F7B5F" role="status">{{ t.c_sent }}</div>{% endif %}
+    {% if status == 'error' %}<div class="surface bordered rounded p-4 mb-6 border-s-4" style="border-inline-start-color:#B91C4B" role="alert">{{ t.c_err }}</div>{% endif %}
+    <form method="post" action="{{ u('/contact') }}" class="flex flex-col gap-4">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <div style="position:absolute;left:-9999px" aria-hidden="true"><label>Website<input type="text" name="website" tabindex="-1" autocomplete="off"></label></div>
+      <label class="flex flex-col gap-1.5 text-sm font-medium">{{ t.c_name }}<input name="name" required minlength="2" maxlength="100" value="{{ form.name }}" autocomplete="name" class="rounded bordered b-line bg-transparent p-2.5 text-base font-normal"></label>
+      <label class="flex flex-col gap-1.5 text-sm font-medium">{{ t.c_email }}<input name="email" type="email" required value="{{ form.email }}" autocomplete="email" dir="ltr" class="rounded bordered b-line bg-transparent p-2.5 text-base font-normal"></label>
+      <label class="flex flex-col gap-1.5 text-sm font-medium">{{ t.c_subject }}<input name="subject" required minlength="3" maxlength="150" value="{{ form.subject }}" class="rounded bordered b-line bg-transparent p-2.5 text-base font-normal"></label>
+      <label class="flex flex-col gap-1.5 text-sm font-medium">{{ t.c_message }}<textarea name="message" rows="6" required minlength="10" maxlength="4000" class="rounded bordered b-line bg-transparent p-2.5 text-base font-normal leading-relaxed">{{ form.message }}</textarea></label>
+      <button type="submit" class="btn rounded h-11 font-semibold self-start px-6">{{ t.c_send }}</button>
+    </form>
+  </section>
+
+{# ═════════ 404 ═════════ #}
+{% else %}
+  <section class="max-w-md mx-auto text-center py-16">
+    <h1 class="font-bold text-3xl mb-3">{{ t.nf_title }}</h1>
+    <p class="muted mb-6">{{ t.nf_text }}</p>
+    <a href="{{ u('/') }}" class="btn rounded px-5 h-10 inline-flex items-center font-semibold">{{ t.home }}</a>
+  </section>
+{% endif %}
+
+</main>
+
+<footer class="surface border-t b-line mt-10">
+  <div class="max-w-6xl mx-auto px-4 py-8 grid gap-6 md:grid-cols-3 text-sm">
+    <div>
+      <div class="font-bold text-lg mb-2">{{ site_name }}</div>
+      <p class="muted leading-relaxed">{{ t.footer_note }}</p>
+    </div>
+    <ul class="flex flex-col gap-2">
+      <li><a class="hover:underline" href="{{ u('/about') }}">{{ t.about }}</a></li>
+      <li><a class="hover:underline" href="{{ u('/privacy') }}">{{ t.privacy }}</a></li>
+      <li><a class="hover:underline" href="{{ u('/terms') }}">{{ t.terms }}</a></li>
+      <li><a class="hover:underline" href="{{ u('/contact') }}">{{ t.contact }}</a></li>
+    </ul>
+    <div class="muted">
+      <a class="accent hover:underline" href="mailto:{{ email }}" dir="ltr">{{ email }}</a>
+      <p class="mt-3">© {{ year }} {{ site_name }}. {{ t.rights }}.</p>
+    </div>
+  </div>
+</footer>
 
 <script>
 (function () {
-  'use strict';
-
-  /* ---------- الإعدادات والنصوص ---------- */
-  var CATS = [
-    { k: 'politics',   ar: 'سياسة',        en: 'Politics',   icon: '🏛️', c: ['#334155', '#0f172a'] },
-    { k: 'economy',    ar: 'اقتصاد',       en: 'Economy',    icon: '📈', c: ['#047857', '#064e3b'] },
-    { k: 'technology', ar: 'تكنولوجيا',    en: 'Technology', icon: '💻', c: ['#2563eb', '#1e3a8a'] },
-    { k: 'gaming',     ar: 'جيمنج',        en: 'Gaming',     icon: '🎮', c: ['#7c3aed', '#4c1d95'] },
-    { k: 'sports',     ar: 'رياضة',        en: 'Sports',     icon: '⚽', c: ['#ea580c', '#7c2d12'] },
-    { k: 'science',    ar: 'علوم',         en: 'Science',    icon: '🔬', c: ['#0891b2', '#164e63'] },
-    { k: 'culture',    ar: 'ثقافة',        en: 'Culture',    icon: '🎭', c: ['#be185d', '#831843'] },
-    { k: 'world',      ar: 'أخبار العالم', en: 'World',      icon: '🌍', c: ['#b91c1c', '#7f1d1d'] }
-  ];
-  var UI = {
-    ar: { name: 'نبض العالم', sub: 'WORLD PULSE', switchTo: 'English', home: 'الرئيسية', breaking: 'عاجل',
-          latest: 'آخر الأخبار', read: 'قراءة الخبر كاملاً', min: 'دقائق قراءة', more: 'عرض المزيد',
-          back: 'العودة', summary: 'ملخص تنفيذي', source: 'المصدر', original: 'قراءة المقال الأصلي',
-          related: 'قصص مقترحة', share: 'مشاركة', copied: 'تم نسخ الرابط', error: 'تعذّر تحميل الأخبار',
-          retry: 'إعادة المحاولة', notfound: 'الخبر غير موجود', empty: 'لا توجد أخبار في هذا القسم حالياً',
-          note: 'أخبار عالمية بصياغة ذكية', untranslated: 'هذا الخبر متاح حالياً بلغته الأصلية فقط.' },
-    en: { name: 'World Pulse', sub: 'نبض العالم', switchTo: 'العربية', home: 'Home', breaking: 'BREAKING',
-          latest: 'Latest News', read: 'Read full story', min: 'min read', more: 'Load more',
-          back: 'Back', summary: 'Executive summary', source: 'Source', original: 'Read original article',
-          related: 'Recommended Stories', share: 'Share', copied: 'Link copied', error: 'Could not load the news',
-          retry: 'Try again', notfound: 'Story not found', empty: 'No stories in this section yet',
-          note: 'Global news, intelligently edited', untranslated: 'This story is currently available in its original language only.' }
-  };
-
-  /* ---------- الحالة ---------- */
-  var lang = 'ar';
-  try { lang = localStorage.getItem('wp_lang') || ''; } catch (e) {}
-  if (lang !== 'ar' && lang !== 'en') {
-    lang = (navigator.language || 'ar').toLowerCase().indexOf('en') === 0 ? 'en' : 'ar';
-  }
-  var state = { offset: 0, loading: false, token: 0 };
-  var PAGE = 12;
-  var $ = function (id) { return document.getElementById(id); };
-  var app = $('app');
-
-  /* ---------- أدوات ---------- */
-  function esc(s) {
-    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
-      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
-    });
-  }
-  function t(k) { return UI[lang][k]; }
-  function catOf(k) { return CATS.filter(function (c) { return c.k === k; })[0] || CATS[CATS.length - 1]; }
-  function safeUrl(u) { return /^https?:\/\//i.test(u || '') ? u : ''; }
-  function timeAgo(iso) {
-    var d = new Date(iso), diff = (d.getTime() - Date.now()) / 1000;
-    if (isNaN(d.getTime())) return '';
-    var abs = Math.abs(diff);
-    try {
-      var rtf = new Intl.RelativeTimeFormat(lang, { numeric: 'auto' });
-      if (abs < 60) return rtf.format(0, 'second');
-      if (abs < 3600) return rtf.format(Math.round(diff / 60), 'minute');
-      if (abs < 86400) return rtf.format(Math.round(diff / 3600), 'hour');
-      if (abs < 86400 * 7) return rtf.format(Math.round(diff / 86400), 'day');
-      return d.toLocaleDateString(lang, { year: 'numeric', month: 'short', day: 'numeric' });
-    } catch (e) { return d.toLocaleDateString(); }
-  }
-  function num(n) { try { return Number(n).toLocaleString(lang === 'ar' ? 'ar-EG' : 'en-US'); } catch (e) { return n; } }
-  function api(path) {
-    var ctrl = new AbortController();
-    var timer = setTimeout(function () { ctrl.abort(); }, 20000);
-    return fetch(path, { signal: ctrl.signal }).then(function (r) {
-      clearTimeout(timer);
-      if (!r.ok) { var err = new Error('HTTP ' + r.status); err.status = r.status; throw err; }
-      return r.json();
-    }, function (e) { clearTimeout(timer); throw e; });
-  }
-
-  /* ---------- مكوّنات العرض ---------- */
-  // بلوك الصورة مع بديل متدرج عند غياب الصورة أو فشل تحميلها
-  function imageBlock2(item, cls) {
-    var cat = catOf(item.category);
-    var fb = '<div class="w-full h-full grid place-items-center text-5xl text-white/90" style="background:linear-gradient(135deg,' +
-      cat.c[0] + ',' + cat.c[1] + ')">' + cat.icon + '</div>';
-    if (!safeUrl(item.image)) return '<div class="' + cls + ' overflow-hidden">' + fb + '</div>';
-    return '<div class="' + cls + ' overflow-hidden bg-stone-200" data-fb="' + esc(fb) + '">' +
-      '<img src="' + esc(item.image) + '" alt="" loading="lazy" referrerpolicy="no-referrer" ' +
-      'class="w-full h-full object-cover" onerror="this.parentNode.innerHTML=this.parentNode.getAttribute(\'data-fb\')"></div>';
-  }
-  function badge(item) {
-    return '<span class="inline-block bg-brand text-white text-xs font-bold px-2.5 py-1 rounded">' + esc(item.category_label) + '</span>';
-  }
-  function metaLine(item) {
-    return '<div class="flex items-center gap-2 text-xs text-stone-500 flex-wrap">' +
-      '<span>' + esc(timeAgo(item.published_at)) + '</span><span>•</span>' +
-      '<span>' + num(item.read_time || 1) + ' ' + t('min') + '</span></div>';
-  }
-  function card(item) {
-    return '<article class="card bg-white rounded-xl overflow-hidden border border-stone-200 flex flex-col">' +
-      '<a href="#/a/' + encodeURIComponent(item.id) + '" class="relative block">' +
-        imageBlock2(item, 'aspect-video') +
-        '<span class="absolute top-3 start-3">' + badge(item) + '</span>' +
-      '</a>' +
-      '<div class="p-4 flex flex-col gap-3 flex-1">' +
-        metaLine(item) +
-        '<h3 class="font-extrabold text-lg leading-snug clamp-2"><a href="#/a/' + encodeURIComponent(item.id) + '" class="hover:text-brand">' + esc(item.title) + '</a></h3>' +
-        '<p class="text-stone-600 text-sm leading-relaxed clamp-3 flex-1">' + esc(item.summary) + '</p>' +
-        '<a href="#/a/' + encodeURIComponent(item.id) + '" class="self-start text-sm font-bold text-brand hover:text-brand-dark inline-flex items-center gap-1">' +
-          t('read') + '<span aria-hidden="true">' + (lang === 'ar' ? '←' : '→') + '</span></a>' +
-      '</div></article>';
-  }
-  function hero(item) {
-    return '<article class="card bg-white rounded-2xl overflow-hidden border border-stone-200 grid md:grid-cols-2">' +
-      '<a href="#/a/' + encodeURIComponent(item.id) + '" class="relative block">' +
-        imageBlock2(item, 'aspect-video md:aspect-auto md:h-full min-h-[240px]') +
-        '<span class="absolute top-4 start-4">' + badge(item) + '</span></a>' +
-      '<div class="p-6 md:p-8 flex flex-col justify-center gap-4">' +
-        metaLine(item) +
-        '<h2 class="font-extrabold text-2xl md:text-3xl leading-tight"><a href="#/a/' + encodeURIComponent(item.id) + '" class="hover:text-brand">' + esc(item.title) + '</a></h2>' +
-        '<p class="text-stone-600 leading-relaxed">' + esc(item.summary) + '</p>' +
-        '<a href="#/a/' + encodeURIComponent(item.id) + '" class="self-start bg-brand hover:bg-brand-dark text-white font-bold px-5 py-2.5 rounded-lg transition">' +
-          t('read') + '</a>' +
-      '</div></article>';
-  }
-  function skeletons(n) {
-    var h = '<div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">';
-    for (var i = 0; i < n; i++) {
-      h += '<div class="bg-white rounded-xl overflow-hidden border border-stone-200"><div class="aspect-video skeleton"></div>' +
-        '<div class="p-4 space-y-3"><div class="h-3 w-1/3 skeleton rounded"></div><div class="h-5 w-11/12 skeleton rounded"></div>' +
-        '<div class="h-4 w-full skeleton rounded"></div><div class="h-4 w-4/5 skeleton rounded"></div></div></div>';
-    }
-    return h + '</div>';
-  }
-  function errorBox(msg, retry) {
-    return '<div class="text-center py-20"><p class="text-lg text-stone-600 mb-4">' + esc(msg) + '</p>' +
-      (retry ? '<button id="retry-btn" class="bg-brand text-white font-bold px-5 py-2 rounded-lg">' + t('retry') + '</button>' : '') + '</div>';
-  }
-
-  /* ---------- الهيدر والتنقل ---------- */
-  function navHtml(active, mobile) {
-    var base = mobile
-      ? 'block text-center px-3 py-2 rounded-lg text-sm font-bold border '
-      : 'whitespace-nowrap px-3 py-2 rounded-lg text-sm font-bold transition ';
-    var on = mobile ? 'bg-brand text-white border-brand' : 'bg-brand text-white';
-    var off = mobile ? 'bg-white text-stone-700 border-stone-300' : 'text-stone-700 hover:bg-stone-100';
-    var h = '<a href="#/" class="' + base + (active === '' ? on : off) + '">' + t('home') + '</a>';
-    CATS.forEach(function (c) {
-      h += '<a href="#/c/' + c.k + '" class="' + base + (active === c.k ? on : off) + '">' + esc(c[lang]) + '</a>';
-    });
-    return h;
-  }
-  function renderChrome(active) {
-    document.documentElement.lang = lang;
-    document.documentElement.dir = lang === 'ar' ? 'rtl' : 'ltr';
-    $('site-name').textContent = t('name');
-    $('site-sub').textContent = t('sub');
-    $('lang-btn').textContent = t('switchTo');
-    $('breaking-label').textContent = t('breaking');
-    $('footer-name').textContent = t('name') + ' • World Pulse';
-    $('footer-note').textContent = t('note') + ' © ' + new Date().getFullYear();
-    $('nav-desktop').innerHTML = navHtml(active, false);
-    $('nav-mobile').innerHTML = navHtml(active, true);
-    $('nav-mobile').classList.add('hidden');
-    $('menu-btn').setAttribute('aria-expanded', 'false');
-  }
-
-  /* ---------- الأخبار العاجلة ---------- */
-  function loadBreaking() {
-    api('/api/breaking?lang=' + lang).then(function (d) {
-      if (!d || !d.item) return;
-      var a = $('breaking-link');
-      a.textContent = d.item.title;
-      a.href = '#/a/' + encodeURIComponent(d.item.id);
-      $('breaking').classList.remove('hidden');
-    }).catch(function () { /* يبقى الشريط مخفياً عند الفشل */ });
-  }
-
-  /* ---------- الصفحات ---------- */
-  function renderList(cat) {
-    var token = ++state.token;
-    state.offset = 0;
-    var title = cat ? esc(catOf(cat)[lang]) : t('latest');
-    app.innerHTML = '<h1 class="text-2xl md:text-3xl font-extrabold mb-6 border-s-4 border-brand ps-3">' + title + '</h1>' +
-      '<div id="list">' + skeletons(6) + '</div><div id="more-wrap" class="text-center mt-8"></div>';
-
-    function load(first) {
-      if (state.loading) return;
-      state.loading = true;
-      var url = '/api/news?lang=' + lang + '&limit=' + (first && !cat ? PAGE + 1 : PAGE) + '&offset=' + state.offset +
-        (cat ? '&category=' + cat : '');
-      api(url).then(function (d) {
-        if (token !== state.token) return;
-        var items = d.items || [];
-        var list = $('list');
-        if (first) {
-          if (!items.length) { list.innerHTML = '<p class="text-center text-stone-500 py-16">' + t('empty') + '</p>'; return; }
-          var html = '';
-          if (!cat) { html += '<div class="mb-8">' + hero(items[0]) + '</div>'; items = items.slice(1); state.offset += 1; }
-          html += '<div id="grid" class="grid sm:grid-cols-2 lg:grid-cols-3 gap-6"></div>';
-          list.innerHTML = html;
-        }
-        $('grid').insertAdjacentHTML('beforeend', items.map(card).join(''));
-        state.offset += items.length;
-        $('more-wrap').innerHTML = d.has_more
-          ? '<button id="more-btn" class="border-2 border-brand text-brand hover:bg-brand hover:text-white font-bold px-6 py-2.5 rounded-lg transition">' + t('more') + '</button>'
-          : '';
-        var mb = $('more-btn');
-        if (mb) mb.onclick = function () { load(false); };
-      }).catch(function () {
-        if (token !== state.token) return;
-        if (first) {
-          $('list').innerHTML = errorBox(t('error'), true);
-          var rb = $('retry-btn');
-          if (rb) rb.onclick = function () { route(); };
-        }
-      }).then(function () { state.loading = false; });
-    }
-    state.loading = false;
-    load(true);
-    document.title = (cat ? catOf(cat)[lang] + ' | ' : '') + t('name') + ' | World Pulse';
-  }
-
-  function renderArticle(id) {
-    var token = ++state.token;
-    app.innerHTML = '<div class="max-w-3xl mx-auto"><div class="h-8 w-3/4 skeleton rounded mb-4"></div>' +
-      '<div class="aspect-video skeleton rounded-xl mb-6"></div><div class="space-y-3"><div class="h-4 skeleton rounded"></div>' +
-      '<div class="h-4 skeleton rounded"></div><div class="h-4 w-2/3 skeleton rounded"></div></div></div>';
-    api('/api/article/' + encodeURIComponent(id) + '?lang=' + lang).then(function (d) {
-      if (token !== state.token) return;
-      var a = d.item;
-      var paragraphs = String(a.content || '').split(/\n{2,}|\n/).filter(function (p) { return p.trim(); })
-        .map(function (p) { return '<p>' + esc(p.trim()) + '</p>'; }).join('');
-      var src = safeUrl(a.source_url);
-      var html = '<div class="max-w-3xl mx-auto">' +
-        '<a href="#/" class="inline-flex items-center gap-1 text-sm font-bold text-stone-600 hover:text-brand mb-5">' +
-          '<span aria-hidden="true">' + (lang === 'ar' ? '→' : '←') + '</span>' + t('back') + '</a>' +
-        '<div class="mb-4">' + badge(a) + '</div>' +
-        '<h1 class="text-3xl md:text-4xl font-extrabold leading-tight mb-4">' + esc(a.title) + '</h1>' +
-        '<div class="flex items-center justify-between flex-wrap gap-3 mb-6 pb-4 border-b border-stone-200">' + metaLine(a) +
-          '<button id="share-btn" class="text-sm font-bold border border-stone-300 rounded-lg px-3 py-1.5 hover:bg-stone-100">' + t('share') + '</button></div>' +
-        imageBlock2(a, 'aspect-video rounded-xl mb-6') +
-        (a.translated === false ? '<p class="text-sm bg-amber-50 border border-amber-200 text-amber-800 rounded-lg px-4 py-2 mb-5">' + t('untranslated') + '</p>' : '') +
-        '<div class="bg-stone-100 border-s-4 border-brand rounded-lg p-4 mb-6"><div class="text-xs font-extrabold text-brand mb-1">' + t('summary') + '</div>' +
-          '<p class="font-semibold leading-relaxed">' + esc(a.summary) + '</p></div>' +
-        '<div class="article-body">' + paragraphs + '</div>' +
-        '<div class="mt-6 pt-4 border-t border-stone-200 text-sm text-stone-600 flex flex-wrap items-center gap-3">' +
-          (a.source ? '<span>' + t('source') + ': <strong>' + esc(a.source) + '</strong></span>' : '') +
-          (src ? '<a class="text-brand font-bold hover:underline" href="' + esc(src) + '" target="_blank" rel="noopener noreferrer">' + t('original') + '</a>' : '') +
-        '</div></div>';
-      var rel = d.related || [];
-      if (rel.length) {
-        html += '<section class="mt-14"><h2 class="text-2xl font-extrabold mb-6 border-s-4 border-brand ps-3">' + t('related') + '</h2>' +
-          '<div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-6">' + rel.map(card).join('') + '</div></section>';
-      }
-      app.innerHTML = html;
-      document.title = a.title + ' | ' + t('name');
-      window.scrollTo({ top: 0 });
-      var sb = $('share-btn');
-      if (sb) sb.onclick = function () {
-        var url = location.href;
-        if (navigator.share) { navigator.share({ title: a.title, url: url }).catch(function () {}); return; }
-        if (navigator.clipboard) navigator.clipboard.writeText(url).then(function () { sb.textContent = t('copied'); });
-      };
-    }).catch(function (e) {
-      if (token !== state.token) return;
-      app.innerHTML = errorBox(e && e.status === 404 ? t('notfound') : t('error'), !(e && e.status === 404));
-      var rb = $('retry-btn');
-      if (rb) rb.onclick = function () { route(); };
-    });
-  }
-
-  /* ---------- التوجيه ---------- */
-  function route() {
-    var h = (location.hash || '#/').replace(/^#/, '');
-    var m;
-    if ((m = h.match(/^\/a\/([^/?]+)/))) {
-      renderChrome(''); renderArticle(decodeURIComponent(m[1]));
-    } else if ((m = h.match(/^\/c\/([a-z]+)/)) && CATS.some(function (c) { return c.k === m[1]; })) {
-      renderChrome(m[1]); renderList(m[1]); window.scrollTo({ top: 0 });
-    } else {
-      renderChrome(''); renderList(null); window.scrollTo({ top: 0 });
-    }
-  }
-
-  $('lang-btn').addEventListener('click', function () {
-    lang = lang === 'ar' ? 'en' : 'ar';
-    try { localStorage.setItem('wp_lang', lang); } catch (e) {}
-    $('breaking').classList.add('hidden');
-    loadBreaking();
-    route();
+  /* تبديل المظهر مع الحفظ في localStorage */
+  var root = document.documentElement, btn = document.getElementById('theme-toggle');
+  function sync() { btn.setAttribute('aria-pressed', root.classList.contains('dark') ? 'true' : 'false'); }
+  sync();
+  btn.addEventListener('click', function () {
+    var dark = root.classList.toggle('dark');
+    try { localStorage.setItem('theme', dark ? 'dark' : 'light'); } catch (e) {}
+    sync();
   });
-  $('menu-btn').addEventListener('click', function () {
-    var nav = $('nav-mobile');
-    var open = nav.classList.toggle('hidden') === false;
-    this.setAttribute('aria-expanded', open ? 'true' : 'false');
-  });
-  $('nav-mobile').addEventListener('click', function (e) {
-    if (e.target.tagName === 'A') this.classList.add('hidden');
-  });
-  window.addEventListener('hashchange', route);
 
-  loadBreaking();
-  setInterval(loadBreaking, 5 * 60 * 1000);
-  route();
+  /* صندوق الذكاء الاصطناعي */
+  var box = document.getElementById('ask');
+  if (!box) return;
+  var d = box.dataset, q = document.getElementById('ask-q'), go = document.getElementById('ask-btn'),
+      st = document.getElementById('ask-status'), out = document.getElementById('ask-answer');
+
+  function prompt() {
+    var question = q.value.trim();
+    if (d.lang === 'ar') {
+      return 'أريد تحليلاً معمّقاً لهذا الخبر: «' + d.title + '». ملخص الخبر: ' + d.summary + ' المصدر: ' + d.source + ' (' + d.url + '). ' +
+             (question || 'اشرح لي الخلفية والسياق والتداعيات المحتملة.');
+    }
+    return 'I want an in-depth analysis of this news story: "' + d.title + '". Summary: ' + d.summary + ' Source: ' + d.source + ' (' + d.url + '). ' +
+           (question || 'Explain the background, the context and the likely implications.');
+  }
+
+  go.addEventListener('click', function () {
+    var question = q.value.trim();
+    if (!question) { st.textContent = d.empty; q.focus(); return; }
+    go.disabled = true; st.textContent = d.asking; out.classList.add('hidden');
+    fetch('/api/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ slug: d.slug, question: question, lang: d.lang }) })
+      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+      .then(function (res) {
+        if (!res.ok || !res.j.answer) throw new Error('bad');
+        out.textContent = res.j.answer; out.classList.remove('hidden'); st.textContent = '';
+      })
+      .catch(function () { st.textContent = d.error; })
+      .finally(function () { go.disabled = false; });
+  });
+
+  document.getElementById('go-chatgpt').addEventListener('click', function () {
+    window.open('https://chatgpt.com/?q=' + encodeURIComponent(prompt()), '_blank', 'noopener');
+  });
+  document.getElementById('go-gemini').addEventListener('click', function () {
+    /* Gemini لا يدعم تمرير النص عبر الرابط، لذا ننسخه للحافظة ثم نفتح المنصة */
+    window.open('https://gemini.google.com/app', '_blank', 'noopener');
+    if (navigator.clipboard) navigator.clipboard.writeText(prompt()).then(function () { st.textContent = d.hint; }).catch(function () {});
+  });
 })();
 </script>
 </body>
