@@ -220,10 +220,13 @@
                   {% if story.is_demo %}<span class="absolute bottom-3 {{ 'right-3' if lang == 'ar' else 'left-3' }} rounded-md bg-amber-100 px-2 py-1 text-[9px] font-extrabold text-amber-900">{{ ui.sample_badge }}</span>{% endif %}
                 </a>
                 <div class="flex flex-1 flex-col p-5 sm:p-6">
-                  {% if story.image_source != 'category' and story.image_credit %}
+                  {% if story.image_source in ['wikimedia_relevant', 'unsplash_api', 'pexels_api', 'presskit_approved'] and story.image_credit %}
                     <p class="mb-2 text-[10px] leading-5 text-slate-400">{{ ui.photo_credit }}:
                       {% if story.image_credit_url %}<a href="{{ story.image_credit_url }}" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">{{ story.image_credit }}</a>{% else %}{{ story.image_credit }}{% endif %}
+                      {% if story.image_source == 'pexels_api' %} · <a href="https://www.pexels.com" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">{{ ui.photos_provided_by_pexels }}</a>{% if story.image_provider_url %} · <a href="{{ story.image_provider_url }}" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">{{ ui.photo_page }}</a>{% endif %}
+                      {% elif story.image_provider_url %} · <a href="{{ story.image_provider_url }}" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">{% if story.image_source == 'wikimedia_relevant' %}Wikimedia Commons{% elif story.image_source == 'unsplash_api' %}Unsplash{% else %}Press kit{% endif %}</a>{% endif %}
                       {% if story.image_license_url %} · <a href="{{ story.image_license_url }}" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">{{ ui.photo_license }}</a>{% endif %}
+                      · <span>{{ ui.illustrative_image }}</span>
                     </p>
                   {% endif %}
                   <div class="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-medium text-slate-500">
@@ -278,11 +281,14 @@
             <h1 class="max-w-4xl text-2xl font-extrabold leading-[1.45] tracking-tight sm:text-3xl lg:text-5xl">{{ article.title }}</h1>
           </div>
         </div>
-        {% if article.image_credit %}
+        {% if article.image_source in ['wikimedia_relevant', 'unsplash_api', 'pexels_api', 'presskit_approved'] and article.image_credit %}
           <div class="border-b border-slate-100 px-6 py-3 text-[11px] leading-5 text-slate-400 sm:px-9 lg:px-12">
             {{ ui.photo_credit }}:
             {% if article.image_credit_url %}<a href="{{ article.image_credit_url }}" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">{{ article.image_credit }}</a>{% else %}{{ article.image_credit }}{% endif %}
+            {% if article.image_source == 'pexels_api' %} · <a href="https://www.pexels.com" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">{{ ui.photos_provided_by_pexels }}</a>{% if article.image_provider_url %} · <a href="{{ article.image_provider_url }}" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">{{ ui.photo_page }}</a>{% endif %}
+            {% elif article.image_provider_url %} · <a href="{{ article.image_provider_url }}" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">{% if article.image_source == 'wikimedia_relevant' %}Wikimedia Commons{% elif article.image_source == 'unsplash_api' %}Unsplash{% else %}Press kit{% endif %}</a>{% endif %}
             {% if article.image_license_url %} · <a href="{{ article.image_license_url }}" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">{{ ui.photo_license }}</a>{% endif %}
+            · <span>{{ ui.illustrative_image }}</span>
           </div>
         {% endif %}
 
@@ -322,10 +328,12 @@
                     <span class="line-clamp-3 block text-sm font-bold leading-6 transition group-hover:text-pulse">{{ story.title }}</span>
                   </span>
                 </a>
-                {% if story.image_source in ['wikimedia', 'wikimedia_relevant'] and story.image_credit %}
+                {% if story.image_source in ['wikimedia_relevant', 'unsplash_api', 'pexels_api', 'presskit_approved'] and story.image_credit %}
                   <p class="{{ 'mr-28' if lang == 'ar' else 'ml-28' }} -mt-3 text-[10px] leading-4 text-slate-400">
                     {{ ui.photo_credit }}:
                     {% if story.image_credit_url %}<a href="{{ story.image_credit_url }}" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">{{ story.image_credit }}</a>{% else %}{{ story.image_credit }}{% endif %}
+                    {% if story.image_source == 'pexels_api' %} · <a href="https://www.pexels.com" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">{{ ui.photos_provided_by_pexels }}</a>{% if story.image_provider_url %} · <a href="{{ story.image_provider_url }}" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">{{ ui.photo_page }}</a>{% endif %}
+                    {% elif story.image_provider_url %} · <a href="{{ story.image_provider_url }}" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">{% if story.image_source == 'wikimedia_relevant' %}Wikimedia Commons{% elif story.image_source == 'unsplash_api' %}Unsplash{% else %}Press kit{% endif %}</a>{% endif %}
                     {% if story.image_license_url %} · <a href="{{ story.image_license_url }}" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">{{ ui.photo_license }}</a>{% endif %}
                   </p>
                 {% endif %}
