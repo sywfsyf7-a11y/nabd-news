@@ -302,7 +302,11 @@
               <h2 class="mb-4 text-xl font-extrabold tracking-tight sm:text-2xl">{{ ui.article_details }}</h2>
               <div class="article-copy text-base leading-8 text-slate-700 sm:text-lg">{{ article.content }}</div>
             {% endif %}
-            <p class="mt-8 border-t border-slate-100 pt-5 text-xs leading-6 text-slate-400">{{ ui.ai_note }}</p>
+            {% if article.ai_enriched %}
+              <p class="mt-8 border-t border-slate-100 pt-5 text-xs leading-6 text-slate-400">{{ ui.ai_note }}</p>
+            {% else %}
+              <p class="mt-8 border-t border-slate-100 pt-5 text-xs leading-6 text-slate-400">{{ ui.brief_note }}</p>
+            {% endif %}
             {% if article.source_url %}
               <a href="{{ article.source_url }}" target="_blank" rel="noopener noreferrer" class="mt-6 inline-flex items-center gap-2 rounded-full bg-ink px-5 py-3 text-sm font-bold text-white transition hover:bg-pulse">
                 {{ ui.open_source }}
