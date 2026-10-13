@@ -1,350 +1,575 @@
 <!doctype html>
-<html lang="{{ lang }}" dir="{{ dir }}">
+<html lang="{{ lang }}" dir="{{ 'rtl' if lang == 'ar' else 'ltr' }}">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{ page_title }}</title>
-<meta name="description" content="{{ meta_desc }}">
-<link rel="canonical" href="{{ canonical }}">
-<link rel="alternate" hreflang="ar" href="{{ alt_ar }}">
-<link rel="alternate" hreflang="en" href="{{ alt_en }}">
-<link rel="alternate" hreflang="x-default" href="{{ alt_ar }}">
-<meta property="og:site_name" content="{{ site_name }}">
-<meta property="og:type" content="{{ 'article' if view == 'article' else 'website' }}">
-<meta property="og:title" content="{{ page_title }}">
-<meta property="og:description" content="{{ meta_desc }}">
-<meta property="og:url" content="{{ canonical }}">
-{% if og_image %}<meta property="og:image" content="{{ og_image }}">{% endif %}
-<meta name="twitter:card" content="summary_large_image">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230B7285'/%3E%3Cpath d='M5 21h22' stroke='white' stroke-width='2.5' stroke-linecap='round'/%3E%3Cpath d='M9 21a7 7 0 0 1 14 0' fill='none' stroke='white' stroke-width='2.5' stroke-linecap='round'/%3E%3C/svg%3E">
-
-<script>
-/* تطبيق المظهر المحفوظ قبل الرسم لتفادي الوميض */
-(function () {
-  try {
-    var s = localStorage.getItem('theme');
-    var dark = s ? s === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches;
-    if (dark) document.documentElement.classList.add('dark');
-  } catch (e) {}
-})();
-</script>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-<script src="https://cdn.tailwindcss.com"></script>
-<script>
-tailwind.config = {
-  darkMode: 'class',
-  theme: { extend: { fontFamily: { sans: ['"IBM Plex Sans Arabic"', '"IBM Plex Sans"', 'system-ui', 'Segoe UI', 'Tahoma', 'sans-serif'] } } }
-};
-</script>
-<style>
-  :root { --bg:#F3F5F7; --surface:#FFFFFF; --ink:#101A23; --muted:#546677; --line:#DCE2E8; --accent:#0B7285; --accent-ink:#FFFFFF; }
-  .dark { --bg:#0A0F14; --surface:#121A22; --ink:#E8EDF2; --muted:#98A8B7; --line:#243040; --accent:#4FC3D4; --accent-ink:#06222A; }
-  body { background:var(--bg); color:var(--ink); }
-  .surface { background:var(--surface); }
-  .bordered { border:1px solid var(--line); }
-  .b-line { border-color:var(--line); }
-  .muted { color:var(--muted); }
-  .accent { color:var(--accent); }
-  .btn { background:var(--accent); color:var(--accent-ink); }
-  .btn:hover { filter:brightness(1.08); }
-  .ctext { color:var(--c); } .dark .ctext { color:var(--cd); }
-  .cdot { background:var(--c); } .dark .cdot { background:var(--cd); }
-  .ph { background:linear-gradient(135deg, var(--c), color-mix(in srgb, var(--c) 55%, #000)); color:#fff; }
-  .prose-ofuq p { line-height:1.95; font-size:1.075rem; }
-  .prose-ofuq { max-width:68ch; }
-  :focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
-  .nav-scroll { scrollbar-width:none; } .nav-scroll::-webkit-scrollbar { display:none; }
-  @media (prefers-reduced-motion: reduce) { * { transition:none !important; animation:none !important; } }
-</style>
-{% if adsense_client %}<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client={{ adsense_client }}" crossorigin="anonymous"></script>{% endif %}
-{% if view == 'article' %}<script type="application/ld+json">{{ ld|tojson }}</script>{% endif %}
-</head>
-
-{# ───────── مكوّنات مشتركة ───────── #}
-{% macro tag(c) %}<span class="ctext inline-flex items-center gap-1.5 text-sm font-semibold" style="--c:{{ c.color }};--cd:{{ c.dark }}"><span class="cdot inline-block w-2 h-2 rounded-full"></span>{{ c[lang] }}</span>{% endmacro %}
-
-{% macro media(a, ratio) %}{% if a.image_url %}<img src="{{ a.image_url }}" alt="{{ a.title }}" loading="lazy" decoding="async" class="w-full {{ ratio }} object-cover bg-black/5">{% else %}<div class="ph w-full {{ ratio }} flex items-end p-4" style="--c:{{ a.cat.color }}" role="img" aria-label="{{ a.cat[lang] }}"><span class="text-3xl font-bold opacity-90 leading-none">{{ a.cat[lang] }}</span></div>{% endif %}{% endmacro %}
-
-{% macro card(a) %}
-<article class="surface bordered rounded overflow-hidden flex flex-col">
-  <a href="{{ u('/article/' ~ a.slug) }}" class="block" tabindex="-1" aria-hidden="true">{{ media(a, 'aspect-[16/9]') }}</a>
-  <div class="p-4 flex flex-col gap-2 flex-1">
-    {{ tag(a.cat) }}
-    <h3 class="font-bold leading-snug text-lg"><a href="{{ u('/article/' ~ a.slug) }}" class="hover:underline">{{ a.title }}</a></h3>
-    <p class="muted text-sm leading-relaxed line-clamp-3">{{ a.summary }}</p>
-    <div class="muted text-xs mt-auto pt-2 flex gap-3"><span>{{ a.source_name }}</span><span>{{ a.date }}</span></div>
-  </div>
-</article>
-{% endmacro %}
-
-<body class="font-sans antialiased min-h-screen flex flex-col">
-
-<header class="surface border-b b-line sticky top-0 z-30">
-  <div class="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between gap-3">
-    <a href="{{ u('/') }}" class="flex items-center gap-2 font-bold text-2xl tracking-tight" aria-label="{{ site_name }}">
-      <svg width="26" height="26" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7" fill="var(--accent)"/><path d="M5 21h22" stroke="var(--accent-ink)" stroke-width="2.5" stroke-linecap="round"/><path d="M9 21a7 7 0 0 1 14 0" fill="none" stroke="var(--accent-ink)" stroke-width="2.5" stroke-linecap="round"/></svg>
-      {{ site_name }}
-    </a>
-    <div class="flex items-center gap-2">
-      <a href="{{ switch_url }}" hreflang="{{ 'en' if lang == 'ar' else 'ar' }}" class="bordered b-line rounded px-3 h-9 inline-flex items-center text-sm font-medium hover:bg-black/5 dark:hover:bg-white/10">{{ t.lang_btn }}</a>
-      <button id="theme-toggle" type="button" aria-label="{{ t.theme }}" title="{{ t.theme }}" class="bordered b-line rounded w-9 h-9 inline-flex items-center justify-center hover:bg-black/5 dark:hover:bg-white/10">
-        <svg class="dark:hidden" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
-        <svg class="hidden dark:block" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
-      </button>
-    </div>
-  </div>
-  <nav class="border-t b-line" aria-label="{{ t.home }}">
-    <ul class="max-w-6xl mx-auto px-4 flex gap-1 overflow-x-auto nav-scroll text-[15px]">
-      {% for slug, c in cats.items() %}
-      <li class="shrink-0"><a href="{{ u('/category/' ~ slug) }}" class="block px-3 py-2.5 border-b-2 {{ 'font-bold' if cat_slug == slug else 'muted hover:text-[var(--ink)]' }}" style="border-color:{{ c.color if cat_slug == slug else 'transparent' }}" {% if cat_slug == slug %}aria-current="page"{% endif %}>{{ c[lang] }}</a></li>
-      {% endfor %}
-    </ul>
-  </nav>
-</header>
-
-<main class="flex-1 w-full max-w-6xl mx-auto px-4 py-6">
-
-{# ═════════ الرئيسية ═════════ #}
-{% if view == 'home' %}
-  {% if not featured %}
-    <p class="surface bordered rounded p-8 text-center muted">{{ t.empty }}</p>
-  {% else %}
-  <section class="grid lg:grid-cols-5 gap-6 items-stretch">
-    <a href="{{ u('/article/' ~ featured.slug) }}" class="lg:col-span-3 block rounded overflow-hidden bordered">{{ media(featured, 'aspect-[16/10]') }}</a>
-    <div class="lg:col-span-2 flex flex-col gap-3 justify-center">
-      {{ tag(featured.cat) }}
-      <h1 class="font-bold text-3xl lg:text-4xl leading-tight"><a href="{{ u('/article/' ~ featured.slug) }}" class="hover:underline">{{ featured.title }}</a></h1>
-      <p class="muted leading-relaxed">{{ featured.summary }}</p>
-      <div class="muted text-sm flex gap-3"><span>{{ featured.source_name }}</span><span>{{ featured.date }}</span></div>
-    </div>
-  </section>
-
-  {% if latest %}
-  <section class="mt-10">
-    <h2 class="font-bold text-xl mb-4">{{ t.latest }}</h2>
-    <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">{% for a in latest %}{{ card(a) }}{% endfor %}</div>
-  </section>
-  {% endif %}
-
-  {% for slug, c in cats.items() %}{% set list = by_cat[slug] %}{% if list %}
-  <section class="mt-10">
-    <div class="flex items-center justify-between border-b-2 pb-2 mb-4" style="border-color:{{ c.color }}">
-      <h2 class="font-bold text-xl">{{ c[lang] }}</h2>
-      <a href="{{ u('/category/' ~ slug) }}" class="text-sm font-medium accent hover:underline">{{ t.more }}</a>
-    </div>
-    <ul class="grid md:grid-cols-2 gap-x-8 gap-y-4">
-      {% for a in list %}
-      <li class="flex gap-4 items-start">
-        {% if a.image_url %}<a href="{{ u('/article/' ~ a.slug) }}" class="shrink-0 w-28 rounded overflow-hidden" tabindex="-1" aria-hidden="true">{{ media(a, 'aspect-[4/3]') }}</a>{% endif %}
-        <div>
-          <h3 class="font-semibold leading-snug"><a href="{{ u('/article/' ~ a.slug) }}" class="hover:underline">{{ a.title }}</a></h3>
-          <div class="muted text-xs mt-1.5 flex gap-3"><span>{{ a.source_name }}</span><span>{{ a.date }}</span></div>
-        </div>
-      </li>
-      {% endfor %}
-    </ul>
-  </section>
-  {% endif %}{% endfor %}
-  {% endif %}
-
-{# ═════════ القسم ═════════ #}
-{% elif view == 'category' %}
-  <header class="mb-6 border-b-2 pb-3" style="border-color:{{ cat.color }}"><h1 class="font-bold text-3xl">{{ cat[lang] }}</h1></header>
-  {% if items %}
-    <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">{% for a in items %}{{ card(a) }}{% endfor %}</div>
-    <nav class="mt-8 flex justify-between text-sm font-medium">
-      <span>{% if page > 1 %}<a class="bordered b-line rounded px-4 py-2 inline-block hover:bg-black/5 dark:hover:bg-white/10" href="{{ u('/category/' ~ cat_slug ~ '?page=' ~ (page - 1)) }}" rel="prev">{{ t.prev }}</a>{% endif %}</span>
-      <span>{% if has_next %}<a class="bordered b-line rounded px-4 py-2 inline-block hover:bg-black/5 dark:hover:bg-white/10" href="{{ u('/category/' ~ cat_slug ~ '?page=' ~ (page + 1)) }}" rel="next">{{ t.next }}</a>{% endif %}</span>
-    </nav>
-  {% else %}<p class="surface bordered rounded p-8 text-center muted">{{ t.empty }}</p>{% endif %}
-
-{# ═════════ صفحة الخبر ═════════ #}
-{% elif view == 'article' %}
-  <article class="max-w-3xl mx-auto">
-    <div class="flex items-center gap-2 text-sm muted mb-3">
-      <a href="{{ u('/') }}" class="hover:underline">{{ t.home }}</a><span aria-hidden="true">/</span>
-      <a href="{{ u('/category/' ~ a.category) }}" class="hover:underline">{{ a.cat[lang] }}</a>
-    </div>
-    <h1 class="font-bold text-3xl md:text-4xl leading-tight">{{ a.title }}</h1>
-
-    <div class="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm muted">
-      <span>{{ t.source }}: <a class="accent font-medium hover:underline" href="{{ a.source_url }}" target="_blank" rel="nofollow noopener noreferrer">{{ a.source_name }}</a></span>
-      <time datetime="{{ a.published_at.isoformat() }}">{{ t.published }} {{ a.date }}</time>
-      {% if a.minutes %}<span>{{ a.minutes }} {{ t.read_time }}</span>{% endif %}
-    </div>
-
-    <figure class="mt-6">
-      <div class="rounded overflow-hidden bordered">{{ media(a, 'aspect-[16/9]') }}</div>
-      <figcaption class="muted text-xs mt-2 leading-relaxed">
-        {% if a.image_url %}
-          {{ t.photo }}: {{ a.image_credit }} —
-          {% if a.image_license_url %}<a class="underline" href="{{ a.image_license_url }}" target="_blank" rel="noopener noreferrer license">{{ a.image_license }}</a>{% else %}{{ a.image_license }}{% endif %} —
-          <a class="underline" href="{{ a.image_page }}" target="_blank" rel="noopener noreferrer">Wikimedia Commons</a>.
-          {{ t.photo_note }}
-        {% endif %}
-      </figcaption>
-    </figure>
-
-    {% if a.summary %}
-    <div class="mt-6 surface bordered rounded p-5 border-s-4" style="border-inline-start-color:var(--accent)">
-      <div class="font-bold mb-1">{{ t.summary }}</div>
-      <p class="leading-relaxed">{{ a.summary }}</p>
-    </div>
-    {% endif %}
-
-    <div class="prose-ofuq mt-8">
-      {% for s in a.sections %}
-        <h2 class="font-bold text-xl mt-8 mb-2">{{ s.heading }}</h2>
-        <p>{{ s.text }}</p>
-      {% endfor %}
-    </div>
-
-    <p class="mt-8 text-sm muted border-t b-line pt-4">{{ t.ai_note }}
-      <a class="accent underline" href="{{ a.source_url }}" target="_blank" rel="nofollow noopener noreferrer">{{ t.follow }}</a>
-    </p>
-
-    {# صندوق الذكاء الاصطناعي #}
-    <section id="ask" class="mt-10 surface bordered rounded p-5"
-             data-slug="{{ a.slug }}" data-lang="{{ lang }}" data-title="{{ a.title }}" data-summary="{{ a.summary }}"
-             data-source="{{ a.source_name }}" data-url="{{ a.source_url }}"
-             data-asking="{{ t.asking }}" data-error="{{ t.ask_error }}" data-empty="{{ t.ask_empty }}" data-hint="{{ t.gemini_hint }}">
-      <h2 class="font-bold text-lg mb-3">{{ t.ask_title }}</h2>
-      <label for="ask-q" class="sr-only">{{ t.ask_title }}</label>
-      <textarea id="ask-q" rows="3" maxlength="500" placeholder="{{ t.ask_placeholder }}" class="w-full rounded bordered b-line bg-transparent p-3 leading-relaxed"></textarea>
-      <div class="mt-3 flex items-center gap-3">
-        <button id="ask-btn" type="button" class="btn rounded px-5 h-10 font-semibold">{{ t.ask_btn }}</button>
-        <span id="ask-status" class="muted text-sm" role="status"></span>
-      </div>
-      <div id="ask-answer" class="mt-4 whitespace-pre-line leading-relaxed hidden border-t b-line pt-4" aria-live="polite"></div>
-      <div class="mt-5 border-t b-line pt-4">
-        <p class="muted text-sm mb-3">{{ t.fallback }}</p>
-        <div class="flex flex-wrap gap-3">
-          <button id="go-chatgpt" type="button" class="bordered b-line rounded px-4 h-10 text-sm font-medium hover:bg-black/5 dark:hover:bg-white/10">{{ t.open_chatgpt }}</button>
-          <button id="go-gemini" type="button" class="bordered b-line rounded px-4 h-10 text-sm font-medium hover:bg-black/5 dark:hover:bg-white/10">{{ t.open_gemini }}</button>
-        </div>
-      </div>
-    </section>
-
-    {% if related %}
-    <section class="mt-12">
-      <h2 class="font-bold text-xl mb-4">{{ t.related }}</h2>
-      <div class="grid sm:grid-cols-2 gap-5">{% for r in related %}{{ card(r) }}{% endfor %}</div>
-    </section>
-    {% endif %}
-  </article>
-
-{# ═════════ صفحات ثابتة ═════════ #}
-{% elif view == 'page' %}
-  <article class="max-w-3xl mx-auto">
-    <h1 class="font-bold text-3xl mb-6">{{ title }}</h1>
-    <div class="prose-ofuq">
-      {% for h, p in blocks %}<h2 class="font-bold text-xl mt-8 mb-2">{{ h }}</h2><p>{{ p }}</p>{% endfor %}
-    </div>
-    {% if show_updated %}<p class="muted text-sm mt-8">{{ 'آخر تحديث' if lang == 'ar' else 'Last updated' }}: {{ updated }}</p>{% endif %}
-  </article>
-
-{# ═════════ اتصل بنا ═════════ #}
-{% elif view == 'contact' %}
-  <section class="max-w-xl mx-auto">
-    <h1 class="font-bold text-3xl mb-2">{{ t.contact }}</h1>
-    <p class="muted mb-6">{{ t.c_direct }} <a class="accent underline" href="mailto:{{ email }}">{{ email }}</a></p>
-    {% if status == 'sent' %}<div class="surface bordered rounded p-4 mb-6 border-s-4" style="border-inline-start-color:#0F7B5F" role="status">{{ t.c_sent }}</div>{% endif %}
-    {% if status == 'error' %}<div class="surface bordered rounded p-4 mb-6 border-s-4" style="border-inline-start-color:#B91C4B" role="alert">{{ t.c_err }}</div>{% endif %}
-    <form method="post" action="{{ u('/contact') }}" class="flex flex-col gap-4">
-      <input type="hidden" name="csrf" value="{{ csrf }}">
-      <div style="position:absolute;left:-9999px" aria-hidden="true"><label>Website<input type="text" name="website" tabindex="-1" autocomplete="off"></label></div>
-      <label class="flex flex-col gap-1.5 text-sm font-medium">{{ t.c_name }}<input name="name" required minlength="2" maxlength="100" value="{{ form.name }}" autocomplete="name" class="rounded bordered b-line bg-transparent p-2.5 text-base font-normal"></label>
-      <label class="flex flex-col gap-1.5 text-sm font-medium">{{ t.c_email }}<input name="email" type="email" required value="{{ form.email }}" autocomplete="email" dir="ltr" class="rounded bordered b-line bg-transparent p-2.5 text-base font-normal"></label>
-      <label class="flex flex-col gap-1.5 text-sm font-medium">{{ t.c_subject }}<input name="subject" required minlength="3" maxlength="150" value="{{ form.subject }}" class="rounded bordered b-line bg-transparent p-2.5 text-base font-normal"></label>
-      <label class="flex flex-col gap-1.5 text-sm font-medium">{{ t.c_message }}<textarea name="message" rows="6" required minlength="10" maxlength="4000" class="rounded bordered b-line bg-transparent p-2.5 text-base font-normal leading-relaxed">{{ form.message }}</textarea></label>
-      <button type="submit" class="btn rounded h-11 font-semibold self-start px-6">{{ t.c_send }}</button>
-    </form>
-  </section>
-
-{# ═════════ 404 ═════════ #}
-{% else %}
-  <section class="max-w-md mx-auto text-center py-16">
-    <h1 class="font-bold text-3xl mb-3">{{ t.nf_title }}</h1>
-    <p class="muted mb-6">{{ t.nf_text }}</p>
-    <a href="{{ u('/') }}" class="btn rounded px-5 h-10 inline-flex items-center font-semibold">{{ t.home }}</a>
-  </section>
-{% endif %}
-
-</main>
-
-<footer class="surface border-t b-line mt-10">
-  <div class="max-w-6xl mx-auto px-4 py-8 grid gap-6 md:grid-cols-3 text-sm">
-    <div>
-      <div class="font-bold text-lg mb-2">{{ site_name }}</div>
-      <p class="muted leading-relaxed">{{ t.footer_note }}</p>
-    </div>
-    <ul class="flex flex-col gap-2">
-      <li><a class="hover:underline" href="{{ u('/about') }}">{{ t.about }}</a></li>
-      <li><a class="hover:underline" href="{{ u('/privacy') }}">{{ t.privacy }}</a></li>
-      <li><a class="hover:underline" href="{{ u('/terms') }}">{{ t.terms }}</a></li>
-      <li><a class="hover:underline" href="{{ u('/contact') }}">{{ t.contact }}</a></li>
-    </ul>
-    <div class="muted">
-      <a class="accent hover:underline" href="mailto:{{ email }}" dir="ltr">{{ email }}</a>
-      <p class="mt-3">© {{ year }} {{ site_name }}. {{ t.rights }}.</p>
-    </div>
-  </div>
-</footer>
-
-<script>
-(function () {
-  /* تبديل المظهر مع الحفظ في localStorage */
-  var root = document.documentElement, btn = document.getElementById('theme-toggle');
-  function sync() { btn.setAttribute('aria-pressed', root.classList.contains('dark') ? 'true' : 'false'); }
-  sync();
-  btn.addEventListener('click', function () {
-    var dark = root.classList.toggle('dark');
-    try { localStorage.setItem('theme', dark ? 'dark' : 'light'); } catch (e) {}
-    sync();
-  });
-
-  /* صندوق الذكاء الاصطناعي */
-  var box = document.getElementById('ask');
-  if (!box) return;
-  var d = box.dataset, q = document.getElementById('ask-q'), go = document.getElementById('ask-btn'),
-      st = document.getElementById('ask-status'), out = document.getElementById('ask-answer');
-
-  function prompt() {
-    var question = q.value.trim();
-    if (d.lang === 'ar') {
-      return 'أريد تحليلاً معمّقاً لهذا الخبر: «' + d.title + '». ملخص الخبر: ' + d.summary + ' المصدر: ' + d.source + ' (' + d.url + '). ' +
-             (question || 'اشرح لي الخلفية والسياق والتداعيات المحتملة.');
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#111827">
+  <meta name="description" content="{{ ui.hero_text }}">
+  <title>{% if page == 'article' and article %}{{ article.title }} — {% endif %}{{ site_name }}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            ink: '#111827',
+            paper: '#F7F7F5',
+            pulse: '#E53945',
+            muted: '#64748B'
+          },
+          boxShadow: {
+            soft: '0 16px 45px rgba(15, 23, 42, 0.07)'
+          }
+        }
+      }
+    };
+  </script>
+  <script>
+    try {
+      document.documentElement.dataset.theme = localStorage.getItem('world-pulse-theme') || 'light';
+    } catch (_) {
+      document.documentElement.dataset.theme = 'light';
     }
-    return 'I want an in-depth analysis of this news story: "' + d.title + '". Summary: ' + d.summary + ' Source: ' + d.source + ' (' + d.url + '). ' +
-           (question || 'Explain the background, the context and the likely implications.');
-  }
+  </script>
+  <style>
+    body { font-family: {% if lang == 'ar' %}'Cairo', sans-serif{% else %}'Inter', sans-serif{% endif %}; }
+    .editorial-grid { background-image: radial-gradient(#cbd5e1 0.6px, transparent 0.6px); background-size: 13px 13px; }
+    .ticker-track { min-width: 0; }
+    .article-copy { white-space: pre-line; line-height: 2; }
+    .nav-scroll::-webkit-scrollbar { display: none; }
+    .nav-scroll { scrollbar-width: none; }
+    @media (prefers-reduced-motion: no-preference) {
+      .ticker-dot { animation: pulse-dot 1.8s ease-in-out infinite; }
+      @keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+    }
+    html[data-theme="dark"] { color-scheme: dark; }
+    html[data-theme="dark"] body { background: #0b1120; color: #edf2f7; }
+    html[data-theme="dark"] .bg-paper { background-color: #0b1120 !important; }
+    html[data-theme="dark"] header,
+    html[data-theme="dark"] footer { background-color: rgba(15, 23, 42, .97) !important; border-color: #293548 !important; }
+    html[data-theme="dark"] .bg-white { background-color: #111b2d !important; }
+    html[data-theme="dark"] .bg-slate-50 { background-color: #172235 !important; }
+    html[data-theme="dark"] .bg-slate-100 { background-color: #1e293b !important; }
+    html[data-theme="dark"] .text-ink { color: #f8fafc !important; }
+    html[data-theme="dark"] .text-slate-700,
+    html[data-theme="dark"] .text-slate-600 { color: #d5deea !important; }
+    html[data-theme="dark"] .text-slate-500,
+    html[data-theme="dark"] .text-slate-400 { color: #aab7ca !important; }
+    html[data-theme="dark"] .border-slate-100,
+    html[data-theme="dark"] .border-slate-200,
+    html[data-theme="dark"] .border-slate-200\/70,
+    html[data-theme="dark"] .border-slate-200\/80,
+    html[data-theme="dark"] .border-slate-300 { border-color: #293548 !important; }
+    html[data-theme="dark"] .ring-slate-200 { --tw-ring-color: #293548 !important; }
+    html[data-theme="dark"] .hover\:bg-white:hover { background-color: #1e293b !important; }
+    html[data-theme="dark"] .shadow-soft,
+    html[data-theme="dark"] .shadow-sm { box-shadow: 0 16px 45px rgba(0,0,0,.2) !important; }
+    .story-image-placeholder { display: flex; align-items: center; justify-content: center; overflow: hidden; background: #253047; color: rgba(255,255,255,.85); }
+    .story-image-placeholder[data-category="politics"] { background: linear-gradient(135deg, #18253a, #65323e); }
+    .story-image-placeholder[data-category="economy"] { background: linear-gradient(135deg, #153b37, #34465d); }
+    .story-image-placeholder[data-category="technology"] { background: linear-gradient(135deg, #192b4a, #3b3a70); }
+    .story-image-placeholder[data-category="gaming"] { background: linear-gradient(135deg, #33204c, #762d53); }
+    .story-image-placeholder[data-category="sports"] { background: linear-gradient(135deg, #164638, #425c35); }
+    .story-image-placeholder[data-category="science"] { background: linear-gradient(135deg, #183a53, #31616d); }
+    .story-image-placeholder[data-category="culture"] { background: linear-gradient(135deg, #4c2d32, #7a5838); }
+    .story-image-placeholder[data-category="world"] { background: linear-gradient(135deg, #273448, #4b5870); }
+    html[data-theme="dark"] .story-image-placeholder { filter: saturate(.82) brightness(.9); }
+  </style>
+</head>
+<body class="min-h-screen bg-paper text-ink antialiased">
+  <div class="bg-ink text-white">
+    <div class="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-2.5 sm:px-6 lg:px-8">
+      <div class="flex min-w-0 items-center gap-3 text-xs sm:text-sm">
+        <span class="inline-flex shrink-0 items-center gap-2 font-bold tracking-wide text-rose-400">
+          <span class="h-2 w-2 rounded-full bg-pulse ticker-dot"></span>{{ ui.live }}
+        </span>
+        <span class="hidden h-4 w-px bg-white/20 sm:block"></span>
+        <span class="truncate text-white/70">{{ ui.tagline }}</span>
+      </div>
+      <div class="flex shrink-0 items-center gap-2">
+        <button id="themeToggle" type="button" aria-pressed="false" aria-label="{{ ui.theme_toggle }}" title="{{ ui.theme_toggle }}"
+                class="inline-flex items-center gap-2 rounded-full border border-white/20 px-3 py-2 text-xs font-bold transition hover:border-white/60 hover:bg-white/10">
+          <svg id="sunIcon" viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M2 12h2m16 0h2M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42" stroke-linecap="round"/></svg>
+          <svg id="moonIcon" viewBox="0 0 24 24" class="hidden h-4 w-4" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M20.5 14.3A8.5 8.5 0 0 1 9.7 3.5 8.6 8.6 0 1 0 20.5 14.3Z" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span class="hidden sm:inline">{{ ui.theme_toggle }}</span>
+        </button>
+        <button id="refreshNews" type="button" aria-label="{{ ui.refresh_news }}" title="{{ ui.refresh_news }}"
+                class="inline-flex items-center gap-2 rounded-full bg-pulse px-3 py-2 text-xs font-extrabold text-white transition hover:bg-rose-500 disabled:cursor-wait disabled:opacity-70">
+          <svg id="refreshIcon" viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5" stroke-linecap="round" stroke-linejoin="round"/><path d="M5.6 9A7 7 0 0 1 18 6l2 6M4 12l2 6a7 7 0 0 0 12.4-3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span id="refreshButtonText" class="hidden sm:inline">{{ ui.refresh_news }}</span>
+        </button>
+        <a href="{{ url_for('index', lang='en' if lang == 'ar' else 'ar') }}"
+           class="shrink-0 rounded-full border border-white/20 px-3 py-2 text-xs font-bold transition hover:border-white/60 hover:bg-white/10"
+           aria-label="{{ 'Switch language' if lang == 'ar' else 'تغيير اللغة' }}">
+          {{ 'EN' if lang == 'ar' else 'عربي' }}
+        </a>
+      </div>
+    </div>
+  </div>
 
-  go.addEventListener('click', function () {
-    var question = q.value.trim();
-    if (!question) { st.textContent = d.empty; q.focus(); return; }
-    go.disabled = true; st.textContent = d.asking; out.classList.add('hidden');
-    fetch('/api/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ slug: d.slug, question: question, lang: d.lang }) })
-      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
-      .then(function (res) {
-        if (!res.ok || !res.j.answer) throw new Error('bad');
-        out.textContent = res.j.answer; out.classList.remove('hidden'); st.textContent = '';
-      })
-      .catch(function () { st.textContent = d.error; })
-      .finally(function () { go.disabled = false; });
-  });
+  <header class="sticky top-0 z-30 border-b border-slate-200/80 bg-paper/95 backdrop-blur-xl">
+    <div class="mx-auto flex max-w-7xl items-center justify-between gap-5 px-4 py-4 sm:px-6 lg:px-8">
+      <a href="{{ url_for('index', lang=lang) }}" class="group flex shrink-0 items-center gap-3" aria-label="{{ site_name }} — home">
+        <span class="grid h-11 w-11 place-items-center rounded-2xl bg-pulse text-white shadow-lg shadow-rose-500/20 transition group-hover:-rotate-3">
+          <svg viewBox="0 0 32 32" class="h-7 w-7" fill="none" aria-hidden="true">
+            <path d="M4 17h5l3-8 5 15 3-9 2 4h6" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </span>
+        <span class="block">
+          <span class="block text-xl font-extrabold leading-tight tracking-tight sm:text-2xl">{{ site_name }}</span>
+          <span class="mt-0.5 block text-[10px] font-semibold uppercase tracking-[.22em] text-slate-500">{{ 'WORLD PULSE' if lang == 'ar' else 'NEWS · CONTEXT · PERSPECTIVE' }}</span>
+        </span>
+      </a>
+      <div class="hidden items-center gap-2 md:flex">
+        <span class="rounded-full bg-white px-3 py-2 text-xs font-semibold text-slate-500 ring-1 ring-slate-200">{{ ui.search_hint }}</span>
+        <span class="grid h-9 w-9 place-items-center rounded-full bg-white text-slate-500 ring-1 ring-slate-200" aria-hidden="true">
+          <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="7"/><path d="m16 16 4 4" stroke-linecap="round"/></svg>
+        </span>
+      </div>
+    </div>
+    <nav class="border-t border-slate-200/70" aria-label="{{ 'الأقسام' if lang == 'ar' else 'News sections' }}">
+      <div class="nav-scroll mx-auto flex max-w-7xl items-center gap-2 overflow-x-auto px-4 py-2.5 sm:px-6 lg:px-8">
+        <a href="{{ url_for('index', lang=lang, category='all') }}"
+           class="shrink-0 rounded-full px-4 py-2 text-sm font-bold transition {{ 'bg-ink text-white' if active_category == 'all' else 'text-slate-600 hover:bg-white hover:text-ink' }}">{{ ui.all_news }}</a>
+        {% for item in categories %}
+          <a href="{{ url_for('index', lang=lang, category=item.key) }}"
+             class="shrink-0 rounded-full px-4 py-2 text-sm font-semibold transition {{ 'bg-ink text-white' if active_category == item.key else 'text-slate-600 hover:bg-white hover:text-ink' }}">{{ item.label }}</a>
+        {% endfor %}
+      </div>
+    </nav>
+    <div class="border-t border-slate-200/60">
+      <div class="mx-auto flex max-w-7xl items-center justify-end px-4 py-2 sm:px-6 lg:px-8">
+        <p id="newsStatusText" role="status" aria-live="polite" class="text-[11px] font-medium text-slate-500">{{ ui.auto_refresh.replace('{minutes}', news_refresh_interval|string) }}</p>
+      </div>
+    </div>
+  </header>
 
-  document.getElementById('go-chatgpt').addEventListener('click', function () {
-    window.open('https://chatgpt.com/?q=' + encodeURIComponent(prompt()), '_blank', 'noopener');
-  });
-  document.getElementById('go-gemini').addEventListener('click', function () {
-    /* Gemini لا يدعم تمرير النص عبر الرابط، لذا ننسخه للحافظة ثم نفتح المنصة */
-    window.open('https://gemini.google.com/app', '_blank', 'noopener');
-    if (navigator.clipboard) navigator.clipboard.writeText(prompt()).then(function () { st.textContent = d.hint; }).catch(function () {});
-  });
-})();
-</script>
+  <main class="mx-auto max-w-7xl px-4 pb-16 pt-5 sm:px-6 sm:pt-8 lg:px-8">
+    {% if page == 'home' %}
+      <section class="mb-6 overflow-hidden rounded-[2rem] bg-ink text-white shadow-soft">
+        <div class="relative grid gap-8 px-6 py-9 sm:px-10 sm:py-12 lg:grid-cols-[1.1fr_.9fr] lg:items-center lg:px-14 lg:py-14">
+          <div class="pointer-events-none absolute inset-y-0 {{ 'left-0' if lang == 'ar' else 'right-0' }} hidden w-2/5 opacity-20 lg:block editorial-grid"></div>
+          <div class="relative z-10 max-w-2xl">
+            <div class="mb-5 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-xs font-bold text-rose-300">
+              <span class="h-1.5 w-1.5 rounded-full bg-rose-400"></span>{{ ui.latest }}
+            </div>
+            <h1 class="max-w-2xl text-3xl font-extrabold leading-[1.35] tracking-tight sm:text-4xl lg:text-5xl">{{ ui.hero_title }}</h1>
+            <p class="mt-5 max-w-xl text-sm leading-7 text-slate-300 sm:text-base sm:leading-8">{{ ui.hero_text }}</p>
+            <a href="#latest-stories" class="mt-7 inline-flex items-center gap-2 rounded-full bg-pulse px-5 py-3 text-sm font-bold text-white shadow-lg shadow-rose-900/20 transition hover:-translate-y-0.5 hover:bg-rose-500">
+              {{ ui.latest }}
+              <svg viewBox="0 0 20 20" class="h-4 w-4 {{ 'rotate-180' if lang == 'ar' else '' }}" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 10h13M10 4l6 6-6 6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </a>
+          </div>
+          <div class="relative z-10 hidden lg:block">
+            <div class="ml-auto max-w-sm rounded-3xl border border-white/10 bg-white/[.06] p-5 backdrop-blur-sm">
+              <div class="mb-5 flex items-center justify-between text-xs font-semibold text-slate-300">
+                <span>{{ site_name }}</span><span class="rounded-full bg-rose-400/15 px-2.5 py-1 text-rose-300">{{ 'ثمانية أقسام' if lang == 'ar' else '8 sections' }}</span>
+              </div>
+              <div class="grid grid-cols-2 gap-3">
+                {% for item in categories[:4] %}
+                  <a href="{{ url_for('index', lang=lang, category=item.key) }}" class="rounded-2xl border border-white/10 bg-ink/30 p-4 transition hover:border-rose-400/60 hover:bg-white/10">
+                    <span class="mb-4 block h-1 w-8 rounded-full bg-pulse"></span>
+                    <span class="text-sm font-bold">{{ item.label }}</span>
+                    <span class="mt-1 block text-xs text-slate-400">{{ 'اقرأ آخر التغطيات' if lang == 'ar' else 'Explore coverage' }}</span>
+                  </a>
+                {% endfor %}
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="mb-9 flex items-stretch gap-3 rounded-2xl border border-rose-100 bg-white p-3 shadow-sm sm:items-center sm:p-4" aria-label="{{ ui.breaking }}">
+        <div class="flex shrink-0 items-center gap-2 rounded-xl bg-pulse px-3 py-2.5 text-xs font-extrabold text-white sm:px-4 sm:text-sm">
+          <span class="h-2 w-2 rounded-full bg-white"></span>{{ ui.breaking }}
+        </div>
+        {% if breaking_story %}
+          <a href="{{ url_for('article', slug=breaking_story.slug, lang=lang) }}" class="ticker-track flex min-w-0 flex-1 items-center justify-between gap-3 px-1 py-1 text-sm font-semibold leading-6 transition hover:text-pulse sm:text-base">
+            <span class="line-clamp-2">{{ breaking_story.title }}</span>
+            <span class="hidden shrink-0 text-xs font-medium text-slate-400 sm:inline">{{ breaking_story.published_label }}</span>
+          </a>
+        {% else %}
+          <p class="ticker-track flex min-w-0 flex-1 items-center px-1 text-sm leading-6 text-slate-500">{{ ui.no_breaking }}</p>
+        {% endif %}
+      </section>
+
+      <section id="latest-stories" class="scroll-mt-40">
+        <div class="mb-6 flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <p class="mb-2 text-xs font-extrabold uppercase tracking-[.18em] text-pulse">{{ ui.live }}</p>
+            <h2 class="text-2xl font-extrabold tracking-tight sm:text-3xl">{% if active_category == 'all' %}{{ ui.latest }}{% else %}{{ category_names[active_category][lang] }}{% endif %}</h2>
+          </div>
+          <span class="rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-slate-500 ring-1 ring-slate-200">{{ stories|length }} {{ 'مادة' if lang == 'ar' else ('stories' if stories|length != 1 else 'story') }}</span>
+        </div>
+
+        {% if stories %}
+          <div class="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3">
+            {% for story in stories %}
+              <article class="group flex h-full flex-col overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-sm transition duration-300 hover:-translate-y-1 hover:border-slate-300 hover:shadow-soft">
+                <a href="{{ url_for('article', slug=story.slug, lang=lang) }}" class="relative block aspect-[16/9] overflow-hidden bg-slate-200" tabindex="-1" aria-hidden="true">
+                  <div class="story-image-placeholder absolute inset-0" data-category="{{ story.category }}" aria-label="{{ story.category_label }} image placeholder">
+                    <span class="select-none text-6xl font-black tracking-widest opacity-35">WP</span>
+                  </div>
+                  {% if story.image_url %}
+                    <img src="{{ story.image_url }}" alt="{{ story.title }}" loading="lazy" decoding="async" class="absolute inset-0 z-[1] h-full w-full object-cover transition duration-700 group-hover:scale-105" onerror="this.onerror=null;this.style.display='none';">
+                  {% endif %}
+                  <span class="absolute {{ 'right-4' if lang == 'ar' else 'left-4' }} top-4 rounded-full border border-white/25 bg-ink/80 px-3 py-1.5 text-xs font-bold text-white backdrop-blur">{{ story.category_label }}</span>
+                  {% if story.is_demo %}<span class="absolute bottom-3 {{ 'right-3' if lang == 'ar' else 'left-3' }} rounded-md bg-amber-100 px-2 py-1 text-[9px] font-extrabold text-amber-900">{{ ui.sample_badge }}</span>{% endif %}
+                </a>
+                <div class="flex flex-1 flex-col p-5 sm:p-6">
+                  {% if story.image_source != 'category' and story.image_credit %}
+                    <p class="mb-2 text-[10px] leading-5 text-slate-400">{{ ui.photo_credit }}:
+                      {% if story.image_credit_url %}<a href="{{ story.image_credit_url }}" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">{{ story.image_credit }}</a>{% else %}{{ story.image_credit }}{% endif %}
+                      {% if story.image_license_url %} · <a href="{{ story.image_license_url }}" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">{{ ui.photo_license }}</a>{% endif %}
+                    </p>
+                  {% endif %}
+                  <div class="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-medium text-slate-500">
+                    <span>{{ story.source_name or ui.source }}</span>
+                    <span class="h-1 w-1 rounded-full bg-slate-300"></span>
+                    <time>{{ story.published_label }}</time>
+                  </div>
+                  <h3 class="mb-3 text-lg font-extrabold leading-8 tracking-tight transition group-hover:text-pulse sm:text-xl">
+                    <a href="{{ url_for('article', slug=story.slug, lang=lang) }}">{{ story.title }}</a>
+                  </h3>
+                  <p class="mb-6 line-clamp-3 text-sm leading-7 text-slate-600">{{ story.summary }}</p>
+                  <div class="mt-auto flex items-center justify-between gap-3 border-t border-slate-100 pt-4">
+                    <span class="text-xs font-medium text-slate-400">{{ story.read_minutes }} {{ ui.read_time }}</span>
+                    <a href="{{ url_for('article', slug=story.slug, lang=lang) }}" class="inline-flex items-center gap-2 text-sm font-extrabold text-pulse transition hover:gap-3">
+                      {{ ui.read_full }}
+                      <svg viewBox="0 0 20 20" class="h-4 w-4 {{ 'rotate-180' if lang == 'ar' else '' }}" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 10h13M10 4l6 6-6 6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                    </a>
+                  </div>
+                </div>
+              </article>
+            {% endfor %}
+          </div>
+        {% else %}
+          <div class="rounded-3xl border border-dashed border-slate-300 bg-white px-6 py-16 text-center">
+            <p class="text-base font-semibold text-slate-500">{{ ui.empty }}</p>
+            <a href="{{ url_for('index', lang=lang, category='all') }}" class="mt-4 inline-flex rounded-full bg-ink px-4 py-2 text-sm font-bold text-white">{{ ui.all_news }}</a>
+          </div>
+        {% endif %}
+      </section>
+
+    {% elif page == 'article' and article %}
+      <div class="mb-5 flex items-center justify-between gap-4">
+        <a href="{{ url_for('index', lang=lang) }}" class="inline-flex items-center gap-2 text-sm font-bold text-slate-500 transition hover:text-pulse">
+          <svg viewBox="0 0 20 20" class="h-4 w-4 {{ 'rotate-180' if lang == 'ar' else '' }}" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 10H3m6 6-6-6 6-6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          {{ ui.back_home }}
+        </a>
+        <span class="rounded-full bg-white px-3 py-1.5 text-xs font-bold text-slate-500 ring-1 ring-slate-200">{{ article.category_label }}</span>
+      </div>
+
+      <article class="overflow-hidden rounded-[2rem] border border-slate-200/80 bg-white shadow-soft">
+        <div class="relative aspect-[16/8] max-h-[540px] overflow-hidden bg-slate-200 sm:aspect-[16/7]">
+          <div class="story-image-placeholder absolute inset-0" data-category="{{ article.category }}" aria-hidden="true"><span class="select-none text-8xl font-black tracking-widest opacity-35">WP</span></div>
+          {% if article.image_url %}
+            <img src="{{ article.image_url }}" alt="{{ article.title }}" decoding="async" class="absolute inset-0 z-[1] h-full w-full object-cover" onerror="this.onerror=null;this.style.display='none';">
+          {% endif %}
+          <div class="absolute inset-0 bg-gradient-to-t from-ink/75 via-ink/10 to-transparent"></div>
+          {% if article.is_demo %}<span class="absolute {{ 'right-6' if lang == 'ar' else 'left-6' }} top-6 rounded-full bg-amber-100 px-3 py-1.5 text-[10px] font-extrabold text-amber-900">{{ ui.sample_badge }}</span>{% endif %}
+          <div class="absolute inset-x-0 bottom-0 p-6 text-white sm:p-10 lg:p-12">
+            <div class="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2 text-xs font-semibold text-white/80 sm:text-sm">
+              <span>{{ article.source_name or ui.source }}</span><span class="h-1 w-1 rounded-full bg-white/60"></span><time>{{ article.published_label }}</time><span class="h-1 w-1 rounded-full bg-white/60"></span><span>{{ article.read_minutes }} {{ ui.read_time }}</span>
+            </div>
+            <h1 class="max-w-4xl text-2xl font-extrabold leading-[1.45] tracking-tight sm:text-3xl lg:text-5xl">{{ article.title }}</h1>
+          </div>
+        </div>
+        {% if article.image_credit %}
+          <div class="border-b border-slate-100 px-6 py-3 text-[11px] leading-5 text-slate-400 sm:px-9 lg:px-12">
+            {{ ui.photo_credit }}:
+            {% if article.image_credit_url %}<a href="{{ article.image_credit_url }}" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">{{ article.image_credit }}</a>{% else %}{{ article.image_credit }}{% endif %}
+            {% if article.image_license_url %} · <a href="{{ article.image_license_url }}" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">{{ ui.photo_license }}</a>{% endif %}
+          </div>
+        {% endif %}
+
+        <div class="grid gap-10 p-6 sm:p-9 lg:grid-cols-[minmax(0,1fr)_270px] lg:gap-14 lg:p-12">
+          <div class="min-w-0">
+            <div class="mb-8 rounded-2xl border-s-4 border-pulse bg-slate-50 p-5 sm:p-6">
+              <p class="mb-2 text-xs font-extrabold uppercase tracking-wider text-pulse">{{ 'ملخص تنفيذي' if lang == 'ar' else 'Executive summary' }}</p>
+              <p class="text-base font-semibold leading-8 text-slate-700">{{ article.summary }}</p>
+            </div>
+            {% if article.content %}
+              <h2 class="mb-4 text-xl font-extrabold tracking-tight sm:text-2xl">{{ ui.article_details }}</h2>
+              <div class="article-copy text-base leading-8 text-slate-700 sm:text-lg">{{ article.content }}</div>
+            {% elif not article.is_demo %}
+              <p class="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm leading-7 text-slate-500">{{ ui.body_unavailable }}</p>
+            {% endif %}
+            {% if not article.is_demo %}
+              <section id="articleAsk" class="mt-9 rounded-2xl border border-slate-200 bg-slate-50 p-5 sm:p-6">
+                <div class="mb-4 flex items-start gap-3">
+                  <span class="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-pulse text-white" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3 14.3 9.7 21 12l-6.7 2.3L12 21l-2.3-6.7L3 12l6.7-2.3L12 3Z" stroke-linejoin="round"/><path d="m19 3 .8 2.2L22 6l-2.2.8L19 9l-.8-2.2L16 6l2.2-.8L19 3Z" stroke-linejoin="round"/></svg>
+                  </span>
+                  <div>
+                    <h2 class="text-lg font-extrabold">{{ ui.ai_ask_title }}</h2>
+                    <p class="mt-1 text-sm leading-7 text-slate-500">{{ ui.ai_ask_desc }}</p>
+                  </div>
+                </div>
+                <form id="articleAskForm" class="space-y-3">
+                  <label for="articleQuestion" class="sr-only">{{ ui.ai_question_placeholder }}</label>
+                  <textarea id="articleQuestion" name="question" rows="3" maxlength="500" required placeholder="{{ ui.ai_question_placeholder }}" class="w-full resize-y rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm leading-7 text-ink outline-none transition focus:border-pulse focus:ring-2 focus:ring-rose-500/15"></textarea>
+                  <div class="flex flex-wrap items-center gap-3">
+                    <button id="articleAskButton" type="submit" {% if not ai_ask_enabled %}disabled{% endif %} class="rounded-full bg-pulse px-5 py-3 text-sm font-extrabold text-white transition hover:bg-rose-600 disabled:cursor-not-allowed disabled:opacity-50">{{ ui.ai_ask_button }}</button>
+                    <span id="articleAskStatus" role="status" aria-live="polite" class="text-xs leading-6 text-slate-500">{% if not ai_ask_enabled %}{{ ui.ai_disabled }}{% endif %}</span>
+                  </div>
+                </form>
+                <div id="articleAskAnswer" class="article-copy mt-4 hidden rounded-xl border border-slate-200 bg-white p-4 text-sm leading-7 text-slate-700" aria-live="polite"></div>
+                <p class="mt-3 text-[11px] leading-5 text-slate-400">{{ ui.ai_disclaimer }}</p>
+                <div class="mt-4 flex flex-wrap gap-2">
+                  <a id="askChatGPT" href="https://chatgpt.com/" target="_blank" rel="noopener noreferrer" class="inline-flex items-center rounded-full border border-slate-300 px-4 py-2 text-xs font-bold text-slate-600 transition hover:border-pulse hover:text-pulse">{{ ui.ask_chatgpt }}</a>
+                  <a id="askGemini" href="https://gemini.google.com/app" target="_blank" rel="noopener noreferrer" class="inline-flex items-center rounded-full border border-slate-300 px-4 py-2 text-xs font-bold text-slate-600 transition hover:border-pulse hover:text-pulse">{{ ui.ask_gemini }}</a>
+                </div>
+              </section>
+              <p class="mt-8 border-t border-slate-100 pt-5 text-xs leading-6 text-slate-400">{{ ui.ai_note }}</p>
+              {% if article.source_url %}
+                <a href="{{ article.source_url }}" target="_blank" rel="noopener noreferrer" class="mt-6 inline-flex items-center gap-2 rounded-full bg-ink px-5 py-3 text-sm font-bold text-white transition hover:bg-pulse">
+                  {{ ui.open_source }}
+                  <svg viewBox="0 0 20 20" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M11 3h6v6M17 3 9 11" stroke-linecap="round" stroke-linejoin="round"/><path d="M15 11v5a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5" stroke-linecap="round"/></svg>
+                </a>
+              {% endif %}
+            {% endif %}
+          </div>
+          <aside class="border-t border-slate-100 pt-8 lg:border-t-0 lg:border-s {{ 'lg:ps-8' if lang == 'ar' else 'lg:pl-8' }} lg:pt-0">
+            <p class="mb-5 text-xs font-extrabold uppercase tracking-[.16em] text-pulse">{{ ui.recommended }}</p>
+            <div class="space-y-5">
+              {% for story in related_stories %}
+                <a href="{{ url_for('article', slug=story.slug, lang=lang) }}" class="group flex gap-3">
+                  <span class="relative block h-20 w-24 shrink-0 overflow-hidden rounded-xl bg-slate-200">
+                    <span class="story-image-placeholder absolute inset-0" data-category="{{ story.category }}" aria-hidden="true"><span class="text-lg font-black opacity-40">WP</span></span>
+                    {% if story.image_url %}
+                      <img src="{{ story.image_url }}" alt="{{ story.title }}" loading="lazy" decoding="async" class="absolute inset-0 z-[1] h-full w-full object-cover" onerror="this.onerror=null;this.style.display='none';">
+                    {% endif %}
+                  </span>
+                  <span class="min-w-0">
+                    <span class="mb-1 block text-[10px] font-extrabold text-pulse">{{ story.category_label }}</span>
+                    <span class="line-clamp-3 block text-sm font-bold leading-6 transition group-hover:text-pulse">{{ story.title }}</span>
+                  </span>
+                </a>
+                {% if story.image_source in ['wikimedia', 'wikimedia_relevant'] and story.image_credit %}
+                  <p class="{{ 'mr-28' if lang == 'ar' else 'ml-28' }} -mt-3 text-[10px] leading-4 text-slate-400">
+                    {{ ui.photo_credit }}:
+                    {% if story.image_credit_url %}<a href="{{ story.image_credit_url }}" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">{{ story.image_credit }}</a>{% else %}{{ story.image_credit }}{% endif %}
+                    {% if story.image_license_url %} · <a href="{{ story.image_license_url }}" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">{{ ui.photo_license }}</a>{% endif %}
+                  </p>
+                {% endif %}
+              {% else %}
+                <p class="text-sm leading-7 text-slate-500">{{ ui.empty }}</p>
+              {% endfor %}
+            </div>
+          </aside>
+        </div>
+      </article>
+
+    {% else %}
+      <section class="mx-auto max-w-xl rounded-3xl border border-slate-200 bg-white px-6 py-16 text-center shadow-sm">
+        <p class="mb-3 text-6xl font-black text-pulse">404</p>
+        <h1 class="text-2xl font-extrabold">{{ 'الصفحة غير موجودة' if lang == 'ar' else 'Page not found' }}</h1>
+        <p class="mt-3 text-sm leading-7 text-slate-500">{{ 'قد يكون الرابط قديماً أو أن المقال غير متاح باللغة المختارة.' if lang == 'ar' else 'The link may be outdated, or this story is not available in the selected language.' }}</p>
+        <a href="{{ url_for('index', lang=lang) }}" class="mt-6 inline-flex rounded-full bg-pulse px-5 py-3 text-sm font-bold text-white transition hover:bg-rose-600">{{ ui.back_home }}</a>
+      </section>
+    {% endif %}
+  </main>
+
+  <footer class="border-t border-slate-200 bg-white">
+    <div class="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-8 sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
+      <a href="{{ url_for('index', lang=lang) }}" class="flex items-center gap-2 font-extrabold"><span class="grid h-8 w-8 place-items-center rounded-xl bg-pulse text-white">WP</span>{{ site_name }}</a>
+      <div class="flex flex-wrap gap-x-4 gap-y-2 text-xs text-slate-500">
+        <a class="hover:text-pulse" href="{{ url_for('static_page', page_key='about', lang=lang) }}">{{ 'من نحن' if lang == 'ar' else 'About Us' }}</a>
+        <a class="hover:text-pulse" href="{{ url_for('static_page', page_key='privacy', lang=lang) }}">{{ 'الخصوصية' if lang == 'ar' else 'Privacy' }}</a>
+        <a class="hover:text-pulse" href="{{ url_for('static_page', page_key='terms', lang=lang) }}">{{ 'الشروط' if lang == 'ar' else 'Terms' }}</a>
+        <a class="hover:text-pulse" href="{{ url_for('contact', lang=lang) }}">{{ 'اتصل بنا' if lang == 'ar' else 'Contact' }}</a>
+      </div>
+      <p class="text-xs leading-6 text-slate-500">{{ ui.footer }}</p>
+      <p class="text-[11px] font-medium text-slate-400">© {{ now_year if now_year is defined else 2026 }} {{ site_name }}</p>
+    </div>
+  </footer>
+  <script>
+    (() => {
+      const root = document.documentElement;
+      const themeButton = document.getElementById('themeToggle');
+      const sunIcon = document.getElementById('sunIcon');
+      const moonIcon = document.getElementById('moonIcon');
+      const refreshButton = document.getElementById('refreshNews');
+      const refreshButtonText = document.getElementById('refreshButtonText');
+      const refreshIcon = document.getElementById('refreshIcon');
+      const statusText = document.getElementById('newsStatusText');
+      const text = {
+        lightTheme: {{ ui.theme_toggle|tojson }},
+        refresh: {{ ui.refresh_news|tojson }},
+        refreshing: {{ ui.refreshing|tojson }},
+        autoRefresh: {{ ui.auto_refresh|tojson }},
+        interval: {{ news_refresh_interval|tojson }},
+        updated: {{ ui.last_updated|tojson }},
+        cooldown: {{ ui.refresh_cooldown|tojson }},
+        error: {{ ui.refresh_error|tojson }},
+        lang: {{ lang|tojson }}
+      };
+
+      function applyTheme(theme) {
+        root.dataset.theme = theme;
+        const dark = theme === 'dark';
+        if (sunIcon) sunIcon.classList.toggle('hidden', dark);
+        if (moonIcon) moonIcon.classList.toggle('hidden', !dark);
+        if (themeButton) themeButton.setAttribute('aria-pressed', String(dark));
+        try { localStorage.setItem('world-pulse-theme', theme); } catch (_) {}
+      }
+      applyTheme(root.dataset.theme || 'light');
+      themeButton?.addEventListener('click', () => applyTheme(root.dataset.theme === 'dark' ? 'light' : 'dark'));
+
+      function formatStatus(data) {
+        if (!statusText) return;
+        let value = text.autoRefresh.replace('{minutes}', String(text.interval));
+        if (data && data.last_refresh_at) {
+          const time = new Date(data.last_refresh_at);
+          if (!Number.isNaN(time.getTime())) {
+            const formatted = time.toLocaleString(text.lang === 'ar' ? 'ar-JO' : 'en-US', { dateStyle: 'medium', timeStyle: 'short' });
+            value += ' · ' + text.updated + ': ' + formatted;
+          }
+        }
+        statusText.textContent = value;
+      }
+
+      let knownRefreshAt = null;
+      async function loadStatus() {
+        try {
+          const response = await fetch('/api/news-status', { cache: 'no-store' });
+          if (!response.ok) return;
+          const status = await response.json();
+          if (knownRefreshAt !== null && status.last_refresh_at && status.last_refresh_at !== knownRefreshAt) {
+            window.location.reload();
+            return;
+          }
+          if (knownRefreshAt === null && status.last_refresh_at) knownRefreshAt = status.last_refresh_at;
+          else if (knownRefreshAt === null) knownRefreshAt = '';
+          formatStatus(status);
+        } catch (_) { /* Status display is optional; the news page stays usable. */ }
+      }
+      loadStatus();
+      // Refresh the visible story list after a scheduled/manual background fetch completes.
+      window.setInterval(loadStatus, 60000);
+
+      refreshButton?.addEventListener('click', async () => {
+        if (refreshButton.disabled) return;
+        refreshButton.disabled = true;
+        if (refreshButtonText) refreshButtonText.textContent = text.refreshing;
+        refreshIcon?.classList.add('animate-spin');
+        try {
+          let baselineAt = '';
+          try {
+            const baselineResponse = await fetch('/api/news-status', { cache: 'no-store' });
+            if (baselineResponse.ok) baselineAt = (await baselineResponse.json()).last_refresh_at || '';
+          } catch (_) {}
+          const response = await fetch('/api/refresh', { method: 'POST', headers: { 'Accept': 'application/json' }, cache: 'no-store' });
+          const result = await response.json();
+          if (result.state === 'cooldown') {
+            if (refreshButtonText) refreshButtonText.textContent = text.refresh;
+            if (statusText) statusText.textContent = text.cooldown;
+            return;
+          }
+          if (result.state === 'disabled') throw new Error('automatic refresh disabled');
+          for (let attempt = 0; attempt < 80; attempt++) {
+            await new Promise(resolve => setTimeout(resolve, 1500));
+            const statusResponse = await fetch('/api/news-status', { cache: 'no-store' });
+            if (!statusResponse.ok) continue;
+            const status = await statusResponse.json();
+            formatStatus(status);
+            const completedWithNewTimestamp = Boolean(status.last_refresh_at) && status.last_refresh_at !== baselineAt;
+            if (!status.running && status.state !== 'running' && completedWithNewTimestamp) {
+              if (status.state === 'error' || status.state === 'memory_only') {
+                if (statusText) statusText.textContent = text.error;
+                if (refreshButtonText) refreshButtonText.textContent = text.refresh;
+                return;
+              }
+              window.location.reload();
+              return;
+            }
+          }
+          if (statusText) statusText.textContent = text.error;
+        } catch (_) {
+          if (statusText) statusText.textContent = text.error;
+        } finally {
+          refreshIcon?.classList.remove('animate-spin');
+          refreshButton.disabled = false;
+          if (refreshButtonText) refreshButtonText.textContent = text.refresh;
+        }
+      });
+
+      const askForm = document.getElementById('articleAskForm');
+      const askQuestion = document.getElementById('articleQuestion');
+      const askButton = document.getElementById('articleAskButton');
+      const askStatus = document.getElementById('articleAskStatus');
+      const askAnswer = document.getElementById('articleAskAnswer');
+      const askChatGPT = document.getElementById('askChatGPT');
+      const askGemini = document.getElementById('askGemini');
+      const articleContext = {
+        slug: {{ (article.slug if article else '')|tojson }},
+        lang: {{ lang|tojson }},
+        title: {{ (article.title if article else '')|tojson }},
+        summary: {{ (article.summary if article else '')|tojson }}
+      };
+      const askText = {
+        required: {{ ui.question_required|tojson }},
+        thinking: {{ ui.ai_thinking|tojson }},
+        error: {{ ui.ai_error|tojson }},
+        limit: {{ ui.ai_rate_limit|tojson }},
+        disabled: {{ ui.ai_disabled|tojson }}
+      };
+      function externalPrompt() {
+        const question = (askQuestion?.value || '').trim();
+        return `${articleContext.lang === 'ar' ? 'أجب عن السؤال اعتماداً على الخبر التالي. وضح ما هو مؤكد وما هو غير متأكد، ولا تخترع معلومات.' : 'Answer the question using the following news story. Separate confirmed facts from uncertainty and do not invent information.'}\n\n${articleContext.title}\n\n${articleContext.summary}\n\n${articleContext.lang === 'ar' ? 'السؤال' : 'Question'}: ${question}`;
+      }
+      function updateExternalLinks() {
+        const prompt = externalPrompt();
+        if (askChatGPT) askChatGPT.href = 'https://chatgpt.com/?q=' + encodeURIComponent(prompt);
+        if (askGemini) askGemini.href = 'https://gemini.google.com/app?q=' + encodeURIComponent(prompt);
+      }
+      askQuestion?.addEventListener('input', updateExternalLinks);
+      updateExternalLinks();
+      askForm?.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const question = (askQuestion?.value || '').trim();
+        if (!question) {
+          if (askStatus) askStatus.textContent = askText.required;
+          return;
+        }
+        if (askButton?.disabled) return;
+        askButton.disabled = true;
+        if (askStatus) askStatus.textContent = askText.thinking;
+        if (askAnswer) {
+          askAnswer.classList.add('hidden');
+          askAnswer.textContent = '';
+        }
+        try {
+          const response = await fetch('/api/ask', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+            body: JSON.stringify({ slug: articleContext.slug, lang: articleContext.lang, question }),
+            cache: 'no-store'
+          });
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok) {
+            if (response.status === 429 || data.error === 'rate_limit') throw new Error('rate_limit');
+            if (response.status === 503 || data.error === 'disabled') throw new Error('disabled');
+            throw new Error('upstream');
+          }
+          if (askAnswer) {
+            askAnswer.textContent = data.answer || askText.error;
+            askAnswer.classList.remove('hidden');
+          }
+          if (askStatus) askStatus.textContent = '';
+        } catch (error) {
+          if (askStatus) {
+            askStatus.textContent = error.message === 'rate_limit' ? askText.limit : error.message === 'disabled' ? askText.disabled : askText.error;
+          }
+        } finally {
+          if (askButton) askButton.disabled = false;
+        }
+      });
+    })();
+  </script>
 </body>
 </html>
