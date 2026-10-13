@@ -3,11 +3,12 @@
 ## Deploy on Render
 1. Push this folder's files to a Git repository. Keep `app.py` at the repository root and `index.html` inside `templates/`.
 2. Create a PostgreSQL database in Supabase and copy its Session Pooler connection string into Render as `SUPABASE_POOLER_URL` (or use `DATABASE_URL`). Keep SSL required.
-3. Set `FLASK_SECRET_KEY` to a long random secret. Render's `render.yaml` generates one if you deploy the blueprint.
-4. Add `GEMINI_API_KEY` in Render Environment to enable bilingual editorial writing. Never commit API keys to Git or put them in HTML.
-5. For the contact form, configure `SMTP_HOST`, `SMTP_PORT` (usually 587), `SMTP_USERNAME`, `SMTP_PASSWORD`, and optionally `SMTP_FROM`.
-6. Set `SITE_URL` to your public HTTPS origin for the sitemap.
-7. Optional: create a Render Cron Job with command `python app.py --refresh-news` to refresh feeds independently of web traffic.
+3. Keep `FLASK_SECRET_KEY` set to a long random secret.
+4. **Required for news publishing:** set `GEMINI_API_KEY` and either `SUPABASE_POOLER_URL` or `DATABASE_URL` in Render Environment. Without Gemini, new article drafts are not generated; without PostgreSQL, generated stories cannot be persistently published. The website will no longer fill the page with demo/sample articles when either dependency is missing.
+5. Never commit API keys to Git or put them in HTML.
+6. For the contact form, configure `SMTP_HOST`, `SMTP_PORT` (usually 587), `SMTP_USERNAME`, `SMTP_PASSWORD`, and optionally `SMTP_FROM`.
+7. Set `SITE_URL` to your public HTTPS origin for the sitemap.
+8. Optional: create a Render Cron Job with command `python app.py --refresh-news` to refresh feeds independently of web traffic.
 
 ## News sourcing and copyright safeguards
 - The collector runs two Google News RSS discovery passes per category and language: a broad query and a query focused on the source domains listed in `CATEGORY_SOURCE_DOMAINS`.
@@ -22,6 +23,7 @@
 The automatic source-domain filters are configured in `CATEGORY_SOURCE_DOMAINS` in `app.py`; each category has Arabic and English source domains. This is a source-discovery map, not a redistribution licence. Some named publishers remain visible in the code for reference but are excluded automatically by the rights gate above until appropriate permission is established.
 
 ## Editorial quality and backfill
+- Demo/sample story cards are disabled and the static sample story data has been removed from the live route path. Empty feeds or missing services produce an empty state and diagnostic status endpoint, not fake news.
 - The refresh process asks Gemini for Arabic and English original reporting briefs with a useful executive summary, factual details from available source material, restrained context, and explicit unknowns where relevant.
 - The editorial model does not claim to read publisher article pages or independently verify stories. Headlines and brief RSS excerpts may not contain enough evidence for a long report; in those cases, content should remain short rather than inventing detail.
 - Public article queries exclude short/incomplete legacy bodies while a small number of previously stored thin articles are reprocessed each refresh. This helps avoid showing a bare RSS excerpt or generic filler as a finished article.
@@ -32,7 +34,13 @@ The automatic source-domain filters are configured in `CATEGORY_SOURCE_DOMAINS` 
 - If a publisher's terms do not allow the intended commercial use, remove it from the automatic source search or obtain a suitable licence; merely linking or giving credit is not a substitute for permission when permission is required.
 - Rotate any API key that has been shared in chat or placed in source code. Use environment variables only.
 
-## Optional environment variables
+## Required and optional environment variables
+Required:
+- `GEMINI_API_KEY` — enables Gemini editorial drafting; if missing, article refresh fails visibly instead of publishing examples.
+- `SUPABASE_POOLER_URL` or `DATABASE_URL` — PostgreSQL persistence. If neither is configured or the database cannot be reached, new stories are not published as transient worker memory.
+- `FLASK_SECRET_KEY` — persistent Flask session signing key.
+
+Optional:
 - `GEMINI_MODEL` — Gemini model name.
 - `NEWS_REFRESH_MINUTES` — refresh interval, default 15 minutes.
 - `NEWS_AUTO_FETCH` — disable automatic fetch with `false` if using a separate cron job.
