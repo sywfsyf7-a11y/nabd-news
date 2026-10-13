@@ -21,6 +21,8 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timezone
 from email.utils import parsedate_to_datetime
+from email.message import EmailMessage
+import smtplib
 from typing import Any
 from urllib.error import URLError, HTTPError
 from urllib.parse import urlencode, urljoin, quote, urlparse
