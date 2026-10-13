@@ -1,0 +1,73 @@
+# World Pulse / نبض العالم
+
+Flask news site with Supabase PostgreSQL persistence, RSS ingestion, bilingual story summaries, search, optional Gemini Q&A, contact page, legal pages, robots.txt, and sitemap.xml.
+
+## Render deployment
+
+- **Build command:** `pip install -r requirements.txt`
+- **Start command:** `gunicorn --workers 1 --threads 4 --timeout 90 --bind 0.0.0.0:$PORT app:app`
+
+Set secrets only in Render → Environment. Do not commit them to GitHub.
+
+### Required/recommended environment variables
+
+- `FLASK_SECRET_KEY`: a long random secret used to sign sessions.
+- `SUPABASE_POOLER_URL`: the **Session pooler URI** shown in Supabase → Connect. This variable is preferred over `DATABASE_URL` and is recommended for Render IPv4 connectivity. Keep `DATABASE_URL` as a fallback if desired.
+- `GEMINI_API_KEY`: Gemini API key. Do not commit this value.
+- `GEMINI_MODEL`: `gemini-2.5-flash` (or another model available to your API key).
+- `AI_QUESTIONS_ENABLED`: `true`
+- `AI_QUESTIONS_PER_HOUR`: `5`
+- `AI_ANSWER_MAX_TOKENS`: `350`
+- `GEMINI_TIMEOUT_SECONDS`: `20`
+- `NEWS_AUTO_FETCH`: `true`
+- `NEWS_REFRESH_MINUTES`: `15`
+- `MAX_ARTICLES_PER_REFRESH`: `24`
+- `MAX_ARTICLES_PER_CATEGORY`: `4`
+- `DB_CONNECT_TIMEOUT`: `5`
+- `CONTACT_EMAIL`: `syfsywf86@gmail.com` (this is the public contact address, not a secret)
+
+The Session pooler URI must be copied from Supabase. If the database password contains URL-reserved characters, use the correctly URL-encoded password in the URI. Never paste database URLs or API keys into chat or source control.
+
+### Contact form delivery
+
+Without SMTP configuration, the contact form opens the visitor's email application with a pre-filled message to `CONTACT_EMAIL`. For server-side email delivery, configure these values in Render:
+
+- `SMTP_HOST`
+- `SMTP_PORT` (default `587`)
+- `SMTP_USERNAME`
+- `SMTP_PASSWORD` (secret)
+- `SMTP_USE_TLS` (`true` by default)
+- `SMTP_FROM_EMAIL` (optional; normally the SMTP account address)
+
+Use the SMTP provider's recommended host, port, TLS mode, and app password. Do not put SMTP credentials in GitHub.
+
+### Image rights
+
+Publisher RSS and Open Graph images are not displayed. The site tries to use a story-relevant Wikimedia Commons image only when the API exposes an allow-listed license (public domain, CC0, or CC BY with creator attribution); it shows the creator, file page, license name and license link. Images with missing or unrecognized licenses, non-commercial terms, no-derivatives terms, weak story relevance, or missing required attribution are rejected. If no image passes, the UI shows an original CSS-based World Pulse category placeholder. This is a conservative automated filter, not a legal guarantee; review the individual file page before launch.
+
+Some publishers do not maintain a reliable public RSS feed. For those publishers the application uses Google News RSS searches restricted to their domains; it links readers to the publisher's story. The application reads RSS titles/excerpts for processing only, does not fetch article body text for republication, and will not publish new items unless Gemini produces a usable bilingual editorial version that passes a headline-similarity check. If Gemini fails, existing stories remain in place. Feeds can change, reject requests, or go offline, so check Render logs after the first refresh.
+
+**Important rights limitation:** a public RSS endpoint is not itself a commercial republication license. Before monetization, review the current terms for each feed/publisher or obtain written permission; remove any source whose terms do not permit this use. The automated rewrite/originality check and the image-license filter reduce risk but are not a legal determination. AI-written analysis can also be wrong and should be checked by a human editor before publication; generated text alone does not guarantee original editorial value or AdSense approval.
+
+### Refreshing news
+
+The web service can initiate background refreshes. For more reliable updates if the web service sleeps, configure a Render Cron Job with:
+
+- **Command:** `python app.py --refresh-news`
+- **Schedule:** `*/15 * * * *`
+- The same database/Gemini environment variables as the web service.
+
+### AdSense preparation checklist
+
+Legal/info routes are available at `/page/privacy`, `/page/terms`, `/page/about`, and `/contact` (short aliases `/privacy-policy`, `/terms-of-service`, and `/about-us` redirect to the corresponding pages). The site also exposes `/robots.txt` and `/sitemap.xml`.
+
+These code changes do **not** guarantee Google AdSense approval. Before applying, confirm original editorial value and adequate content, remove visible explanatory/demo stories if real news is missing, verify rights to every image/content item, publish accurate policies for the services actually enabled, configure any legally required consent mechanism (use a Google-certified CMP when required by Google's current policies), test all pages and mobile layouts, and review the current AdSense policies.
+
+## Local run
+
+```bash
+pip install -r requirements.txt
+python app.py
+```
+
+The app listens on port 5000 by default. For production, use the Gunicorn command above.
