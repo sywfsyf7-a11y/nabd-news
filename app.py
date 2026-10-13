@@ -1,6 +1,6 @@
 """World Pulse / نبض العالم
 A small Flask news portal with RSS ingestion, optional Gemini bilingual editing,
-PostgreSQL persistence, and bilingual sample content as a last-resort fallback.
+PostgreSQL persistence, and a strict rule that only real, source-attributed stories are displayed.
 
 Render start command:
     gunicorn --workers 2 --threads 4 --timeout 90 app:app
@@ -104,10 +104,9 @@ UI_TEXT = {
         "recommended": "مقالات مقترحة",
         "source": "المصدر الأصلي",
         "back_home": "العودة إلى الأخبار",
-        "sample_badge": "محتوى توضيحي — ليس خبراً حياً",
-        "sample_source": "نبض العالم · محتوى توضيحي",
         "footer": "التغطية بوضوح. والسياق قبل الضجيج.",
-        "empty": "لا توجد أخبار في هذا القسم حالياً. جرّب قسماً آخر.",
+        "empty": "لا توجد أخبار مكتملة متاحة في هذا القسم حالياً.",
+        "empty_detail": "لن نعرض مقالات تجريبية بدل الأخبار الحقيقية. إذا استمر الفراغ، افحص /api/news-status وتأكد من إعداد GEMINI_API_KEY وSUPABASE_POOLER_URL أو DATABASE_URL في Render.",
         "ai_note": "أُعدّت هذه المادة التحريرية بمساعدة الذكاء الاصطناعي بالاستناد إلى المعلومات المتاحة من المصدر. وقد تتضمن سياقاً وتحليلاً تحريرياً، ولا تُعدّ تحققاً مستقلاً من الخبر.",
         "live": "تغطية الأخبار",
         "hero_title": "العالم يتغيّر. ابقَ على نبضه.",
@@ -141,10 +140,9 @@ UI_TEXT = {
         "recommended": "Recommended stories",
         "source": "Original source",
         "back_home": "Back to news",
-        "sample_badge": "EXPLANATORY SAMPLE — NOT LIVE NEWS",
-        "sample_source": "World Pulse · Explanatory sample",
         "footer": "Clarity in coverage. Context before noise.",
-        "empty": "There are no stories in this section right now. Try another section.",
+        "empty": "No complete news stories are available in this section right now.",
+        "empty_detail": "We do not replace real news with demo articles. If this persists, check /api/news-status and verify GEMINI_API_KEY plus SUPABASE_POOLER_URL or DATABASE_URL in Render.",
         "ai_note": "This original editorial report was prepared with AI assistance using the available source material. Context and analysis are editorial, not independent verification.",
         "live": "News coverage",
         "hero_title": "The world moves. Stay in its pulse.",
@@ -266,82 +264,6 @@ LEGACY_CATEGORY_IMAGE_URLS = {
 }
 LEGACY_IMAGE_URLS = LEGACY_CATEGORY_IMAGE_URLS
 
-# Clearly labelled educational sample stories used only if live articles are absent.
-SAMPLE_STORIES = [
-    {
-        "category": "politics", "slug": "sample-politics", "source_url": "",
-        "title_ar": "كيف تساعد قراءة السياق على فهم القرارات السياسية؟",
-        "title_en": "Why context matters when reading political decisions",
-        "summary_ar": "فهم القرار السياسي لا يتوقف عند الإعلان عنه؛ بل يحتاج إلى النظر في الأطراف المعنية والخلفية والتصريحات الرسمية ومصادر مستقلة متعددة.",
-        "summary_en": "Understanding a political decision means looking beyond the announcement to the stakeholders, background, official statements and multiple independent sources.",
-        "content_ar": "تتأثر القرارات السياسية بعوامل داخلية وخارجية، ولذلك فإن قراءة العنوان وحده قد تختزل الصورة.\n\nيساعد الرجوع إلى الوثائق والتصريحات الأصلية، ومقارنة التغطيات المستقلة، على تكوين فهم أكثر توازناً. ينبغي كذلك التمييز بين الوقائع المؤكدة والتحليلات والتوقعات.",
-        "content_en": "Political decisions are shaped by domestic and international factors, so a headline alone rarely tells the whole story.\n\nReading original documents, comparing independent coverage and separating confirmed facts from analysis can lead to a more balanced understanding.",
-    },
-    {
-        "category": "economy", "slug": "sample-economy", "source_url": "",
-        "title_ar": "ما المؤشرات التي تساعد على قراءة اتجاه الاقتصاد؟",
-        "title_en": "Which indicators help explain where an economy is heading?",
-        "summary_ar": "لا يقدّم مؤشر واحد صورة كاملة عن الاقتصاد؛ فالتضخم والتوظيف والنمو والإنفاق تتكامل لرسم صورة أوسع عن النشاط الاقتصادي.",
-        "summary_en": "No single indicator tells the full economic story. Inflation, employment, growth and spending together provide a broader view of economic activity.",
-        "content_ar": "تعكس المؤشرات الاقتصادية جوانب مختلفة من حياة الأفراد والشركات. فالتضخم يقيس تغير الأسعار، بينما يوضح التوظيف جانباً من سوق العمل، ويقدّر الناتج المحلي حجم النشاط الاقتصادي.\n\nالأفضل قراءة هذه الأرقام عبر الزمن ومقارنتها بمصادر موثوقة، مع الانتباه إلى أن البيانات الأولية قد تخضع للمراجعة.",
-        "content_en": "Economic indicators describe different parts of life for households and businesses. Inflation tracks price changes, employment sheds light on the labour market, and GDP estimates the scale of economic activity.\n\nThese figures are most useful when compared over time and checked against reliable sources. Preliminary data may later be revised.",
-    },
-    {
-        "category": "technology", "slug": "sample-technology", "source_url": "",
-        "title_ar": "كيف يتغيّر العمل مع تطور أدوات الذكاء الاصطناعي؟",
-        "title_en": "How are AI tools changing the way people work?",
-        "summary_ar": "تساعد الأدوات الذكية في بعض مهام البحث والكتابة والتحليل، لكن التحقق البشري وحماية البيانات وفهم حدود النماذج تبقى ضرورية.",
-        "summary_en": "AI tools can assist with research, writing and analysis, while human review, data protection and awareness of model limitations remain essential.",
-        "content_ar": "يمكن للأنظمة الذكية تسريع مهام متكررة أو المساعدة في تنظيم المعلومات، لكنها قد تنتج أخطاء أو معلومات غير مكتملة.\n\nلذلك من المهم التحقق من المخرجات بالرجوع إلى المصادر الأصلية، وعدم إدخال بيانات حساسة في خدمات لا تسمح سياساتها بذلك، ومراجعة النتائج قبل استخدامها في القرارات المهمة.",
-        "content_en": "AI systems can speed up repetitive tasks and help organise information, but they can also produce errors or incomplete answers.\n\nCheck outputs against original sources, avoid entering sensitive data into services whose policies do not permit it, and review results before using them in consequential decisions.",
-    },
-    {
-        "category": "gaming", "slug": "sample-gaming", "source_url": "",
-        "title_ar": "ما الذي يصنع تجربة لعب جيدة إلى جانب الرسومات؟",
-        "title_en": "What makes a great game beyond its graphics?",
-        "summary_ar": "تتشكّل تجربة اللعب من تصميم المراحل والاستجابة والتحكم والإيقاع وإمكانية الوصول، وليس من جودة الصورة وحدها.",
-        "summary_en": "A game's experience depends on level design, responsiveness, controls, pacing and accessibility—not graphics alone.",
-        "content_ar": "قد تجذب الرسومات الانتباه أولاً، لكن تفاعل اللاعب مع الأنظمة والتحديات هو ما يحدد استمرار المتعة. كما تؤثر الاستجابة السريعة والتحكم الواضح ومستويات الصعوبة المتوازنة في جودة التجربة.\n\nوتساعد خيارات الوصول، مثل تخصيص الأزرار والترجمة النصية، على جعل الألعاب مناسبة لمزيد من اللاعبين.",
-        "content_en": "Graphics may attract attention, but the way players interact with systems and challenges often determines whether a game stays enjoyable. Responsive controls, clear feedback and balanced difficulty matter too.\n\nAccessibility options, including remappable controls and subtitles, can make games work for a wider range of players.",
-    },
-    {
-        "category": "sports", "slug": "sample-sports", "source_url": "",
-        "title_ar": "كيف تضيف الأرقام بُعداً جديداً لتحليل الرياضة؟",
-        "title_en": "How statistics add another layer to sports analysis",
-        "summary_ar": "تساعد البيانات على فهم الأداء والأنماط، لكنها تصبح أكثر فائدة عند جمعها مع مشاهدة المباراة ومعرفة ظروف المنافسة.",
-        "summary_en": "Data can reveal performance patterns, but it is most useful when combined with watching the game and understanding the context of competition.",
-        "content_ar": "تتيح الإحصاءات مقارنة الأداء عبر المباريات واكتشاف أنماط قد لا تظهر من الانطباع الأول. ومع ذلك، لا تفسر الأرقام كل شيء؛ فقد تتغير دلالتها بحسب المنافس وقوة الفريق والظروف المحيطة.\n\nالتحليل الجيد يجمع بين البيانات والمشاهدة المباشرة، ويتجنب تحويل الارتباط الإحصائي وحده إلى استنتاج سببي.",
-        "content_en": "Statistics help compare performances across matches and reveal patterns that may not be obvious at first glance. Their meaning still depends on the opponent, team strength and surrounding circumstances.\n\nGood analysis combines data with watching the game and avoids treating statistical correlation alone as proof of cause.",
-    },
-    {
-        "category": "science", "slug": "sample-science", "source_url": "",
-        "title_ar": "لماذا تحتاج الاكتشافات العلمية إلى مراجعة وتكرار؟",
-        "title_en": "Why scientific findings need review and replication",
-        "summary_ar": "تُختبر قوة النتيجة العلمية عبر المنهجية الواضحة ومراجعة الأقران وإمكان تكرار التجربة، لا عبر عنوان مثير فقط.",
-        "summary_en": "Scientific findings gain strength through transparent methods, peer review and replication—not simply through a striking headline.",
-        "content_ar": "تبدأ المعرفة العلمية بسؤال ومنهج لاختبار فرضية، ثم تُعرض النتائج لتقييم باحثين آخرين. وقد تكشف الدراسات اللاحقة حدود النتيجة أو تؤكدها أو تعدّلها.\n\nعند قراءة خبر علمي، ابحث عن الدراسة الأصلية وحجم العينة والقيود التي ذكرها الباحثون، وانتبه إلى الفرق بين نتيجة أولية وإجماع علمي راسخ.",
-        "content_en": "Scientific knowledge starts with a question and a method for testing a hypothesis. Results are then examined by other researchers, and later studies may confirm, refine or limit the original finding.\n\nWhen reading science news, look for the original study, sample size and stated limitations, and distinguish preliminary results from established scientific consensus.",
-    },
-    {
-        "category": "culture", "slug": "sample-culture", "source_url": "",
-        "title_ar": "كيف تعيد المنصات الرقمية تشكيل الوصول إلى الثقافة؟",
-        "title_en": "How digital platforms are reshaping access to culture",
-        "summary_ar": "توسّع المنصات فرص اكتشاف الأعمال الفنية والمعرفية، لكنها تطرح أيضاً أسئلة عن حقوق المبدعين والخوارزميات وتنوع المحتوى.",
-        "summary_en": "Digital platforms make creative and educational work easier to discover, while raising questions about creator rights, algorithms and diversity.",
-        "content_ar": "أتاحت المنصات للجمهور الوصول إلى الموسيقى والكتب والأفلام والفنون من أماكن متعددة، ووفرت للمبدعين قنوات جديدة للنشر.\n\nفي المقابل، تؤثر آليات التوصية في ما يراه الجمهور، وتظل حقوق الاستخدام والتعويض عن العمل الإبداعي قضايا أساسية في الاقتصاد الثقافي الرقمي.",
-        "content_en": "Digital platforms let audiences discover music, books, films and art from many places while giving creators new distribution channels.\n\nRecommendation systems also shape what people see, and licensing and fair compensation remain important questions in the digital cultural economy.",
-    },
-    {
-        "category": "world", "slug": "sample-world", "source_url": "",
-        "title_ar": "خطوات بسيطة للتحقق من الأخبار المتداولة عالمياً",
-        "title_en": "Practical steps for checking widely shared world news",
-        "summary_ar": "تحقق من تاريخ النشر والمصدر الأصلي والصور والسياق، وقارن الخبر بتغطيات مستقلة قبل مشاركته.",
-        "summary_en": "Check publication dates, original sources, images and context, then compare independent coverage before sharing a story.",
-        "content_ar": "قد تعود صورة متداولة إلى حدث قديم، أو يُقتطع تصريح من سياقه، أو يُعاد نشر مادة من دون تاريخ واضح.\n\nللتثبت، افتح الرابط الأصلي، وتحقق من التاريخ والمكان والأسماء، وابحث عن تأكيد مستقل. وإذا بقيت معلومة غير مؤكدة، فمن الأفضل وصفها كذلك بدلاً من تقديمها كحقيقة.",
-        "content_en": "A widely shared image may come from an older event, a quote may be taken out of context, or a post may omit its original date.\n\nOpen the original link, check dates, places and names, and seek independent confirmation. When information remains unverified, describe it as such rather than presenting it as established fact.",
-    },
-]
-
 # ---------------------------------------------------------------------------
 # PostgreSQL: Supabase shared pooler is preferred for Render's IPv4 network.
 # ---------------------------------------------------------------------------
@@ -395,6 +317,18 @@ def _database_url() -> str:
     return (os.getenv("SUPABASE_POOLER_URL") or os.getenv("DATABASE_URL") or "").strip()
 
 
+def _news_setup_issues() -> list[str]:
+    """Return safe diagnostic messages without exposing credentials or their values."""
+    issues: list[str] = []
+    if not GEMINI_API_KEY:
+        issues.append("Missing GEMINI_API_KEY in Render Environment")
+    elif genai is None or types is None:
+        issues.append("Gemini SDK unavailable; check requirements.txt and redeploy")
+    if not _database_url():
+        issues.append("Missing SUPABASE_POOLER_URL or DATABASE_URL in Render Environment")
+    return issues
+
+
 def _connect_db():
     global _DB_RETRY_AFTER
     dsn = _database_url()
@@ -415,7 +349,7 @@ def _connect_db():
     except Exception as exc:  # Database failures must not take down the website.
         with _DB_LOCK:
             _DB_RETRY_AFTER = time.monotonic() + 60
-        logger.warning("Database connection unavailable; serving fallback content. Details: %s", exc)
+        logger.warning("Database connection unavailable; persisted news cannot be read or saved. Details: %s", exc)
         return None
 
 
@@ -1410,69 +1344,83 @@ def _refresh_news_job() -> None:
         with _STATE_LOCK:
             _LAST_REFRESH_STATE = "running"
             _LAST_REFRESH_ERROR = ""
-        raw_articles = _collect_rss_articles()
 
+        setup_issues = _news_setup_issues()
+        if setup_issues:
+            raise RuntimeError("News pipeline setup incomplete: " + "; ".join(setup_issues))
+        if not _ensure_schema():
+            raise RuntimeError("Cannot connect to Supabase/PostgreSQL or initialise its schema. Verify the database URL, password, SSL and network settings.")
+
+        raw_articles = _collect_rss_articles()
         # Reprocess a few recent legacy stories whose body is still only an RSS snippet.
-        # This also allows a stored story to be upgraded when the RSS feed is temporarily down.
+        # This permits stored rows to be upgraded when RSS discovery is temporarily down.
         known_urls = {str(item.get("source_url", "")) for item in raw_articles}
         for stored in _db_fetch_articles_needing_editorial(limit=4):
             source_url = str(stored.get("source_url", ""))
             if source_url and source_url not in known_urls:
                 raw_articles.append(_raw_from_stored_article(stored))
                 known_urls.add(source_url)
-        if not raw_articles:
-            logger.warning("No RSS stories or thin stored stories were available to enrich; existing articles remain available")
-            with _STATE_LOCK:
-                _LAST_REFRESH_STATE = "error"
-                _LAST_REFRESH_ERROR = "No RSS stories returned"
-            return
 
-        # Fetch the linked publisher's public text and produce the bilingual report.
+        if not raw_articles:
+            raise RuntimeError("No eligible RSS stories were returned. Check source discovery, network access and publisher-rights filters in Render logs.")
+
         translations = _translate_batch(raw_articles)
-        for index, raw in enumerate(raw_articles):
-            translated = translations.get(index, {})
-            raw["image_search_title"] = translated.get("title_en", "")
-        # Image enrichment runs in parallel and never blocks the user-facing request.
-        _enrich_article_images(raw_articles)
-        _avoid_repeated_news_photos(raw_articles)
+        if not translations:
+            raise RuntimeError("RSS results were found but Gemini produced no complete articles. Check GEMINI_API_KEY, GEMINI_MODEL, API quota/permissions and Render logs.")
+
+        # Keep image calls limited to drafts that passed editorial validation.
+        translated_raw = [raw_articles[index] for index in sorted(translations) if 0 <= index < len(raw_articles)]
+        for index in sorted(translations):
+            if 0 <= index < len(raw_articles):
+                raw_articles[index]["image_search_title"] = translations[index].get("title_en", "")
+        _enrich_article_images(translated_raw)
+        _avoid_repeated_news_photos(translated_raw)
+
         ready: list[dict[str, Any]] = []
-        for index, raw in enumerate(raw_articles):
-            # Do not publish an unedited RSS excerpt as an article if AI editorial processing
-            # is unavailable or fails. For existing backfill rows, keep the saved version.
-            if index not in translations:
+        for index in sorted(translations):
+            if not (0 <= index < len(raw_articles)):
                 continue
+            raw = raw_articles[index]
             article = _base_article(raw)
             article.update(translations[index])
             article["read_minutes"] = _reading_minutes(article)
             ready.append(article)
-            _MEMORY_ARTICLES[article["source_url"]] = article
+
+        if not ready:
+            raise RuntimeError("Gemini did not return any complete bilingual drafts. No article was published.")
 
         saved = _db_upsert_many(ready)
+        if not saved:
+            raise RuntimeError("Articles were generated but could not be saved to PostgreSQL. Check the database connection and Render logs.")
+
+        # Cache only after durable persistence succeeds; no worker serves an unsaved transient article.
+        for article in ready:
+            _MEMORY_ARTICLES[article["source_url"]] = article
         _LAST_REFRESH_SUCCESS = time.monotonic()
         _LAST_REFRESH_AT = datetime.now(timezone.utc)
-        _LAST_REFRESH_STATE = "success" if saved else "memory_only"
-        logger.info("News refresh complete: %s stories processed; postgres_saved=%s", len(ready), saved)
+        _LAST_REFRESH_STATE = "success"
+        _LAST_REFRESH_ERROR = ""
+        logger.info("News refresh complete: %s real stories saved to PostgreSQL", len(ready))
     except Exception as exc:
         _LAST_REFRESH_AT = datetime.now(timezone.utc)
         _LAST_REFRESH_STATE = "error"
-        _LAST_REFRESH_ERROR = str(exc)[:300]
-        logger.exception("Unexpected failure while refreshing news")
+        _LAST_REFRESH_ERROR = str(exc)[:500]
+        logger.exception("News refresh failed; no demo content will be displayed")
     finally:
         with _STATE_LOCK:
             _REFRESHING = False
 
 def _maybe_start_refresh() -> None:
-    """Refresh in a daemon thread so a slow external feed never blocks the page render."""
+    """Refresh in a daemon thread without spamming retries when required config is absent."""
     global _REFRESHING, _LAST_REFRESH_ATTEMPT
-    if not NEWS_AUTO_FETCH:
+    if not NEWS_AUTO_FETCH or _news_setup_issues():
         return
     now = time.monotonic()
     with _STATE_LOCK:
         if _REFRESHING:
             return
         interval = NEWS_REFRESH_MINUTES * 60 if _LAST_REFRESH_SUCCESS else NEWS_RETRY_MINUTES * 60
-        # On a newly started worker, retry slowly if there's already persisted data; otherwise
-        # make one initial attempt and let the fallback render immediately.
+        # Retry slowly after a previous attempt; the page itself never substitutes demo news.
         if _LAST_REFRESH_ATTEMPT and now - _LAST_REFRESH_ATTEMPT < min(interval, NEWS_RETRY_MINUTES * 60):
             return
         if _LAST_REFRESH_SUCCESS and now - _LAST_REFRESH_SUCCESS < interval:
@@ -1484,25 +1432,8 @@ def _maybe_start_refresh() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Display helpers, fallback and routes
+# Display helpers and routes
 # ---------------------------------------------------------------------------
-
-
-def _sample_articles() -> list[dict[str, Any]]:
-    result = []
-    for template in SAMPLE_STORIES:
-        story = dict(template)
-        story.update({
-            "source_name": "نبض العالم · محتوى توضيحي" if story["category"] else "World Pulse · Explanatory sample",
-            "image_url": CATEGORY_IMAGES[story["category"]],
-            "published_at": None,
-            "fetched_at": None,
-            "read_minutes": max(1, (len((story.get("content_ar", "") + story.get("content_en", "")).split()) // 400) + 1),
-            "original_language": "both",
-            "is_demo": True,
-        })
-        result.append(story)
-    return result
 
 
 def _normalise_summary_body(summary: str, content: str) -> str:
@@ -1550,19 +1481,19 @@ def _normalise_summary_body(summary: str, content: str) -> str:
 
 def _normalise_story(row: dict[str, Any], lang: str) -> dict[str, Any]:
     story = dict(row)
+    # Legacy demo rows are never served as articles, even if an old slug is requested.
+    story["is_demo"] = False
     story.setdefault("source_name", "")
-    story.setdefault("image_url", CATEGORY_IMAGES.get(story.get("category", "world"), CATEGORY_IMAGES["world"]) if story.get("is_demo") else "")
+    story.setdefault("image_url", "")
     story.setdefault("image_source", "")
     story.setdefault("image_credit", "")
     story.setdefault("image_credit_url", "")
     story.setdefault("image_provider_url", "")
     story.setdefault("image_license_url", "")
-    story.setdefault("is_demo", False)
-    if story.get("is_demo"):
-        story["source_name"] = UI_TEXT[lang]["sample_source"]
-    elif story.get("image_url") in set(CATEGORY_IMAGES.values()) and story.get("image_source") in {"", "category", "none"}:
-        # Older rows may contain the old repeating section stock image.
-        story["image_url"] = ""
+    if story.get("image_source") in {"", "category", "none"}:
+        # Old generic category imagery is not an article-specific photo.
+        if story.get("image_url") in set(CATEGORY_IMAGES.values()):
+            story["image_url"] = ""
     story["title"] = story.get(f"title_{lang}") or ""
     story["summary"] = story.get(f"summary_{lang}") or ""
     raw_content = story.get(f"content_{lang}") or ""
@@ -1572,19 +1503,21 @@ def _normalise_story(row: dict[str, Any], lang: str) -> dict[str, Any]:
     story["read_minutes"] = max(1, int(story.get("read_minutes") or 1))
     if not story.get("slug"):
         story["slug"] = _slug_for_url(story.get("source_url", "world-pulse"))
-    if not story.get("image_url") and story.get("is_demo"):
-        story["image_url"] = CATEGORY_IMAGES.get(story.get("category", "world"), CATEGORY_IMAGES["world"])
     return story
 
 def _all_live_articles() -> list[dict[str, Any]]:
-    # Database is the durable source; memory also covers a DB outage during this worker's life.
+    # PostgreSQL is the durable source; only successfully persisted, real stories are cached.
     rows = _db_fetch_all()
     by_url: dict[str, dict[str, Any]] = {}
     for row in rows:
+        if row.get("is_demo"):
+            continue
         key = str(row.get("source_url") or row.get("slug") or "")
         if key:
             by_url[key] = row
     for key, row in _MEMORY_ARTICLES.items():
+        if row.get("is_demo"):
+            continue
         by_url[key] = row
     result = list(by_url.values())
     result.sort(key=lambda item: item.get("published_at") or item.get("fetched_at") or datetime(1970, 1, 1, tzinfo=timezone.utc), reverse=True)
@@ -1592,38 +1525,35 @@ def _all_live_articles() -> list[dict[str, Any]]:
 
 
 def _get_display_stories(lang: str) -> list[dict[str, Any]]:
-    live = [row for row in _all_live_articles() if row.get(f"title_{lang}") and row.get("category") in CATEGORY_NAMES]
-    # Cover categories with labelled explanatory samples when live news is missing or
-    # not available in the selected language. This keeps every section useful without
-    # misrepresenting sample content as a real current event.
-    live_categories = {row.get("category") for row in live}
-    supplements = [
-        row for row in _sample_articles()
-        if row.get("category") not in live_categories
+    """Serve only persisted or current-worker real stories; never seed demo articles."""
+    live = [
+        row for row in _all_live_articles()
+        if not row.get("is_demo")
+        and row.get("source_url")
+        and row.get(f"title_{lang}")
+        and row.get(f"category") in CATEGORY_NAMES
+        and len(str(row.get(f"content_{lang}") or "").strip()) >= 220
     ]
-    combined = live + supplements
-    combined.sort(
-        key=lambda item: (
-            item.get("published_at") or item.get("fetched_at") or datetime(1970, 1, 1, tzinfo=timezone.utc)
-        ),
+    live.sort(
+        key=lambda item: item.get("published_at") or item.get("fetched_at") or datetime(1970, 1, 1, tzinfo=timezone.utc),
         reverse=True,
     )
-    return [_normalise_story(row, lang) for row in combined]
+    return [_normalise_story(row, lang) for row in live]
 
 
 def _find_article(slug: str, lang: str) -> dict[str, Any] | None:
     for row in _all_live_articles():
-        if row.get("slug") == slug and row.get(f"title_{lang}"):
-            return _normalise_story(row, lang)
-    for row in _sample_articles():
-        if row.get("slug") == slug:
-            return _normalise_story(row, lang)
+        if row.get("is_demo"):
+            continue
+        if row.get("slug") == slug and row.get("source_url") and row.get(f"title_{lang}"):
+            if len(str(row.get(f"content_{lang}") or "").strip()) >= 220:
+                return _normalise_story(row, lang)
     return None
 
 
 def _format_date(value: Any, lang: str) -> str:
     if not value:
-        return "محتوى توضيحي" if lang == "ar" else "Explanatory sample"
+        return "التاريخ غير متاح" if lang == "ar" else "Date unavailable"
     try:
         if isinstance(value, str):
             parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
@@ -1735,15 +1665,22 @@ def article(slug: str):
 
 @app.get("/api/news-status")
 def news_status():
-    # Read the database timestamp so an independent Render Cron Job can notify open pages.
+    # The most recent of the database and worker timestamps handles successful and failed attempts.
     persisted_at = _db_last_fetched_at()
-    last_refresh_at = persisted_at or _LAST_REFRESH_AT
+    timestamps = [value for value in (persisted_at, _LAST_REFRESH_AT) if isinstance(value, datetime)]
+    normalised = [value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value for value in timestamps]
+    last_refresh_at = max(normalised) if normalised else None
     return jsonify({
         "running": bool(_REFRESHING),
         "state": _LAST_REFRESH_STATE,
         "last_refresh_at": last_refresh_at.isoformat() if last_refresh_at else None,
         "interval_minutes": NEWS_REFRESH_MINUTES,
         "error": _LAST_REFRESH_ERROR,
+        "database_url_configured": bool(_database_url()),
+        "gemini_api_key_configured": bool(GEMINI_API_KEY),
+        "gemini_sdk_available": bool(genai is not None and types is not None),
+        "news_auto_fetch": NEWS_AUTO_FETCH,
+        "setup_issues": _news_setup_issues(),
     }), 200
 
 
@@ -1902,8 +1839,15 @@ def robots():
 
 @app.get("/healthz")
 def healthz():
-    # Liveness endpoint intentionally stays healthy during a database or RSS outage.
-    return {"status": "ok", "database_configured": bool(_database_url()), "gemini_configured": bool(GEMINI_API_KEY)}, 200
+    # Liveness remains available so Render does not restart the service for a source outage.
+    return {
+        "status": "ok",
+        "database_url_configured": bool(_database_url()),
+        "gemini_api_key_configured": bool(GEMINI_API_KEY),
+        "gemini_sdk_available": bool(genai is not None and types is not None),
+        "news_auto_fetch": NEWS_AUTO_FETCH,
+        "setup_issues": _news_setup_issues(),
+    }, 200
 
 
 @app.errorhandler(404)
