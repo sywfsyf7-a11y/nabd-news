@@ -3,166 +3,96 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#111827">
-  <meta name="description" content="{% if page == 'article' and article %}{{ article.summary|striptags|truncate(155, True, '…') }}{% elif page == 'legal' %}{{ legal_body|striptags|truncate(155, True, '…') }}{% else %}{{ ui.hero_text }}{% endif %}">
-  <title>{% if page == 'article' and article %}{{ article.title }} — {% elif page == 'legal' %}{{ legal_title }} — {% endif %}{{ site_name }}</title>
+  <title>{% if page == 'article' and article %}{{ article.title }} — {% endif %}{{ site_name }}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = {
-      theme: {
-        extend: {
-          colors: { ink: '#111827', paper: '#F7F7F5', pulse: '#E53945', muted: '#64748B' },
-          boxShadow: { soft: '0 16px 45px rgba(15, 23, 42, 0.07)' }
-        }
-      }
+      theme: { extend: { colors: { ink: '#111827', paper: '#F7F7F5', pulse: '#E53945' } } }
     };
-  </script>
-  <script>
-    try { document.documentElement.dataset.theme = localStorage.getItem('world-pulse-theme') || 'light'; } catch (_) {}
   </script>
   <style>
     body { font-family: {% if lang == 'ar' %}'Cairo', sans-serif{% else %}'Inter', sans-serif{% endif %}; }
     .article-copy { white-space: pre-line; line-height: 2.1; font-size: 1.05rem; }
     .nav-scroll::-webkit-scrollbar { display: none; }
-    .nav-scroll { scrollbar-width: none; }
-    html[data-theme="dark"] body { background: #0b1120; color: #edf2f7; }
-    html[data-theme="dark"] header, html[data-theme="dark"] footer { background-color: rgba(15, 23, 42, .97) !important; border-color: #293548 !important; }
-    html[data-theme="dark"] .bg-white { background-color: #111b2d !important; }
-    html[data-theme="dark"] .bg-slate-50 { background-color: #172235 !important; }
-    html[data-theme="dark"] .text-ink { color: #f8fafc !important; }
-    html[data-theme="dark"] .text-slate-600 { color: #d5deea !important; }
-    .story-image-placeholder { display: flex; align-items: center; justify-content: center; overflow: hidden; background: #253047; color: rgba(255,255,255,.85); }
-    .story-image-placeholder[data-category="politics"] { background: linear-gradient(135deg, #18253a, #65323e); }
-    .story-image-placeholder[data-category="economy"] { background: linear-gradient(135deg, #153b37, #34465d); }
-    .story-image-placeholder[data-category="technology"] { background: linear-gradient(135deg, #192b4a, #3b3a70); }
-    .story-image-placeholder[data-category="gaming"] { background: linear-gradient(135deg, #33204c, #762d53); }
-    .story-image-placeholder[data-category="sports"] { background: linear-gradient(135deg, #164638, #425c35); }
-    .story-image-placeholder[data-category="science"] { background: linear-gradient(135deg, #183a53, #31616d); }
-    .story-image-placeholder[data-category="culture"] { background: linear-gradient(135deg, #4c2d32, #7a5838); }
-    .story-image-placeholder[data-category="world"] { background: linear-gradient(135deg, #273448, #4b5870); }
   </style>
 </head>
 <body class="min-h-screen bg-paper text-ink antialiased">
-  <div class="bg-ink text-white">
-    <div class="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-2.5 sm:px-6 lg:px-8">
-      <div class="flex items-center gap-3 text-xs sm:text-sm">
-        <span class="inline-flex items-center gap-2 font-bold text-rose-400"><span class="h-2 w-2 rounded-full bg-pulse"></span>{{ ui.live }}</span>
-        <span class="text-white/70">{{ ui.tagline }}</span>
-      </div>
-      <div class="flex items-center gap-2">
-        <button id="themeToggle" type="button" aria-label="{{ ui.theme_toggle }}" class="rounded-full border border-white/20 px-3 py-1.5 text-xs font-bold hover:bg-white/10">{{ ui.theme_toggle }}</button>
-        <a href="{{ url_for('index', lang='en' if lang == 'ar' else 'ar') }}" class="rounded-full border border-white/20 px-3 py-1.5 text-xs font-bold hover:bg-white/10">{{ 'EN' if lang == 'ar' else 'عربي' }}</a>
-      </div>
-    </div>
-  </div>
-
-  <header class="sticky top-0 z-30 border-b border-slate-200/80 bg-paper/95 backdrop-blur-xl">
-    <div class="mx-auto flex max-w-7xl items-center justify-between gap-5 px-4 py-4 sm:px-6 lg:px-8">
+  <header class="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur-xl">
+    <div class="mx-auto flex max-w-7xl items-center justify-between px-4 py-4 sm:px-6">
       <a href="{{ url_for('index', lang=lang) }}" class="flex items-center gap-3">
-        <span class="grid h-11 w-11 place-items-center rounded-2xl bg-pulse text-white shadow-lg shadow-rose-500/20">WP</span>
-        <span class="block">
-          <span class="block text-xl font-extrabold tracking-tight sm:text-2xl">{{ site_name }}</span>
-          <span class="block text-[10px] font-semibold uppercase tracking-[.22em] text-slate-500">NEWS & DEEP ANALYSIS</span>
-        </span>
+        <span class="grid h-10 w-10 place-items-center rounded-2xl bg-pulse text-white font-black">WP</span>
+        <span class="text-xl font-extrabold tracking-tight">{{ site_name }}</span>
       </a>
-      <form action="{{ url_for('search', lang=lang) }}" method="get" class="hidden max-w-sm flex-1 items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 md:flex">
-        <input name="q" value="{{ search_query if search_query is defined else '' }}" type="search" required placeholder="{{ 'ابحث في التحليلات والأخبار...' if lang == 'ar' else 'Search news and analysis...' }}" class="w-full bg-transparent text-sm outline-none" />
-      </form>
+      <div class="flex items-center gap-3">
+        <a href="{{ url_for('index', lang='en' if lang == 'ar' else 'ar') }}" class="rounded-full border px-3 py-1 text-xs font-bold">{{ 'EN' if lang == 'ar' else 'عربي' }}</a>
+      </div>
     </div>
-    <nav class="border-t border-slate-200/70">
-      <div class="nav-scroll mx-auto flex max-w-7xl items-center gap-2 overflow-x-auto px-4 py-2.5 sm:px-6 lg:px-8">
-        <a href="{{ url_for('index', lang=lang, category='all') }}" class="rounded-full px-4 py-2 text-sm font-bold transition {{ 'bg-ink text-white' if active_category == 'all' else 'text-slate-600 hover:bg-white' }}">{{ ui.all_news }}</a>
+    <nav class="border-t border-slate-100">
+      <div class="nav-scroll mx-auto flex max-w-7xl items-center gap-2 overflow-x-auto px-4 py-2.5 sm:px-6">
+        <a href="{{ url_for('index', lang=lang, category='all') }}" class="rounded-full px-4 py-2 text-sm font-bold {{ 'bg-ink text-white' if active_category == 'all' else 'text-slate-600' }}">{{ ui.all_news }}</a>
         {% for item in categories %}
-          <a href="{{ url_for('index', lang=lang, category=item.key) }}" class="rounded-full px-4 py-2 text-sm font-semibold transition {{ 'bg-ink text-white' if active_category == item.key else 'text-slate-600 hover:bg-white' }}">{{ item.label }}</a>
+          <a href="{{ url_for('index', lang=lang, category=item.key) }}" class="rounded-full px-4 py-2 text-sm font-semibold {{ 'bg-ink text-white' if active_category == item.key else 'text-slate-600' }}">{{ item.label }}</a>
         {% endfor %}
       </div>
     </nav>
   </header>
 
-  <main class="mx-auto max-w-7xl px-4 pb-16 pt-6 sm:px-6 lg:px-8">
-    {% if page == 'legal' %}
-      <section class="mx-auto max-w-3xl rounded-3xl border border-slate-200 bg-white p-6 sm:p-10">
-        <h1 class="mb-5 text-3xl font-extrabold">{{ legal_title }}</h1>
-        <p class="whitespace-pre-line text-base leading-8 text-slate-600">{{ legal_body }}</p>
-      </section>
-    {% elif page == 'search' %}
-      <section class="mb-6"><h1 class="text-3xl font-extrabold">{{ 'نتائج البحث والتحليل' if lang == 'ar' else 'Search results' }}</h1></section>
-      {% if stories %}<div class="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3">{% for story in stories %}<article class="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"><p class="mb-2 text-xs font-bold text-pulse">{{ story.category_label }}</p><h2 class="text-lg font-extrabold"><a href="{{ url_for('article', slug=story.slug, lang=lang) }}">{{ story.title }}</a></h2><p class="mt-3 line-clamp-3 text-sm text-slate-600">{{ story.summary }}</p></article>{% endfor %}</div>{% else %}<p class="rounded-2xl border border-slate-200 bg-white p-8 text-slate-500">{{ 'لا توجد نتائج مطابقة.' if lang == 'ar' else 'No results found.' }}</p>{% endif %}
-    {% elif page == 'home' %}
-      <section class="mb-8 rounded-[2rem] bg-ink px-6 py-10 text-white sm:px-12 sm:py-14 shadow-soft">
-        <h1 class="text-3xl font-extrabold sm:text-4xl lg:text-5xl">{{ ui.hero_title }}</h1>
-        <p class="mt-4 max-w-xl text-sm leading-7 text-slate-300 sm:text-base">{{ ui.hero_text }}</p>
+  <main class="mx-auto max-w-7xl px-4 pb-16 pt-6 sm:px-6">
+    {% if page == 'home' %}
+      <section class="mb-8 rounded-3xl bg-ink px-6 py-10 text-white sm:px-12">
+        <h1 class="text-3xl font-extrabold sm:text-4xl">{{ ui.hero_title }}</h1>
+        <p class="mt-3 text-sm text-slate-300 sm:text-base">{{ ui.hero_text }}</p>
       </section>
       <section>
-        <div class="mb-6"><h2 class="text-2xl font-extrabold">{% if active_category == 'all' %}{{ ui.latest }}{% else %}{{ category_names[active_category][lang] }}{% endif %}</h2></div>
+        <h2 class="mb-6 text-2xl font-extrabold">{{ ui.latest }}</h2>
         {% if stories %}
           <div class="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-3">
             {% for story in stories %}
-              <article class="group flex h-full flex-col overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-sm transition hover:-translate-y-1 hover:shadow-soft">
-                <a href="{{ url_for('article', slug=story.slug, lang=lang) }}" class="relative block aspect-[16/9] overflow-hidden bg-slate-200">
-                  <div class="story-image-placeholder absolute inset-0" data-category="{{ story.category }}"><span class="text-5xl font-black opacity-30">PULSE</span></div>
-                  {% if story.image_url %}<img src="{{ story.image_url }}" alt="{{ story.title }}" loading="lazy" class="absolute inset-0 h-full w-full object-cover">{% endif %}
-                  <span class="absolute {{ 'right-4' if lang == 'ar' else 'left-4' }} top-4 rounded-full bg-ink/80 px-3 py-1.5 text-xs font-bold text-white">{{ story.category_label }}</span>
-                </a>
-                <div class="flex flex-1 flex-col p-6">
-                  <div class="mb-2 text-xs text-slate-500"><span>{{ story.source_name }}</span> · <time>{{ story.published_label }}</time></div>
-                  <h3 class="mb-3 text-lg font-extrabold group-hover:text-pulse"><a href="{{ url_for('article', slug=story.slug, lang=lang) }}">{{ story.title }}</a></h3>
-                  <p class="mb-6 line-clamp-3 text-sm text-slate-600">{{ story.summary }}</p>
-                  <div class="mt-auto border-t border-slate-100 pt-4"><a href="{{ url_for('article', slug=story.slug, lang=lang) }}" class="text-sm font-extrabold text-pulse">{{ ui.read_full }} →</a></div>
-                </div>
+              <article class="flex flex-col rounded-3xl border border-slate-200 bg-white p-6 shadow-sm hover:shadow-md transition">
+                <span class="mb-3 inline-block self-start rounded-full bg-pulse/10 px-3 py-1 text-xs font-bold text-pulse">{{ story.category_label }}</span>
+                <div class="mb-2 text-xs text-slate-400"><span>{{ story.source_name }}</span> · {{ story.published_label }}</div>
+                <h3 class="mb-3 text-lg font-extrabold hover:text-pulse"><a href="{{ url_for('article', slug=story.slug, lang=lang) }}">{{ story.title }}</a></h3>
+                <p class="mb-6 line-clamp-3 text-sm text-slate-600">{{ story.summary }}</p>
+                <div class="mt-auto border-t pt-4"><a href="{{ url_for('article', slug=story.slug, lang=lang) }}" class="text-sm font-extrabold text-pulse">{{ ui.read_full }} →</a></div>
               </article>
             {% endfor %}
           </div>
         {% else %}
-          <p class="rounded-3xl border border-dashed border-slate-300 bg-white p-12 text-center text-slate-500">{{ ui.empty }}</p>
+          <p class="rounded-3xl border bg-white p-12 text-center text-slate-500">{{ ui.empty }}</p>
         {% endif %}
       </section>
     {% elif page == 'article' and article %}
-      <article class="mx-auto max-w-4xl rounded-[2rem] border border-slate-200 bg-white p-6 sm:p-12 shadow-soft">
+      <article class="mx-auto max-w-4xl rounded-3xl border border-slate-200 bg-white p-6 sm:p-12 shadow-sm">
         <span class="inline-block rounded-full bg-pulse/10 px-3.5 py-1 text-xs font-extrabold text-pulse">{{ article.category_label }}</span>
         <h1 class="mt-4 text-2xl font-extrabold sm:text-4xl leading-tight">{{ article.title }}</h1>
-        <p class="mt-3 text-sm text-slate-500"><span>{{ article.source_name }}</span> · <time>{{ article.published_label }}</time></p>
+        <p class="mt-3 text-xs text-slate-400"><span>{{ article.source_name }}</span> · {{ article.published_label }}</p>
         
         <div class="my-6 rounded-2xl border-s-4 border-pulse bg-slate-50 p-6">
           <p class="text-base font-bold text-slate-800 leading-7">{{ article.summary }}</p>
         </div>
 
-        {% if article.image_url %}
-          <div class="my-6 overflow-hidden rounded-2xl bg-slate-100">
-            <img src="{{ article.image_url }}" alt="{{ article.title }}" class="w-full max-h-[480px] object-cover">
-            {% if article.image_credit %}<p class="p-2 text-right text-xs text-slate-400">صورة: {{ article.image_credit }}</p>{% endif %}
-          </div>
-        {% endif %}
-
-        <h2 class="mb-4 text-xl font-extrabold text-slate-900 border-b pb-2">{{ ui.article_details }}</h2>
         <div class="article-copy text-slate-700">{{ article.content }}</div>
 
-        <!-- AI Ask Section with External AI Fallback Buttons -->
-        <section id="articleAsk" class="mt-12 rounded-3xl border border-slate-200 bg-slate-50 p-6 sm:p-8">
+        <section id="articleAsk" class="mt-12 rounded-3xl border bg-slate-50 p-6 sm:p-8">
           <h2 class="text-xl font-extrabold">{{ ui.ai_ask_title }}</h2>
-          <p class="mt-1 text-sm text-slate-500">{{ ui.ai_ask_desc }}</p>
           <form id="articleAskForm" class="mt-4 space-y-3">
-            <textarea id="articleQuestion" name="question" rows="3" required placeholder="{{ ui.ai_question_placeholder }}" class="w-full rounded-2xl border border-slate-200 bg-white p-4 text-sm outline-none focus:border-pulse"></textarea>
-            <div class="flex flex-wrap items-center justify-between gap-3">
-              <button id="articleAskButton" type="submit" {% if not ai_ask_enabled %}disabled{% endif %} class="inline-flex items-center gap-2 rounded-full bg-pulse px-6 py-3 text-sm font-extrabold text-white shadow-lg shadow-rose-500/20 hover:bg-rose-600">
-                <svg id="askSpinner" class="hidden h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="3" stroke-opacity=".25"/><path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>
-                <span>{{ ui.ai_ask_button }}</span>
-              </button>
-            </div>
+            <textarea id="articleQuestion" rows="3" required placeholder="{{ ui.ai_question_placeholder }}" class="w-full rounded-2xl border bg-white p-4 text-sm outline-none focus:border-pulse"></textarea>
+            <button id="articleAskButton" type="submit" class="rounded-full bg-pulse px-6 py-3 text-sm font-extrabold text-white shadow-md hover:bg-rose-600">
+              <span>{{ ui.ai_ask_button }}</span>
+            </button>
           </form>
-          <div id="articleAskAnswer" class="mt-4 hidden rounded-2xl border border-slate-200 bg-white p-5 text-sm leading-7 text-slate-700 shadow-sm"></div>
+          <div id="articleAskAnswer" class="mt-4 hidden rounded-2xl border bg-white p-5 text-sm leading-7 text-slate-700"></div>
 
-          <!-- Direct Fallback Links to ChatGPT & Gemini -->
-          <div class="mt-6 border-t border-slate-200 pt-5">
-            <p class="mb-3 text-xs font-bold text-slate-500">{{ 'أو تابع الحوار واستفسر عبر منصات الذكاء الاصطناعي مباشرة:' if lang == 'ar' else 'Or continue asking on AI platforms directly:' }}</p>
+          <div class="mt-6 border-t pt-5">
+            <p class="mb-3 text-xs font-bold text-slate-500">{{ 'أو تابع عبر منصات الذكاء الاصطناعي مباشرة:' if lang == 'ar' else 'Or continue on AI platforms:' }}</p>
             <div class="flex flex-wrap gap-3">
-              <a href="https://chatgpt.com/?q={{ quote('بخصوص هذا الخبر: ' ~ article.title) }}" target="_blank" rel="noopener" class="inline-flex items-center gap-1.5 rounded-full border border-slate-300 bg-white px-4 py-2 text-xs font-extrabold text-slate-700 shadow-sm hover:border-pulse hover:text-pulse">
+              <a href="https://chatgpt.com/?q={{ quote('بخصوص هذا الخبر: ' ~ article.title) }}" target="_blank" rel="noopener" class="rounded-full border bg-white px-4 py-2 text-xs font-extrabold text-slate-700 hover:text-pulse">
                 {{ ui.ask_chatgpt }}
               </a>
-              <a href="https://gemini.google.com/app" target="_blank" rel="noopener" class="inline-flex items-center gap-1.5 rounded-full border border-slate-300 bg-white px-4 py-2 text-xs font-extrabold text-slate-700 shadow-sm hover:border-pulse hover:text-pulse">
+              <a href="https://gemini.google.com/app" target="_blank" rel="noopener" class="rounded-full border bg-white px-4 py-2 text-xs font-extrabold text-slate-700 hover:text-pulse">
                 {{ ui.ask_gemini }}
               </a>
             </div>
@@ -172,58 +102,27 @@
     {% endif %}
   </main>
 
-  <footer class="border-t border-slate-200 bg-white">
-    <div class="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-8 sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
-      <a href="{{ url_for('index', lang=lang) }}" class="flex items-center gap-2 font-extrabold"><span class="grid h-8 w-8 place-items-center rounded-xl bg-pulse text-white">WP</span>{{ site_name }}</a>
-      <div class="flex flex-wrap gap-4 text-xs font-semibold text-slate-500">
-        <a class="hover:text-pulse" href="{{ url_for('legal_page', slug='privacy', lang=lang) }}">{{ 'سياسة الخصوصية' if lang == 'ar' else 'Privacy Policy' }}</a>
-        <a class="hover:text-pulse" href="{{ url_for('legal_page', slug='terms', lang=lang) }}">{{ 'شروط الاستخدام' if lang == 'ar' else 'Terms of Service' }}</a>
-        <a class="hover:text-pulse" href="{{ url_for('legal_page', slug='about', lang=lang) }}">{{ 'من نحن' if lang == 'ar' else 'About Us' }}</a>
-        <a class="hover:text-pulse" href="{{ url_for('legal_page', slug='contact', lang=lang) }}">{{ 'اتصل بنا' if lang == 'ar' else 'Contact Us' }}</a>
-      </div>
-      <p class="text-xs text-slate-500"><a href="mailto:{{ contact_email }}" class="underline hover:text-pulse">{{ contact_email }}</a></p>
-    </div>
-  </footer>
-
   <script>
-    (() => {
-      const root = document.documentElement;
-      document.getElementById('themeToggle')?.addEventListener('click', () => {
-        const dark = root.dataset.theme === 'dark';
-        root.dataset.theme = dark ? 'light' : 'dark';
-        localStorage.setItem('world-pulse-theme', root.dataset.theme);
-      });
-
-      const askForm = document.getElementById('articleAskForm');
-      const askQuestion = document.getElementById('articleQuestion');
-      const askButton = document.getElementById('articleAskButton');
-      const askSpinner = document.getElementById('askSpinner');
-      const askAnswer = document.getElementById('articleAskAnswer');
-      
-      askForm?.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const question = askQuestion.value.trim();
-        if (!question) return;
-        askButton.disabled = true;
-        askSpinner?.classList.remove('hidden');
-        askAnswer?.classList.add('hidden');
-        try {
-          const res = await fetch('/api/ask', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ slug: {{ (article.slug if article else '')|tojson }}, lang: {{ lang|tojson }}, question })
-          });
-          const data = await res.json();
-          if (res.ok && data.answer) {
-            askAnswer.textContent = data.answer;
-            askAnswer.classList.remove('hidden');
-          }
-        } catch (_) {} finally {
-          askButton.disabled = false;
-          askSpinner?.classList.add('hidden');
+    const askForm = document.getElementById('articleAskForm');
+    askForm?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const question = document.getElementById('articleQuestion').value.trim();
+      const ansDiv = document.getElementById('articleAskAnswer');
+      if (!question) return;
+      ansDiv.classList.add('hidden');
+      try {
+        const res = await fetch('/api/ask', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ slug: {{ (article.slug if article else '')|tojson }}, lang: {{ lang|tojson }}, question })
+        });
+        const data = await res.json();
+        if (res.ok && data.answer) {
+          ansDiv.textContent = data.answer;
+          ansDiv.classList.remove('hidden');
         }
-      });
-    })();
+      } catch (_) {}
+    });
   </script>
 </body>
 </html>
