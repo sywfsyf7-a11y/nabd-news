@@ -121,7 +121,7 @@ class SourcePolicyTests(unittest.TestCase):
         self.assertEqual(call["response_format"]["aspect_ratio"], "16:9")
         self.assertEqual(call["response_format"]["image_size"], "1K")
 
-    def test_gemini_failure_falls_back_to_existing_image_providers(self):
+    def test_reusable_images_are_tried_before_gemini_generation(self):
         fallback = {
             "image_url": "https://images.pexels.com/test.jpeg",
             "image_source": "pexels_api",
@@ -140,12 +140,38 @@ class SourcePolicyTests(unittest.TestCase):
         }
         from unittest.mock import patch
         with patch.object(world_pulse, "_generate_gemini_article_image", return_value={}) as generator:
-            with patch.object(world_pulse, "_search_any_reusable_image", return_value=fallback) as old_sources:
+            with patch.object(world_pulse, "_search_any_reusable_image", return_value=fallback) as reusable:
                 result = world_pulse._resolve_article_image(article)
-        generator.assert_called_once_with(article)
-        old_sources.assert_called_once()
+        generator.assert_not_called()
+        reusable.assert_called_once_with("Generic technology story", "en", "technology")
         self.assertEqual(result["image_source"], "pexels_api")
         self.assertEqual(result["image_url"], fallback["image_url"])
+
+    def test_gemini_illustration_is_used_only_after_reusable_image_search_fails(self):
+        generated = {
+            "image_url": "/media/generated/" + "c" * 32,
+            "image_source": "gemini_generated",
+            "image_credit": "AI-generated illustration with Google Gemini",
+            "image_credit_url": "",
+            "image_provider_url": "https://ai.google.dev/gemini-api/docs/image-generation",
+            "image_license_url": "",
+            "image_checked_at": None,
+        }
+        article = {
+            "original_title": "Generic technology story",
+            "image_search_title": "Generic technology story",
+            "original_language": "en",
+            "category": "technology",
+            "_allow_ai_image_generation": True,
+        }
+        from unittest.mock import patch
+        with patch.object(world_pulse, "_search_any_reusable_image", return_value={}) as reusable:
+            with patch.object(world_pulse, "_generate_gemini_article_image", return_value=generated) as generator:
+                result = world_pulse._resolve_article_image(article)
+        reusable.assert_called_once()
+        generator.assert_called_once_with(article)
+        self.assertEqual(result["image_source"], "gemini_generated")
+        self.assertEqual(result["image_url"], generated["image_url"])
 
     def test_all_jinja_templates_compile(self):
         for template_name in world_pulse.app.jinja_env.list_templates():
@@ -187,6 +213,71 @@ class SourcePolicyTests(unittest.TestCase):
         self.assertEqual(article["title_en"], "")
         self.assertEqual(article["original_language"], "ar")
         self.assertEqual(article["content_ar"], "")
+
+    def test_global_publisher_catalog_is_expanded_and_language_scoped(self):
+        catalog = world_pulse.CATEGORY_SOURCE_DOMAINS
+        entry_count = sum(len(domains) for langs in catalog.values() for domains in langs.values())
+        self.assertGreaterEqual(entry_count, 200)
+        self.assertIn("voanews.com", catalog["world"]["en"])
+        self.assertIn("almamlakatv.com", catalog["world"]["ar"])
+        self.assertIn("eurekalert.org", catalog["science"]["en"])
+        self.assertIn("true-gaming.net", catalog["gaming"]["ar"])
+        self.assertEqual(
+            world_pulse._source_domain_for_category("science", "en", "www.noaa.gov"),
+            "noaa.gov",
+        )
+        self.assertEqual(
+            world_pulse._source_domain_for_category("sports", "ar", "www.espn.com"),
+            "",
+        )
+
+    def test_editorial_prompt_forbids_invented_details_and_generic_padding(self):
+        prompt = world_pulse._build_editorial_prompt([{
+            "index": 0,
+            "category": "world",
+            "source": "Example News",
+            "source_url": "https://example.test/story",
+            "headline": "Headline only",
+            "rss_excerpt": "A brief excerpt",
+            "source_language": "en",
+        }])
+        self.assertIn("Never invent or infer names, dates, places, numbers", prompt)
+        self.assertIn("Do not pad the article with generic filler", prompt)
+        self.assertIn("headline and RSS excerpt", prompt)
+
+    def test_library_of_congress_image_search_accepts_only_item_level_open_rights(self):
+        import io
+        import json
+        from unittest.mock import patch
+
+        payload = {
+            "results": [
+                {
+                    "title": "NASA Artemis launch",
+                    "id": "https://www.loc.gov/item/example-open/",
+                    "image_url": ["//cdn.loc.gov/images/artemis.jpg"],
+                    "rights": ["No known restrictions on publication"],
+                    "contributor": ["Library of Congress"],
+                    "description": "NASA Artemis rocket launch",
+                    "access_restricted": False,
+                },
+                {
+                    "title": "NASA Artemis launch photo",
+                    "id": "https://www.loc.gov/item/example-restricted/",
+                    "image_url": ["//cdn.loc.gov/images/restricted.jpg"],
+                    "rights": ["In copyright; permission required"],
+                    "contributor": ["Restricted photographer"],
+                    "description": "NASA Artemis rocket launch",
+                    "access_restricted": False,
+                },
+            ]
+        }
+        fake_response = io.BytesIO(json.dumps(payload).encode("utf-8"))
+        with patch.object(world_pulse, "urlopen", return_value=fake_response):
+            result = world_pulse._search_loc_open_access_image("NASA Artemis launch", "en", "science")
+        self.assertEqual(result["image_source"], "loc_open_access")
+        self.assertEqual(result["image_url"], "https://cdn.loc.gov/images/artemis.jpg")
+        self.assertIn("example-open", result["image_license_url"])
 
 
 if __name__ == "__main__":

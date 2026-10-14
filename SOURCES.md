@@ -1,56 +1,60 @@
-# World Pulse — Publisher and image source policy
+# World Pulse — Publisher and image-source policy
 
-The app uses **Google News RSS only to discover publisher headlines, short excerpts and links**. It does not treat Google News thumbnails, publisher article thumbnails, Google Images results, or images embedded in an RSS feed as free-to-use assets. Google News listing a story or image does not grant World Pulse a licence to republish that image.
+This allowlist contains 259 category-and-language assignments covering 166 distinct publisher domains across eight sections. It is a maintained catalog, not a claim that every publisher worldwide is integrated. Google News RSS is used for discovery only; the original publisher's article URL remains the destination for readers.
 
-Each article must match a configured publisher domain for its category and source language. Arabic pages only show articles whose original source is in the Arabic source list; English pages only show articles whose original source is in the English source list. The ingestion pipeline rejects results with a publisher outside the allowlist and rejects headline language mismatches. Publisher domains are retained in the database for display-time filtering.
+Arabic-origin stories are displayed only on the Arabic site; English-origin stories only on the English site. Each discovered host must match the configured source allowlist for the story category and language. Some publishers may return no eligible stories because of regional feeds, robots restrictions, or the rights gate.
 
-## 1. Politics
-- Arabic: Al Jazeera (`aljazeera.net`, rights-gated), Al Arabiya (`alarabiya.net`), Sky News Arabia (`skynewsarabia.com`), Asharq Al-Awsat (`aawsat.com`), Al-Quds Al-Arabi (`alquds.co.uk`).
-- English: BBC (`bbc.com`, rights-gated), Reuters (`reuters.com`, rights-gated), Associated Press (`apnews.com`, rights-gated), Politico (`politico.com`).
+## Publisher allowlist
 
-## 2. Economy
-- Arabic: Asharq Business (`asharqbusiness.com`), CNBC Arabia (`cnbcarabia.com`), Mubasher (`mubasher.info`), Al Arabiya (`alarabiya.net`).
-- English: Bloomberg (`bloomberg.com`), Financial Times (`ft.com`), The Wall Street Journal (`wsj.com`), CNBC (`cnbc.com`); Reuters is licence-gated (`reuters.com`).
+### Politics
+- Arabic: `aljazeera.net`, `alarabiya.net`, `skynewsarabia.com`, `aawsat.com`, `alquds.co.uk`, `alghad.com`, `almamlakatv.com`, `roya.tv`, `arabic.rt.com`, `cnn.com`, `france24.com`, `dw.com`, `euronews.com`, `aa.com.tr`, `alhurra.com`, `independentarabia.com`, `wam.ae`, `petra.gov.jo`
+- English: `bbc.com`, `reuters.com`, `apnews.com`, `politico.com`, `thehill.com`, `axios.com`, `voanews.com`, `rferl.org`, `dw.com`, `france24.com`, `euronews.com`, `abc.net.au`, `cbc.ca`, `npr.org`, `theconversation.com`, `almonitor.com`, `foreignpolicy.com`, `defensenews.com`, `opendemocracy.net`, `chinadaily.com.cn`
 
-## 3. Technology
-- Arabic: AIT News (`aitnews.com`), Tech-WD / عالم التقنية (`tech-wd.com`), Arab Hardware (`arabhardware.net`).
-- English: The Verge (`theverge.com`), TechCrunch (`techcrunch.com`, rights-gated), WIRED (`wired.com`).
+### Economy
+- Arabic: `asharqbusiness.com`, `cnbcarabia.com`, `mubasher.info`, `alarabiya.net`, `argaam.com`, `aleqt.com`, `zawya.com`, `almalnews.com`, `amwalalghad.com`, `almamlakatv.com`, `alghad.com`, `albayan.ae`, `alittihad.ae`, `wam.ae`, `petra.gov.jo`
+- English: `bloomberg.com`, `ft.com`, `wsj.com`, `cnbc.com`, `marketwatch.com`, `fortune.com`, `businessinsider.com`, `investopedia.com`, `finance.yahoo.com`, `economist.com`, `economictimes.indiatimes.com`, `forbes.com`, `theinformation.com`, `techcrunch.com`, `axios.com`, `dw.com`, `reuters.com`, `apnews.com`
 
-## 4. Gaming
-- Arabic: Saudi Gamer (`saudigamer.com`), Arab Hardware (`arabhardware.net`), Arab Game News (`arabgamenews.com`), VGA4A (`vga4a.com`), AGDN (`agdn-online.com`).
-- English: IGN (`ign.com`), GameSpot (`gamespot.com`), Polygon (`polygon.com`), PC Gamer (`pcgamer.com`).
+### Technology
+- Arabic: `aitnews.com`, `tech-wd.com`, `arabhardware.net`, `alarabiya.net`, `almamlakatv.com`, `france24.com`, `dw.com`, `cnn.com`, `aljazeera.net`, `arabic.rt.com`
+- English: `theverge.com`, `techcrunch.com`, `wired.com`, `arstechnica.com`, `engadget.com`, `zdnet.com`, `cnet.com`, `techradar.com`, `androidauthority.com`, `tomshardware.com`, `venturebeat.com`, `9to5mac.com`, `thenextweb.com`, `digitaltrends.com`, `gizmodo.com`, `technologyreview.com`, `theregister.com`, `bloomberg.com`, `apnews.com`
 
-## 5. Sports
-- Arabic: FilGoal (`filgoal.com`), Kooora (`kooora.com`), beIN SPORTS (`beinsports.com`).
-- English: BBC Sport (`bbc.com`, rights-gated), ESPN (`espn.com`, rights-gated), Sky Sports (`skysports.com`).
+### Gaming
+- Arabic: `saudigamer.com`, `arabhardware.net`, `arabgamenews.com`, `vga4a.com`, `agdn-online.com`, `true-gaming.net`, `l3ab.co`, `gamers8.gg`
+- English: `ign.com`, `gamespot.com`, `polygon.com`, `pcgamer.com`, `eurogamer.net`, `gamesradar.com`, `destructoid.com`, `rockpapershotgun.com`, `gematsu.com`, `videogameschronicle.com`, `kotaku.com`, `gamingbolt.com`, `nintendolife.com`, `pushsquare.com`, `purexbox.com`, `theverge.com`
 
-## 6. Science
-- Arabic: National Geographic Abu Dhabi (`ngalarabiya.com`), Al Jazeera (`aljazeera.net`, rights-gated), Al Arabiya (`alarabiya.net`), DW Arabic (`dw.com`).
-- English: NASA (`nasa.gov`), Space.com (`space.com`), Scientific American (`scientificamerican.com`), Live Science (`livescience.com`).
+### Sports
+- Arabic: `filgoal.com`, `kooora.com`, `beinsports.com`, `yallakora.com`, `goal.com`, `arriyadiyah.com`, `alriyadh.com`, `sports360.com`, `365scores.com`, `fifa.com`, `olympics.com`, `almamlakatv.com`, `alghad.com`, `cnn.com`
+- English: `bbc.com`, `espn.com`, `skysports.com`, `formula1.com`, `fifa.com`, `olympics.com`, `goal.com`, `sportingnews.com`, `bleacherreport.com`, `talksport.com`, `motorsport.com`, `nba.com`, `nfl.com`, `mlb.com`, `apnews.com`, `reuters.com`
 
-## 7. Culture
-- Arabic: Al-Qafilah (`alqafilah.com`), Thifaf (`thifaf.com`), Al Jazeera Culture (`aljazeera.net`, rights-gated), The New Arab (`alaraby.co.uk`), Al-Arab (`alarab.co.uk`).
-- English: Literary Hub (`lithub.com`), Artsy (`artsy.net`), The Guardian (`theguardian.com`, rights-gated).
+### Science
+- Arabic: `ngalarabiya.com`, `aljazeera.net`, `alarabiya.net`, `dw.com`, `france24.com`, `euronews.com`, `cnn.com`, `aa.com.tr`, `alhurra.com`, `petra.gov.jo`, `wam.ae`, `almamlakatv.com`, `arabic.rt.com`
+- English: `nasa.gov`, `space.com`, `scientificamerican.com`, `livescience.com`, `phys.org`, `sciencenews.org`, `eurekalert.org`, `noaa.gov`, `usgs.gov`, `nsf.gov`, `energy.gov`, `nih.gov`, `esa.int`, `nature.com`, `newscientist.com`, `sciencedaily.com`, `science.org`, `eos.org`, `apnews.com`
 
-## 8. World
-- Arabic: France 24 Arabic (`france24.com`), BBC Arabic (`bbc.com`, rights-gated), DW Arabic (`dw.com`), Al Jazeera (`aljazeera.net`, rights-gated), Euronews (`euronews.com`).
-- English: Euronews (`euronews.com`), BBC World (`bbc.com`, rights-gated), Associated Press (`apnews.com`, rights-gated).
+### Culture
+- Arabic: `alqafilah.com`, `thifaf.com`, `aljazeera.net`, `alaraby.co.uk`, `alarab.co.uk`, `alarabiya.net`, `albayan.ae`, `alittihad.ae`, `masrawy.com`, `almasryalyoum.com`, `youm7.com`, `cairo24.com`, `alkhaleej.ae`, `cnn.com`, `france24.com`, `dw.com`
+- English: `lithub.com`, `artsy.net`, `theguardian.com`, `smithsonianmag.com`, `artnews.com`, `hyperallergic.com`, `pitchfork.com`, `variety.com`, `hollywoodreporter.com`, `npr.org`, `theconversation.com`, `bfi.org.uk`, `literaryreview.co.uk`, `apnews.com`, `euronews.com`
 
-## Rights-gated publishers
+### World
+- Arabic: `aljazeera.net`, `bbc.com`, `dw.com`, `france24.com`, `euronews.com`, `alarabiya.net`, `skynewsarabia.com`, `alghad.com`, `almamlakatv.com`, `roya.tv`, `arabic.rt.com`, `alhurra.com`, `cnn.com`, `aa.com.tr`, `wam.ae`, `petra.gov.jo`, `independentarabia.com`, `alqabas.com`, `alain.com`
+- English: `euronews.com`, `bbc.com`, `apnews.com`, `reuters.com`, `voanews.com`, `rferl.org`, `axios.com`, `abc.net.au`, `cbc.ca`, `france24.com`, `dw.com`, `thehill.com`, `npr.org`, `theconversation.com`, `almonitor.com`, `chinadaily.com.cn`, `straitstimes.com`, `japantimes.co.jp`, `theafricareport.com`, `restofworld.org`, `foreignpolicy.com`, `opendemocracy.net`, `theguardian.com`
 
-BBC, Reuters, AP News, TechCrunch, ESPN, The Guardian and Al Jazeera remain configured in the source catalog but are skipped by the app unless the host is explicitly approved in `CONTENT_LICENSE_APPROVED_DOMAINS` after rights review or written permission. Merely adding a host to that variable is an administrative action, not proof that a publisher granted permission; keep evidence of the specific licence/permission and comply with its scope.
+## Publisher rights gate
 
-## Image source pipeline
+The code blocks BBC, Reuters, Associated Press, TechCrunch, ESPN, ScienceDaily, The Guardian and Al Jazeera unless a domain is specifically approved after rights review. Adding a host to `CONTENT_LICENSE_APPROVED_DOMAINS` is an administrative override, not proof of permission; retain evidence of the licence or written permission and confirm it covers the actual use.
 
-For new stories that need imagery, the app first attempts an original Gemini-generated 16:9 editorial illustration. It builds a prompt using the story's title, short source excerpt, category, and source language, and asks for minimal vector/infographic artwork with generic icons, a World Pulse / نبض العالم brand footer, and no copied third-party logos, copyrighted characters, invented facts or statistics. Arabic-origin stories use Arabic labels and English-origin stories use English labels.
+World Pulse prepares its own short bilingual brief from the source headline and limited RSS excerpt and links to the original report. A listing, headline, RSS excerpt or attribution does not grant a right to republish a full article or its photograph. A source can be added to the catalog without bypassing these rules.
 
-The image model uses the same secret `GEMINI_API_KEY` as text generation, with a separate `GEMINI_IMAGE_MODEL` setting (default `gemini-nano-banana-2.1`). Generation is enabled by default, limited to three attempted images per refresh and eight per rolling 24 hours. The limits can be lowered or disabled with environment variables. Image generation may need an eligible paid API tier and may incur charges.
+## Image pipeline
 
-Generated image bytes and their generation prompt are stored in `world_pulse_generated_images` in PostgreSQL/Supabase, then served at `/media/generated/<image_id>`. They are not saved only to Render's temporary local filesystem. If Gemini fails, its model is unavailable, its quota is exhausted, or persistent storage is unavailable, the app falls back to the existing sources:
+1. Wikimedia Commons results accepted only when item metadata indicates Public Domain Mark, CC0 or CC BY (and rejects noncommercial, no-derivatives and share-alike variants); creator, file page and licence are retained.
+2. Library of Congress photo records only where the individual item record explicitly indicates public domain, no known restrictions, CC0, or free-to-use-and-reuse status. Ambiguous/contradictory rights notes are rejected and the exact record URL is retained.
+3. Manually reviewed press-kit assets whose manifest records approval for the intended commercial use and includes source, creator/credit and licence fields.
+4. Official Pexels and Unsplash API results, only when the corresponding API key is configured; follow current API, attribution, hotlinking and other usage requirements.
+5. Original, topic-aware 16:9 Gemini editorial illustrations, only after no suitable sourced image was found and if generation is enabled and within configured limits. They are illustrations, not documentary proof, and still need human review.
+6. Local fallbacks: `static/A.jpg` for Arabic-origin stories and `static/E.jpg` for English-origin stories.
 
-1. Eligible Wikimedia Commons assets accepted by the code's conservative filter for Public Domain Mark, CC0, or CC BY, with creator/credit and licence link where applicable.
-2. Manually reviewed press-kit files in `approved_presskit_images.json`. Entries must be approved for the intended commercial use and include the image URL, source page, credit, licence name, licence URL and matching keywords.
-3. Official Pexels or Unsplash APIs when `PEXELS_API_KEY` / `UNSPLASH_ACCESS_KEY` are set and their controls are enabled; follow current API and attribution rules.
-4. Local fallback graphics: `static/A.jpg` for Arabic-origin stories and `static/E.jpg` for English-origin stories.
+Google News thumbnails, unverified RSS images, publisher-page thumbnails and generic image-search results are not treated as reusable licensed images. API access alone is not a universal copyright clearance: confirm the original item's licence, attribution rules, trademarks, privacy/publicity rights and any additional restrictions before commercial reuse.
 
-Google News RSS images and publisher page thumbnails are intentionally not used as an image provider. No automated licence checker can guarantee legal status in every jurisdiction; review the original asset, exact licence and any additional person/property/trademark rights before commercial use.
+Google News thumbnails, unverified RSS images, publisher-page thumbnails and generic image-search results are not treated as reusable licensed images. API access alone is not a universal copyright clearance: confirm the original item's licence, attribution rules, trademarks, privacy/publicity rights and any additional restrictions before commercial reuse.
+
+Official references: [Wikimedia Commons reuse guidance](https://commons.wikimedia.org/wiki/Commons:Reusing_content_outside_Wikimedia/en), [Library of Congress JSON API](https://www.loc.gov/apis/json-and-yaml/requests/), [Library of Congress copyright guidance](https://www.loc.gov/legal/security-copyright-and-privacy/understanding-copyright/), [NASA media guidance](https://www.nasa.gov/nasa-brand-center/images-and-media/), [Unsplash API terms](https://unsplash.com/api-terms).
