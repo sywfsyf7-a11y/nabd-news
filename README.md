@@ -4,7 +4,7 @@
 1. Push this folder's files to a Git repository. Keep `app.py` at the repository root and `index.html` inside `templates/`.
 2. Create a PostgreSQL database in Supabase and copy its Session Pooler connection string into Render as `SUPABASE_POOLER_URL` (or use `DATABASE_URL`). Keep SSL required.
 3. Keep `FLASK_SECRET_KEY` set to a long random secret.
-4. **Recommended for full publishing:** set `GEMINI_API_KEY` and either `SUPABASE_POOLER_URL` or `DATABASE_URL` in Render Environment. If Gemini is unavailable, the site can still display real, attributed RSS headlines with a short teaser and a clear note that AI editorial enrichment is unavailable; it does not invent sample news. If PostgreSQL is unavailable, results may remain only in the current worker memory and are not reliably persistent, so restore the database URL as soon as possible.
+4. **Recommended for full publishing:** set `GEMINI_API_KEY` and either `SUPABASE_POOLER_URL` or `DATABASE_URL` in Render Environment. If Gemini is unavailable, the site can still display real, attributed RSS headlines with a short teaser and a clear note that AI editorial enrichment is unavailable; it does not invent sample news. If PostgreSQL is unavailable, results are only cached in the current worker and are not reliably persistent, so restore the database URL as soon as possible.
 5. Never commit API keys to Git or put them in HTML.
 6. For the contact form, configure `SMTP_HOST`, `SMTP_PORT` (usually 587), `SMTP_USERNAME`, `SMTP_PASSWORD`, and optionally `SMTP_FROM`.
 7. Set `SITE_URL` to your public HTTPS origin for the sitemap.
@@ -20,7 +20,7 @@
 - A technical safeguard lowers copyright risk but cannot guarantee legal compliance in every jurisdiction or with every publisher's contractual terms. Review the terms of the exact sources you use and seek licensing/legal advice before monetizing content at scale.
 
 ## Publisher source catalog
-The automatic source-domain allowlist is configured in `CATEGORY_SOURCE_DOMAINS` in `app.py`. Every broad and source-focused Google News RSS result is filtered by category, language, and publisher domain. Unknown publisher domains are discarded. Some sources remain blocked by `LICENSE_REQUIRED_DOMAINS` until permission is obtained; see `SOURCES.md`.
+The automatic source-domain filters are configured in `CATEGORY_SOURCE_DOMAINS` in `app.py`; each category has Arabic and English source domains. This is a source-discovery map, not a redistribution licence. Some named publishers remain visible in the code for reference but are excluded automatically by the rights gate above until appropriate permission is established.
 
 ## Editorial quality and backfill
 - Demo/sample story cards are disabled and the static sample story data is not used by live routes. Empty feeds produce an empty state and diagnostic status endpoint, not fake news.
@@ -29,24 +29,29 @@ The automatic source-domain allowlist is configured in `CATEGORY_SOURCE_DOMAINS`
 - Previously stored real articles are not hidden only because their body is short. A short or unenriched item is clearly labelled as a preliminary RSS brief, while the source link remains available. A small number of thin stored articles are reprocessed each refresh when Gemini is available.
 - AI assistance does not replace human fact-checking. Review important claims, attribution, categories and context before relying on the content.
 
+## Admin review panel
+
+Visit `/admin/review` after setting `ADMIN_PASSWORD` in the hosting environment. The panel lists the configured discovery domains, lets you block/unblock publisher domains, reviews saved image credits/licence URLs, and lets you block a specific image URL (which also removes it from saved articles). These controls are stored in PostgreSQL, so they survive redeploys. A block prevents future ingestion and hides already-saved articles from that source. This panel does not automatically determine whether a publisher grants commercial rights; check each source's current terms and keep uncertain sources blocked until permission is confirmed.
+
 ## Important
 - No code can guarantee Google AdSense approval. Approval depends on the published site's actual usefulness, originality, user experience, policy compliance, traffic quality and Google's review.
 - If a publisher's terms do not allow the intended commercial use, remove it from the automatic source search or obtain a suitable licence; merely linking or giving credit is not a substitute for permission when permission is required.
 - Rotate any API key that has been shared in chat or placed in source code. Use environment variables only.
 
 ## Required and optional environment variables
-Required for stable production operation:
-- `SUPABASE_POOLER_URL` or `DATABASE_URL` — PostgreSQL persistence. If neither is configured or the database cannot be reached, stories may exist only in current worker memory and will not be reliably persistent.
+Required:
+- `GEMINI_API_KEY` — enables Gemini editorial drafting; if missing, article refresh fails visibly instead of publishing examples.
+- `SUPABASE_POOLER_URL` or `DATABASE_URL` — PostgreSQL persistence. If neither is configured or the database cannot be reached, new stories are not published as transient worker memory.
 - `FLASK_SECRET_KEY` — persistent Flask session signing key.
+- `ADMIN_PASSWORD` — **set a long unique password** to enable the source/image review panel at `/admin/review`. If unset, the panel returns 404. Do not share this password or commit it to Git.
 
-Recommended / optional:
-- `GEMINI_API_KEY` — enables Gemini editorial drafting and Arabic/English versions; without it, the app can show the original-language RSS headline and short teaser.
+Optional:
 - `GEMINI_MODEL` — Gemini model name.
 - `NEWS_REFRESH_MINUTES` — refresh interval, default 15 minutes.
 - `NEWS_AUTO_FETCH` — disable automatic fetch with `false` if using a separate cron job.
 - `MAX_ARTICLES_PER_REFRESH` — target number of stories per refresh, capped by application settings.
 - `MAX_ARTICLES_PER_CATEGORY` — per-category collection limit.
-- `MAX_IMAGE_LOOKUPS_PER_REFRESH` — maximum article image lookup jobs per refresh across configured providers (default 24).
+- `MAX_IMAGE_LOOKUPS_PER_REFRESH` — maximum article image lookup jobs per refresh across configured providers (default 24; lower it if API quotas require).
 
 ## Image sourcing and rights safeguards
 
@@ -54,10 +59,8 @@ Images are resolved in this order: **(1)** Wikimedia Commons, but only when mach
 
 ### Optional photo APIs
 
-- `PUBLISHER_LICENSED_DOMAINS` — optional comma-separated domains to activate only after suitable written permission or licence; this still respects the category allowlist.
 - `UNSPLASH_ACCESS_KEY` — an access key for the official Unsplash API. The implementation uses the image URL returned by the API unchanged and links the photographer and photo page with Unsplash referral parameters. Follow the current Unsplash API guidelines and apply for production access if required.
 - `PEXELS_API_KEY` — an existing Pexels API key. The photo credit links the photographer and the photo page, and links to the Pexels licence. Pexels requires a prominent link back to Pexels for API usage and asks developers to credit photographers when possible.
-- Leave `PUBLISHER_LICENSED_DOMAINS` unset/empty unless the relevant publisher has been reviewed and any required permission/license has been obtained. Use exact root domains, not broad parents such as `com`.
 - `IMAGE_CACHE_MAX_AGE_HOURS` — maximum age before a cached image result is resolved again; default 168 hours (7 days).
 - `MAX_IMAGE_LOOKUPS_PER_REFRESH` and `IMAGE_SEARCH_TIMEOUT_SECONDS` — control the amount and timeout of image lookup work.
 

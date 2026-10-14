@@ -1,0 +1,544 @@
+<!doctype html>
+<html lang="{{ lang }}" dir="{{ 'rtl' if lang == 'ar' else 'ltr' }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#111827">
+  <meta name="description" content="{{ ui.hero_text }}">
+  <title>{% if page == 'article' and article %}{{ article.title }} — {% elif page == 'static' and static_page %}{{ static_page['title_ar' if lang == 'ar' else 'title_en'] }} — {% elif page == 'contact' %}{{ 'اتصل بنا' if lang == 'ar' else 'Contact us' }} — {% endif %}{{ site_name }}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            ink: '#111827',
+            paper: '#F7F7F5',
+            pulse: '#E53945',
+            muted: '#64748B'
+          },
+          boxShadow: {
+            soft: '0 16px 45px rgba(15, 23, 42, 0.07)'
+          }
+        }
+      }
+    };
+  </script>
+  <script>
+    try {
+      document.documentElement.dataset.theme = localStorage.getItem('world-pulse-theme') || 'light';
+    } catch (_) {
+      document.documentElement.dataset.theme = 'light';
+    }
+  </script>
+  <style>
+    body { font-family: {% if lang == 'ar' %}'Cairo', sans-serif{% else %}'Inter', sans-serif{% endif %}; }
+    .editorial-grid { background-image: radial-gradient(#cbd5e1 0.6px, transparent 0.6px); background-size: 13px 13px; }
+    .ticker-track { min-width: 0; }
+    .article-copy { white-space: pre-line; line-height: 2; }
+    .nav-scroll::-webkit-scrollbar { display: none; }
+    .nav-scroll { scrollbar-width: none; }
+    @media (prefers-reduced-motion: no-preference) {
+      .ticker-dot { animation: pulse-dot 1.8s ease-in-out infinite; }
+      @keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+    }
+    html[data-theme="dark"] { color-scheme: dark; }
+    html[data-theme="dark"] body { background: #0b1120; color: #edf2f7; }
+    html[data-theme="dark"] .bg-paper { background-color: #0b1120 !important; }
+    html[data-theme="dark"] header,
+    html[data-theme="dark"] footer { background-color: rgba(15, 23, 42, .97) !important; border-color: #293548 !important; }
+    html[data-theme="dark"] .bg-white { background-color: #111b2d !important; }
+    html[data-theme="dark"] .bg-slate-50 { background-color: #172235 !important; }
+    html[data-theme="dark"] .bg-slate-100 { background-color: #1e293b !important; }
+    html[data-theme="dark"] .text-ink { color: #f8fafc !important; }
+    html[data-theme="dark"] .text-slate-700,
+    html[data-theme="dark"] .text-slate-600 { color: #d5deea !important; }
+    html[data-theme="dark"] .text-slate-500,
+    html[data-theme="dark"] .text-slate-400 { color: #aab7ca !important; }
+    html[data-theme="dark"] .border-slate-100,
+    html[data-theme="dark"] .border-slate-200,
+    html[data-theme="dark"] .border-slate-200\/70,
+    html[data-theme="dark"] .border-slate-200\/80,
+    html[data-theme="dark"] .border-slate-300 { border-color: #293548 !important; }
+    html[data-theme="dark"] .ring-slate-200 { --tw-ring-color: #293548 !important; }
+    html[data-theme="dark"] .hover\:bg-white:hover { background-color: #1e293b !important; }
+    html[data-theme="dark"] .shadow-soft,
+    html[data-theme="dark"] .shadow-sm { box-shadow: 0 16px 45px rgba(0,0,0,.2) !important; }
+    .story-image-placeholder { display: flex; align-items: center; justify-content: center; overflow: hidden; background: #253047; color: rgba(255,255,255,.85); }
+    .story-image-placeholder[data-category="politics"] { background: linear-gradient(135deg, #18253a, #65323e); }
+    .story-image-placeholder[data-category="economy"] { background: linear-gradient(135deg, #153b37, #34465d); }
+    .story-image-placeholder[data-category="technology"] { background: linear-gradient(135deg, #192b4a, #3b3a70); }
+    .story-image-placeholder[data-category="gaming"] { background: linear-gradient(135deg, #33204c, #762d53); }
+    .story-image-placeholder[data-category="sports"] { background: linear-gradient(135deg, #164638, #425c35); }
+    .story-image-placeholder[data-category="science"] { background: linear-gradient(135deg, #183a53, #31616d); }
+    .story-image-placeholder[data-category="culture"] { background: linear-gradient(135deg, #4c2d32, #7a5838); }
+    .story-image-placeholder[data-category="world"] { background: linear-gradient(135deg, #273448, #4b5870); }
+    html[data-theme="dark"] .story-image-placeholder { filter: saturate(.82) brightness(.9); }
+  </style>
+</head>
+<body class="min-h-screen bg-paper text-ink antialiased">
+  <div class="bg-ink text-white">
+    <div class="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-2.5 sm:px-6 lg:px-8">
+      <div class="flex min-w-0 items-center gap-3 text-xs sm:text-sm">
+        <span class="inline-flex shrink-0 items-center gap-2 font-bold tracking-wide text-rose-400">
+          <span class="h-2 w-2 rounded-full bg-pulse ticker-dot"></span>{{ ui.live }}
+        </span>
+        <span class="hidden h-4 w-px bg-white/20 sm:block"></span>
+        <span class="truncate text-white/70">{{ ui.tagline }}</span>
+      </div>
+      <div class="flex shrink-0 items-center gap-2">
+        <button id="themeToggle" type="button" aria-pressed="false" aria-label="{{ ui.theme_toggle }}" title="{{ ui.theme_toggle }}"
+                class="inline-flex items-center gap-2 rounded-full border border-white/20 px-3 py-2 text-xs font-bold transition hover:border-white/60 hover:bg-white/10">
+          <svg id="sunIcon" viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M2 12h2m16 0h2M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42" stroke-linecap="round"/></svg>
+          <svg id="moonIcon" viewBox="0 0 24 24" class="hidden h-4 w-4" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M20.5 14.3A8.5 8.5 0 0 1 9.7 3.5 8.6 8.6 0 1 0 20.5 14.3Z" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span class="hidden sm:inline">{{ ui.theme_toggle }}</span>
+        </button>
+        <button id="refreshNews" type="button" aria-label="{{ ui.refresh_news }}" title="{{ ui.refresh_news }}"
+                class="inline-flex items-center gap-2 rounded-full bg-pulse px-3 py-2 text-xs font-extrabold text-white transition hover:bg-rose-500 disabled:cursor-wait disabled:opacity-70">
+          <svg id="refreshIcon" viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5" stroke-linecap="round" stroke-linejoin="round"/><path d="M5.6 9A7 7 0 0 1 18 6l2 6M4 12l2 6a7 7 0 0 0 12.4-3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span id="refreshButtonText" class="hidden sm:inline">{{ ui.refresh_news }}</span>
+        </button>
+        <a href="{{ url_for('index', lang='en' if lang == 'ar' else 'ar') }}"
+           class="shrink-0 rounded-full border border-white/20 px-3 py-2 text-xs font-bold transition hover:border-white/60 hover:bg-white/10"
+           aria-label="{{ 'Switch language' if lang == 'ar' else 'تغيير اللغة' }}">
+          {{ 'EN' if lang == 'ar' else 'عربي' }}
+        </a>
+      </div>
+    </div>
+  </div>
+
+  <header class="sticky top-0 z-30 border-b border-slate-200/80 bg-paper/95 backdrop-blur-xl">
+    <div class="mx-auto flex max-w-7xl items-center justify-between gap-5 px-4 py-4 sm:px-6 lg:px-8">
+      <a href="{{ url_for('index', lang=lang) }}" class="group flex shrink-0 items-center gap-3" aria-label="{{ site_name }} — home">
+        <span class="grid h-11 w-11 place-items-center rounded-2xl bg-pulse text-white shadow-lg shadow-rose-500/20 transition group-hover:-rotate-3">
+          <svg viewBox="0 0 32 32" class="h-7 w-7" fill="none" aria-hidden="true">
+            <path d="M4 17h5l3-8 5 15 3-9 2 4h6" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </span>
+        <span class="block">
+          <span class="block text-xl font-extrabold leading-tight tracking-tight sm:text-2xl">{{ site_name }}</span>
+          <span class="mt-0.5 block text-[10px] font-semibold uppercase tracking-[.22em] text-slate-500">{{ 'WORLD PULSE' if lang == 'ar' else 'NEWS · CONTEXT · PERSPECTIVE' }}</span>
+        </span>
+      </a>
+      <form method="get" action="{{ url_for('index') }}" role="search" class="flex min-w-0 flex-1 items-center gap-2 md:max-w-md">
+        <input type="hidden" name="lang" value="{{ lang }}">
+        {% if active_category and active_category != 'all' %}<input type="hidden" name="category" value="{{ active_category }}">{% endif %}
+        <label for="site-search" class="sr-only">{{ 'ابحث عن خبر' if lang == 'ar' else 'Search news' }}</label>
+        <input id="site-search" name="q" type="search" value="{{ search_query|default('') }}" maxlength="160" placeholder="{{ 'ابحث عن عنوان أو موضوع أو مصدر…' if lang == 'ar' else 'Search headlines, topics, or sources…' }}" class="min-w-0 flex-1 rounded-full border border-slate-200 bg-white px-4 py-2.5 text-sm text-ink outline-none transition placeholder:text-slate-400 focus:border-pulse focus:ring-2 focus:ring-rose-100" autocomplete="off">
+        <button type="submit" class="inline-flex shrink-0 items-center gap-2 rounded-full bg-pulse px-4 py-2.5 text-sm font-bold text-white transition hover:bg-rose-600">
+          <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m16 16 4 4" stroke-linecap="round"/></svg>
+          <span>{{ 'بحث' if lang == 'ar' else 'Search' }}</span>
+        </button>
+      </form>
+    </div>
+    <nav class="border-t border-slate-200/70" aria-label="{{ 'الأقسام' if lang == 'ar' else 'News sections' }}">
+      <div class="nav-scroll mx-auto flex max-w-7xl items-center gap-2 overflow-x-auto px-4 py-2.5 sm:px-6 lg:px-8">
+        <a href="{{ url_for('index', lang=lang, category='all') }}"
+           class="shrink-0 rounded-full px-4 py-2 text-sm font-bold transition {{ 'bg-ink text-white' if active_category == 'all' else 'text-slate-600 hover:bg-white hover:text-ink' }}">{{ ui.all_news }}</a>
+        {% for item in categories %}
+          <a href="{{ url_for('index', lang=lang, category=item.key, q=(search_query|default('') or None)) }}"
+             class="shrink-0 rounded-full px-4 py-2 text-sm font-semibold transition {{ 'bg-ink text-white' if active_category == item.key else 'text-slate-600 hover:bg-white hover:text-ink' }}">{{ item.label }}</a>
+        {% endfor %}
+      </div>
+    </nav>
+    <div class="border-t border-slate-200/60">
+      <div class="mx-auto flex max-w-7xl items-center justify-end px-4 py-2 sm:px-6 lg:px-8">
+        <p id="newsStatusText" role="status" aria-live="polite" class="text-[11px] font-medium text-slate-500">{{ ui.auto_refresh.replace('{minutes}', news_refresh_interval|string) }}</p>
+      </div>
+    </div>
+  </header>
+
+  <main class="mx-auto max-w-7xl px-4 pb-16 pt-5 sm:px-6 sm:pt-8 lg:px-8">
+    {% if page == 'home' %}
+      <section class="mb-6 overflow-hidden rounded-[2rem] bg-ink text-white shadow-soft">
+        <div class="relative grid gap-8 px-6 py-9 sm:px-10 sm:py-12 lg:grid-cols-[1.1fr_.9fr] lg:items-center lg:px-14 lg:py-14">
+          <div class="pointer-events-none absolute inset-y-0 {{ 'left-0' if lang == 'ar' else 'right-0' }} hidden w-2/5 opacity-20 lg:block editorial-grid"></div>
+          <div class="relative z-10 max-w-2xl">
+            <div class="mb-5 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-xs font-bold text-rose-300">
+              <span class="h-1.5 w-1.5 rounded-full bg-rose-400"></span>{{ ui.latest }}
+            </div>
+            <h1 class="max-w-2xl text-3xl font-extrabold leading-[1.35] tracking-tight sm:text-4xl lg:text-5xl">{{ ui.hero_title }}</h1>
+            <p class="mt-5 max-w-xl text-sm leading-7 text-slate-300 sm:text-base sm:leading-8">{{ ui.hero_text }}</p>
+            <a href="#latest-stories" class="mt-7 inline-flex items-center gap-2 rounded-full bg-pulse px-5 py-3 text-sm font-bold text-white shadow-lg shadow-rose-900/20 transition hover:-translate-y-0.5 hover:bg-rose-500">
+              {{ ui.latest }}
+              <svg viewBox="0 0 20 20" class="h-4 w-4 {{ 'rotate-180' if lang == 'ar' else '' }}" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 10h13M10 4l6 6-6 6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </a>
+          </div>
+          <div class="relative z-10 hidden lg:block">
+            <div class="ml-auto max-w-sm rounded-3xl border border-white/10 bg-white/[.06] p-5 backdrop-blur-sm">
+              <div class="mb-5 flex items-center justify-between text-xs font-semibold text-slate-300">
+                <span>{{ site_name }}</span><span class="rounded-full bg-rose-400/15 px-2.5 py-1 text-rose-300">{{ 'ثمانية أقسام' if lang == 'ar' else '8 sections' }}</span>
+              </div>
+              <div class="grid grid-cols-2 gap-3">
+                {% for item in categories[:4] %}
+                  <a href="{{ url_for('index', lang=lang, category=item.key, q=(search_query|default('') or None)) }}" class="rounded-2xl border border-white/10 bg-ink/30 p-4 transition hover:border-rose-400/60 hover:bg-white/10">
+                    <span class="mb-4 block h-1 w-8 rounded-full bg-pulse"></span>
+                    <span class="text-sm font-bold">{{ item.label }}</span>
+                    <span class="mt-1 block text-xs text-slate-400">{{ 'اقرأ آخر التغطيات' if lang == 'ar' else 'Explore coverage' }}</span>
+                  </a>
+                {% endfor %}
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="mb-9 flex items-stretch gap-3 rounded-2xl border border-rose-100 bg-white p-3 shadow-sm sm:items-center sm:p-4" aria-label="{{ ui.breaking }}">
+        <div class="flex shrink-0 items-center gap-2 rounded-xl bg-pulse px-3 py-2.5 text-xs font-extrabold text-white sm:px-4 sm:text-sm">
+          <span class="h-2 w-2 rounded-full bg-white"></span>{{ ui.breaking }}
+        </div>
+        {% if breaking_story %}
+          <a href="{{ url_for('article', slug=breaking_story.slug, lang=lang) }}" class="ticker-track flex min-w-0 flex-1 items-center justify-between gap-3 px-1 py-1 text-sm font-semibold leading-6 transition hover:text-pulse sm:text-base">
+            <span class="line-clamp-2">{{ breaking_story.title }}</span>
+            <span class="hidden shrink-0 text-xs font-medium text-slate-400 sm:inline">{{ breaking_story.published_label }}</span>
+          </a>
+        {% else %}
+          <p class="ticker-track flex min-w-0 flex-1 items-center px-1 text-sm leading-6 text-slate-500">{{ ui.no_breaking }}</p>
+        {% endif %}
+      </section>
+
+      <section id="latest-stories" class="scroll-mt-40">
+        {% if search_query|default('') %}
+          <div class="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3">
+            <p class="text-sm font-semibold text-slate-700">{{ ('نتائج البحث عن: ' if lang == 'ar' else 'Search results for: ') }}<span class="text-pulse">{{ search_query }}</span></p>
+            <a href="{{ url_for('index', lang=lang, category=active_category) }}" class="text-sm font-bold text-pulse underline underline-offset-4">{{ 'مسح البحث' if lang == 'ar' else 'Clear search' }}</a>
+          </div>
+        {% endif %}
+        <div class="mb-6 flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <p class="mb-2 text-xs font-extrabold uppercase tracking-[.18em] text-pulse">{{ ui.live }}</p>
+            <h2 class="text-2xl font-extrabold tracking-tight sm:text-3xl">{% if active_category == 'all' %}{{ ui.latest }}{% else %}{{ category_names[active_category][lang] }}{% endif %}</h2>
+          </div>
+          <span class="rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-slate-500 ring-1 ring-slate-200">{{ stories|length }} {{ 'مادة' if lang == 'ar' else ('stories' if stories|length != 1 else 'story') }}</span>
+        </div>
+
+        {% if stories %}
+          <div class="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3">
+            {% for story in stories %}
+              <article class="group flex h-full flex-col overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-sm transition duration-300 hover:-translate-y-1 hover:border-slate-300 hover:shadow-soft">
+                <a href="{{ url_for('article', slug=story.slug, lang=lang) }}" class="relative block aspect-[16/9] overflow-hidden bg-slate-200" tabindex="-1" aria-hidden="true">
+                  <div class="story-image-placeholder absolute inset-0" data-category="{{ story.category }}" aria-label="{{ story.category_label }} image placeholder">
+                    <span class="select-none text-6xl font-black tracking-widest opacity-35">WP</span>
+                  </div>
+                  {% if story.image_url %}
+                    <img src="{{ story.image_url }}" alt="{{ story.title }}" loading="lazy" decoding="async" class="absolute inset-0 z-[1] h-full w-full object-cover transition duration-700 group-hover:scale-105" onerror="this.onerror=null;this.style.display='none';">
+                  {% endif %}
+                  <span class="absolute {{ 'right-4' if lang == 'ar' else 'left-4' }} top-4 rounded-full border border-white/25 bg-ink/80 px-3 py-1.5 text-xs font-bold text-white backdrop-blur">{{ story.category_label }}</span>
+                </a>
+                <div class="flex flex-1 flex-col p-5 sm:p-6">
+                  {% if story.image_source in ['wikimedia_relevant', 'unsplash_api', 'pexels_api', 'presskit_approved'] and story.image_credit %}
+                    <p class="mb-2 text-[10px] leading-5 text-slate-400">{{ ui.photo_credit }}:
+                      {% if story.image_credit_url %}<a href="{{ story.image_credit_url }}" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">{{ story.image_credit }}</a>{% else %}{{ story.image_credit }}{% endif %}
+                      {% if story.image_source == 'pexels_api' %} · <a href="https://www.pexels.com" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">{{ ui.photos_provided_by_pexels }}</a>{% if story.image_provider_url %} · <a href="{{ story.image_provider_url }}" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">{{ ui.photo_page }}</a>{% endif %}
+                      {% elif story.image_provider_url %} · <a href="{{ story.image_provider_url }}" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">{% if story.image_source == 'wikimedia_relevant' %}Wikimedia Commons{% elif story.image_source == 'unsplash_api' %}Unsplash{% else %}Press kit{% endif %}</a>{% endif %}
+                      {% if story.image_license_url %} · <a href="{{ story.image_license_url }}" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">{{ ui.photo_license }}</a>{% endif %}
+                      · <span>{{ ui.illustrative_image }}</span>
+                    </p>
+                  {% endif %}
+                  <div class="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-medium text-slate-500">
+                    <span>{{ story.source_name or ui.source }}</span>
+                    <span class="h-1 w-1 rounded-full bg-slate-300"></span>
+                    <time>{{ story.published_label }}</time>
+                  </div>
+                  <h3 class="mb-3 text-lg font-extrabold leading-8 tracking-tight transition group-hover:text-pulse sm:text-xl">
+                    <a href="{{ url_for('article', slug=story.slug, lang=lang) }}">{{ story.title }}</a>
+                  </h3>
+                  <p class="mb-6 line-clamp-3 text-sm leading-7 text-slate-600">{{ story.summary }}</p>
+                  <div class="mt-auto flex items-center justify-between gap-3 border-t border-slate-100 pt-4">
+                    <span class="text-xs font-medium text-slate-400">{{ story.read_minutes }} {{ ui.read_time }}</span>
+                    <a href="{{ url_for('article', slug=story.slug, lang=lang) }}" class="inline-flex items-center gap-2 text-sm font-extrabold text-pulse transition hover:gap-3">
+                      {{ ui.read_full }}
+                      <svg viewBox="0 0 20 20" class="h-4 w-4 {{ 'rotate-180' if lang == 'ar' else '' }}" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 10h13M10 4l6 6-6 6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                    </a>
+                  </div>
+                </div>
+              </article>
+            {% endfor %}
+          </div>
+        {% else %}
+          <div class="rounded-3xl border border-dashed border-slate-300 bg-white px-6 py-16 text-center">
+            <p class="text-base font-semibold text-slate-700">{% if search_query|default('') %}{{ 'ما لقينا أخبار تطابق بحثك.' if lang == 'ar' else 'No stories matched your search.' }}{% else %}{{ ui.empty }}{% endif %}</p>
+            <p class="mx-auto mt-3 max-w-2xl text-sm leading-7 text-slate-500">{% if search_query|default('') %}{{ 'جرّب كلمات ثانية أو امسح البحث لعرض الأخبار المتاحة.' if lang == 'ar' else 'Try different keywords or clear the search to see available stories.' }}{% else %}{{ ui.empty_detail }}{% endif %}</p>
+            <p class="mt-3 text-xs leading-6 text-slate-400">{{ 'حالة النظام: ' if lang == 'ar' else 'System status: ' }}<a class="underline underline-offset-2" href="/api/news-status" target="_blank" rel="noopener noreferrer">/api/news-status</a></p>
+            <a href="{{ url_for('index', lang=lang, category='all') }}" class="mt-4 inline-flex rounded-full bg-ink px-4 py-2 text-sm font-bold text-white">{{ ui.all_news }}</a>
+          </div>
+        {% endif %}
+      </section>
+
+    {% elif page == 'article' and article %}
+      <div class="mb-5 flex items-center justify-between gap-4">
+        <a href="{{ url_for('index', lang=lang) }}" class="inline-flex items-center gap-2 text-sm font-bold text-slate-500 transition hover:text-pulse">
+          <svg viewBox="0 0 20 20" class="h-4 w-4 {{ 'rotate-180' if lang == 'ar' else '' }}" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 10H3m6 6-6-6 6-6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          {{ ui.back_home }}
+        </a>
+        <span class="rounded-full bg-white px-3 py-1.5 text-xs font-bold text-slate-500 ring-1 ring-slate-200">{{ article.category_label }}</span>
+      </div>
+
+      <article class="overflow-hidden rounded-[2rem] border border-slate-200/80 bg-white shadow-soft">
+        <div class="relative aspect-[16/8] max-h-[540px] overflow-hidden bg-slate-200 sm:aspect-[16/7]">
+          <div class="story-image-placeholder absolute inset-0" data-category="{{ article.category }}" aria-hidden="true"><span class="select-none text-8xl font-black tracking-widest opacity-35">WP</span></div>
+          {% if article.image_url %}
+            <img src="{{ article.image_url }}" alt="{{ article.title }}" decoding="async" class="absolute inset-0 z-[1] h-full w-full object-cover" onerror="this.onerror=null;this.style.display='none';">
+          {% endif %}
+          <div class="absolute inset-0 bg-gradient-to-t from-ink/75 via-ink/10 to-transparent"></div>
+          <div class="absolute inset-x-0 bottom-0 p-6 text-white sm:p-10 lg:p-12">
+            <div class="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2 text-xs font-semibold text-white/80 sm:text-sm">
+              <span>{{ article.source_name or ui.source }}</span><span class="h-1 w-1 rounded-full bg-white/60"></span><time>{{ article.published_label }}</time><span class="h-1 w-1 rounded-full bg-white/60"></span><span>{{ article.read_minutes }} {{ ui.read_time }}</span>
+            </div>
+            <h1 class="max-w-4xl text-2xl font-extrabold leading-[1.45] tracking-tight sm:text-3xl lg:text-5xl">{{ article.title }}</h1>
+          </div>
+        </div>
+        {% if article.image_source in ['wikimedia_relevant', 'unsplash_api', 'pexels_api', 'presskit_approved'] and article.image_credit %}
+          <div class="border-b border-slate-100 px-6 py-3 text-[11px] leading-5 text-slate-400 sm:px-9 lg:px-12">
+            {{ ui.photo_credit }}:
+            {% if article.image_credit_url %}<a href="{{ article.image_credit_url }}" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">{{ article.image_credit }}</a>{% else %}{{ article.image_credit }}{% endif %}
+            {% if article.image_source == 'pexels_api' %} · <a href="https://www.pexels.com" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">{{ ui.photos_provided_by_pexels }}</a>{% if article.image_provider_url %} · <a href="{{ article.image_provider_url }}" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">{{ ui.photo_page }}</a>{% endif %}
+            {% elif article.image_provider_url %} · <a href="{{ article.image_provider_url }}" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">{% if article.image_source == 'wikimedia_relevant' %}Wikimedia Commons{% elif article.image_source == 'unsplash_api' %}Unsplash{% else %}Press kit{% endif %}</a>{% endif %}
+            {% if article.image_license_url %} · <a href="{{ article.image_license_url }}" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">{{ ui.photo_license }}</a>{% endif %}
+            · <span>{{ ui.illustrative_image }}</span>
+          </div>
+        {% endif %}
+
+        <div class="grid gap-10 p-6 sm:p-9 lg:grid-cols-[minmax(0,1fr)_270px] lg:gap-14 lg:p-12">
+          <div class="min-w-0">
+            <div class="mb-8 rounded-2xl border-s-4 border-pulse bg-slate-50 p-5 sm:p-6">
+              <p class="mb-2 text-xs font-extrabold uppercase tracking-wider text-pulse">{{ 'ملخص تنفيذي' if lang == 'ar' else 'Executive summary' }}</p>
+              <p class="text-base font-semibold leading-8 text-slate-700">{{ article.summary }}</p>
+            </div>
+            {% if article.content %}
+              <h2 class="mb-4 text-xl font-extrabold tracking-tight sm:text-2xl">{{ ui.article_details }}</h2>
+              <div class="article-copy text-base leading-8 text-slate-700 sm:text-lg">{{ article.content }}</div>
+            {% endif %}
+            {% if article.ai_enriched %}
+              <p class="mt-8 border-t border-slate-100 pt-5 text-xs leading-6 text-slate-400">{{ ui.ai_note }}</p>
+            {% else %}
+              <p class="mt-8 border-t border-slate-100 pt-5 text-xs leading-6 text-slate-400">{{ ui.brief_note }}</p>
+            {% endif %}
+            {% if article.source_url %}
+              <a href="{{ article.source_url }}" target="_blank" rel="noopener noreferrer" class="mt-6 inline-flex items-center gap-2 rounded-full bg-ink px-5 py-3 text-sm font-bold text-white transition hover:bg-pulse">
+                {{ ui.open_source }}
+                <svg viewBox="0 0 20 20" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M11 3h6v6M17 3 9 11" stroke-linecap="round" stroke-linejoin="round"/><path d="M15 11v5a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </a>
+            {% endif %}
+          </div>
+          <aside class="border-t border-slate-100 pt-8 lg:border-t-0 lg:border-s {{ 'lg:ps-8' if lang == 'ar' else 'lg:pl-8' }} lg:pt-0">
+            <p class="mb-5 text-xs font-extrabold uppercase tracking-[.16em] text-pulse">{{ ui.recommended }}</p>
+            <div class="space-y-5">
+              {% for story in related_stories %}
+                <a href="{{ url_for('article', slug=story.slug, lang=lang) }}" class="group flex gap-3">
+                  <span class="relative block h-20 w-24 shrink-0 overflow-hidden rounded-xl bg-slate-200">
+                    <span class="story-image-placeholder absolute inset-0" data-category="{{ story.category }}" aria-hidden="true"><span class="text-lg font-black opacity-40">WP</span></span>
+                    {% if story.image_url %}
+                      <img src="{{ story.image_url }}" alt="{{ story.title }}" loading="lazy" decoding="async" class="absolute inset-0 z-[1] h-full w-full object-cover" onerror="this.onerror=null;this.style.display='none';">
+                    {% endif %}
+                  </span>
+                  <span class="min-w-0">
+                    <span class="mb-1 block text-[10px] font-extrabold text-pulse">{{ story.category_label }}</span>
+                    <span class="line-clamp-3 block text-sm font-bold leading-6 transition group-hover:text-pulse">{{ story.title }}</span>
+                  </span>
+                </a>
+                {% if story.image_source in ['wikimedia_relevant', 'unsplash_api', 'pexels_api', 'presskit_approved'] and story.image_credit %}
+                  <p class="{{ 'mr-28' if lang == 'ar' else 'ml-28' }} -mt-3 text-[10px] leading-4 text-slate-400">
+                    {{ ui.photo_credit }}:
+                    {% if story.image_credit_url %}<a href="{{ story.image_credit_url }}" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">{{ story.image_credit }}</a>{% else %}{{ story.image_credit }}{% endif %}
+                    {% if story.image_source == 'pexels_api' %} · <a href="https://www.pexels.com" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">{{ ui.photos_provided_by_pexels }}</a>{% if story.image_provider_url %} · <a href="{{ story.image_provider_url }}" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">{{ ui.photo_page }}</a>{% endif %}
+                    {% elif story.image_provider_url %} · <a href="{{ story.image_provider_url }}" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">{% if story.image_source == 'wikimedia_relevant' %}Wikimedia Commons{% elif story.image_source == 'unsplash_api' %}Unsplash{% else %}Press kit{% endif %}</a>{% endif %}
+                    {% if story.image_license_url %} · <a href="{{ story.image_license_url }}" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">{{ ui.photo_license }}</a>{% endif %}
+                  </p>
+                {% endif %}
+              {% else %}
+                <p class="text-sm leading-7 text-slate-500">{{ ui.empty }}</p>
+              {% endfor %}
+            </div>
+          </aside>
+        </div>
+      </article>
+
+    {% elif page == 'static' and static_page %}
+      <article class="mx-auto max-w-4xl rounded-3xl border border-slate-200 bg-white px-6 py-8 shadow-sm sm:px-10 sm:py-12">
+        <p class="mb-3 text-xs font-extrabold uppercase tracking-[.18em] text-pulse">{{ site_name }}</p>
+        <h1 class="text-3xl font-extrabold tracking-tight sm:text-4xl">{{ static_page['title_ar' if lang == 'ar' else 'title_en'] }}</h1>
+        <div class="mt-8 space-y-8">
+          {% for heading, body in static_sections %}
+            <section>
+              <h2 class="mb-2 text-lg font-extrabold">{{ heading }}</h2>
+              <p class="text-sm leading-8 text-slate-600">{{ body }}</p>
+            </section>
+          {% endfor %}
+        </div>
+        {% if static_page_key == 'about' %}
+          <a href="{{ url_for('contact', lang=lang) }}" class="mt-9 inline-flex rounded-full bg-pulse px-5 py-3 text-sm font-bold text-white transition hover:bg-rose-600">{{ 'تواصل معنا' if lang == 'ar' else 'Contact us' }}</a>
+        {% endif %}
+      </article>
+
+    {% elif page == 'contact' %}
+      <section class="mx-auto max-w-3xl rounded-3xl border border-slate-200 bg-white px-6 py-8 shadow-sm sm:px-10 sm:py-12">
+        <p class="mb-3 text-xs font-extrabold uppercase tracking-[.18em] text-pulse">{{ site_name }}</p>
+        <h1 class="text-3xl font-extrabold tracking-tight sm:text-4xl">{{ 'اتصل بنا' if lang == 'ar' else 'Contact us' }}</h1>
+        <p class="mt-4 text-sm leading-8 text-slate-600">{{ 'للاقتراحات والتصحيحات والاستفسارات، ابعث لنا رسالة من النموذج التالي.' if lang == 'ar' else 'Send us suggestions, corrections, or questions using the form below.' }}</p>
+        {% if contact_sent %}
+          <div class="mt-6 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-semibold leading-7 text-emerald-800" role="status">{{ 'وصلتنا رسالتك بنجاح، شكراً لتواصلك معنا.' if lang == 'ar' else 'Your message was sent successfully. Thank you for contacting us.' }}</div>
+        {% endif %}
+        {% if contact_error %}
+          <div class="mt-6 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-7 text-amber-900" role="alert">{{ contact_error }}{% if not contact_csrf or 'غير مفعّل' in contact_error or 'not configured' in contact_error %} <a class="font-bold underline underline-offset-2" href="mailto:syfsywf86@gmail.com">syfsywf86@gmail.com</a>{% endif %}</div>
+        {% endif %}
+        <form method="post" action="{{ url_for('contact', lang=lang) }}" class="mt-8 space-y-5">
+          <input type="hidden" name="csrf_token" value="{{ contact_csrf }}">
+          <div>
+            <label for="contact-name" class="mb-2 block text-sm font-bold">{{ 'الاسم' if lang == 'ar' else 'Name' }}</label>
+            <input id="contact-name" name="name" type="text" maxlength="100" required autocomplete="name" class="w-full rounded-xl border border-slate-300 bg-transparent px-4 py-3 text-sm outline-none focus:border-pulse">
+          </div>
+          <div>
+            <label for="contact-email" class="mb-2 block text-sm font-bold">{{ 'البريد الإلكتروني' if lang == 'ar' else 'Email address' }}</label>
+            <input id="contact-email" name="email" type="email" maxlength="254" required autocomplete="email" class="w-full rounded-xl border border-slate-300 bg-transparent px-4 py-3 text-sm outline-none focus:border-pulse">
+          </div>
+          <div>
+            <label for="contact-message" class="mb-2 block text-sm font-bold">{{ 'الرسالة' if lang == 'ar' else 'Message' }}</label>
+            <textarea id="contact-message" name="message" rows="6" maxlength="5000" required class="w-full resize-y rounded-xl border border-slate-300 bg-transparent px-4 py-3 text-sm leading-7 outline-none focus:border-pulse"></textarea>
+          </div>
+          <button type="submit" class="rounded-full bg-pulse px-6 py-3 text-sm font-extrabold text-white transition hover:bg-rose-600">{{ 'إرسال الرسالة' if lang == 'ar' else 'Send message' }}</button>
+        </form>
+        <p class="mt-7 border-t border-slate-100 pt-5 text-sm leading-7 text-slate-500">{{ 'أو راسلنا مباشرة على' if lang == 'ar' else 'Or email us directly at' }} <a class="font-bold text-pulse underline underline-offset-2" href="mailto:syfsywf86@gmail.com">syfsywf86@gmail.com</a>.</p>
+      </section>
+
+    {% else %}
+      <section class="mx-auto max-w-xl rounded-3xl border border-slate-200 bg-white px-6 py-16 text-center shadow-sm">
+        <p class="mb-3 text-6xl font-black text-pulse">404</p>
+        <h1 class="text-2xl font-extrabold">{{ 'الصفحة غير موجودة' if lang == 'ar' else 'Page not found' }}</h1>
+        <p class="mt-3 text-sm leading-7 text-slate-500">{{ 'قد يكون الرابط قديماً أو أن المقال غير متاح باللغة المختارة.' if lang == 'ar' else 'The link may be outdated, or this story is not available in the selected language.' }}</p>
+        <a href="{{ url_for('index', lang=lang) }}" class="mt-6 inline-flex rounded-full bg-pulse px-5 py-3 text-sm font-bold text-white transition hover:bg-rose-600">{{ ui.back_home }}</a>
+      </section>
+    {% endif %}
+  </main>
+
+  <footer class="border-t border-slate-200 bg-white">
+    <div class="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-8 sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
+      <a href="{{ url_for('index', lang=lang) }}" class="flex items-center gap-2 font-extrabold"><span class="grid h-8 w-8 place-items-center rounded-xl bg-pulse text-white">WP</span>{{ site_name }}</a>
+      <div class="flex flex-wrap gap-x-4 gap-y-2 text-xs text-slate-500">
+        <a class="hover:text-pulse" href="{{ url_for('static_page', page_key='about', lang=lang) }}">{{ 'من نحن' if lang == 'ar' else 'About Us' }}</a>
+        <a class="hover:text-pulse" href="{{ url_for('static_page', page_key='privacy', lang=lang) }}">{{ 'الخصوصية' if lang == 'ar' else 'Privacy' }}</a>
+        <a class="hover:text-pulse" href="{{ url_for('static_page', page_key='terms', lang=lang) }}">{{ 'الشروط' if lang == 'ar' else 'Terms' }}</a>
+        <a class="hover:text-pulse" href="{{ url_for('contact', lang=lang) }}">{{ 'اتصل بنا' if lang == 'ar' else 'Contact' }}</a>
+      </div>
+      <p class="text-xs leading-6 text-slate-500">{{ ui.footer }}</p>
+      <p class="text-[11px] font-medium text-slate-400">© {{ now_year if now_year is defined else 2026 }} {{ site_name }}</p>
+    </div>
+  </footer>
+  <script>
+    (() => {
+      const root = document.documentElement;
+      const themeButton = document.getElementById('themeToggle');
+      const sunIcon = document.getElementById('sunIcon');
+      const moonIcon = document.getElementById('moonIcon');
+      const refreshButton = document.getElementById('refreshNews');
+      const refreshButtonText = document.getElementById('refreshButtonText');
+      const refreshIcon = document.getElementById('refreshIcon');
+      const statusText = document.getElementById('newsStatusText');
+      const text = {
+        lightTheme: {{ ui.theme_toggle|tojson }},
+        refresh: {{ ui.refresh_news|tojson }},
+        refreshing: {{ ui.refreshing|tojson }},
+        autoRefresh: {{ ui.auto_refresh|tojson }},
+        interval: {{ news_refresh_interval|tojson }},
+        updated: {{ ui.last_updated|tojson }},
+        cooldown: {{ ui.refresh_cooldown|tojson }},
+        error: {{ ui.refresh_error|tojson }},
+        lang: {{ lang|tojson }}
+      };
+
+      function applyTheme(theme) {
+        root.dataset.theme = theme;
+        const dark = theme === 'dark';
+        if (sunIcon) sunIcon.classList.toggle('hidden', dark);
+        if (moonIcon) moonIcon.classList.toggle('hidden', !dark);
+        if (themeButton) themeButton.setAttribute('aria-pressed', String(dark));
+        try { localStorage.setItem('world-pulse-theme', theme); } catch (_) {}
+      }
+      applyTheme(root.dataset.theme || 'light');
+      themeButton?.addEventListener('click', () => applyTheme(root.dataset.theme === 'dark' ? 'light' : 'dark'));
+
+      function formatStatus(data) {
+        if (!statusText) return;
+        let value = text.autoRefresh.replace('{minutes}', String(text.interval));
+        if (data && data.last_refresh_at) {
+          const time = new Date(data.last_refresh_at);
+          if (!Number.isNaN(time.getTime())) {
+            const formatted = time.toLocaleString(text.lang === 'ar' ? 'ar-JO' : 'en-US', { dateStyle: 'medium', timeStyle: 'short' });
+            value += ' · ' + text.updated + ': ' + formatted;
+          }
+        }
+        statusText.textContent = value;
+      }
+
+      let knownRefreshAt = null;
+      async function loadStatus() {
+        try {
+          const response = await fetch('/api/news-status', { cache: 'no-store' });
+          if (!response.ok) return;
+          const status = await response.json();
+          if (knownRefreshAt !== null && status.last_refresh_at && status.last_refresh_at !== knownRefreshAt) {
+            window.location.reload();
+            return;
+          }
+          if (knownRefreshAt === null && status.last_refresh_at) knownRefreshAt = status.last_refresh_at;
+          else if (knownRefreshAt === null) knownRefreshAt = '';
+          formatStatus(status);
+        } catch (_) { /* Status display is optional; the news page stays usable. */ }
+      }
+      loadStatus();
+      // Refresh the visible story list after a scheduled/manual background fetch completes.
+      window.setInterval(loadStatus, 60000);
+
+      refreshButton?.addEventListener('click', async () => {
+        if (refreshButton.disabled) return;
+        refreshButton.disabled = true;
+        if (refreshButtonText) refreshButtonText.textContent = text.refreshing;
+        refreshIcon?.classList.add('animate-spin');
+        try {
+          let baselineAt = '';
+          try {
+            const baselineResponse = await fetch('/api/news-status', { cache: 'no-store' });
+            if (baselineResponse.ok) baselineAt = (await baselineResponse.json()).last_refresh_at || '';
+          } catch (_) {}
+          const response = await fetch('/api/refresh', { method: 'POST', headers: { 'Accept': 'application/json' }, cache: 'no-store' });
+          const result = await response.json();
+          if (result.state === 'cooldown') {
+            if (refreshButtonText) refreshButtonText.textContent = text.refresh;
+            if (statusText) statusText.textContent = text.cooldown;
+            return;
+          }
+          if (result.state === 'disabled') throw new Error('automatic refresh disabled');
+          for (let attempt = 0; attempt < 80; attempt++) {
+            await new Promise(resolve => setTimeout(resolve, 1500));
+            const statusResponse = await fetch('/api/news-status', { cache: 'no-store' });
+            if (!statusResponse.ok) continue;
+            const status = await statusResponse.json();
+            formatStatus(status);
+            const completedWithNewTimestamp = Boolean(status.last_refresh_at) && status.last_refresh_at !== baselineAt;
+            if (!status.running && status.state !== 'running' && completedWithNewTimestamp) {
+              if (status.state === 'error' || status.state === 'memory_only') {
+                if (statusText) statusText.textContent = text.error;
+                if (refreshButtonText) refreshButtonText.textContent = text.refresh;
+                return;
+              }
+              window.location.reload();
+              return;
+            }
+          }
+          if (statusText) statusText.textContent = text.error;
+        } catch (_) {
+          if (statusText) statusText.textContent = text.error;
+        } finally {
+          refreshIcon?.classList.remove('animate-spin');
+          refreshButton.disabled = false;
+          if (refreshButtonText) refreshButtonText.textContent = text.refresh;
+        }
+      });
+
+    })();
+  </script>
+</body>
+</html>
