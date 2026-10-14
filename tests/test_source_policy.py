@@ -191,3 +191,70 @@ class SourcePolicyTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+    def test_global_publisher_catalog_is_expanded_and_language_scoped(self):
+        catalog = world_pulse.CATEGORY_SOURCE_DOMAINS
+        entry_count = sum(len(domains) for langs in catalog.values() for domains in langs.values())
+        self.assertGreaterEqual(entry_count, 200)
+        self.assertIn("voanews.com", catalog["world"]["en"])
+        self.assertIn("almamlakatv.com", catalog["world"]["ar"])
+        self.assertIn("eurekalert.org", catalog["science"]["en"])
+        self.assertIn("true-gaming.net", catalog["gaming"]["ar"])
+        self.assertEqual(
+            world_pulse._source_domain_for_category("science", "en", "www.noaa.gov"),
+            "noaa.gov",
+        )
+        self.assertEqual(
+            world_pulse._source_domain_for_category("sports", "ar", "www.espn.com"),
+            "",
+        )
+
+    def test_editorial_prompt_forbids_invented_details_and_generic_padding(self):
+        prompt = world_pulse._build_editorial_prompt([{
+            "index": 0,
+            "category": "world",
+            "source": "Example News",
+            "source_url": "https://example.test/story",
+            "headline": "Headline only",
+            "rss_excerpt": "A brief excerpt",
+            "source_language": "en",
+        }])
+        self.assertIn("Never invent or infer names, dates, places, numbers", prompt)
+        self.assertIn("Do not pad the article with generic filler", prompt)
+        self.assertIn("headline and RSS excerpt", prompt)
+
+    def test_library_of_congress_image_search_accepts_only_item_level_open_rights(self):
+        import io
+        import json
+        from unittest.mock import patch
+
+        payload = {
+            "results": [
+                {
+                    "title": "NASA Artemis launch",
+                    "id": "https://www.loc.gov/item/example-open/",
+                    "image_url": ["//cdn.loc.gov/images/artemis.jpg"],
+                    "rights": ["No known restrictions on publication"],
+                    "contributor": ["Library of Congress"],
+                    "description": "NASA Artemis rocket launch",
+                    "access_restricted": False,
+                },
+                {
+                    "title": "NASA Artemis launch photo",
+                    "id": "https://www.loc.gov/item/example-restricted/",
+                    "image_url": ["//cdn.loc.gov/images/restricted.jpg"],
+                    "rights": ["In copyright; permission required"],
+                    "contributor": ["Restricted photographer"],
+                    "description": "NASA Artemis rocket launch",
+                    "access_restricted": False,
+                },
+            ]
+        }
+        fake_response = io.BytesIO(json.dumps(payload).encode("utf-8"))
+        with patch.object(world_pulse, "urlopen", return_value=fake_response):
+            result = world_pulse._search_loc_open_access_image("NASA Artemis launch", "en", "science")
+        self.assertEqual(result["image_source"], "loc_open_access")
+        self.assertEqual(result["image_url"], "https://cdn.loc.gov/images/artemis.jpg")
+        self.assertIn("example-open", result["image_license_url"])
+
