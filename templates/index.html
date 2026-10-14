@@ -4,14 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#111827">
-  <meta name="description" content="{% if page == 'article' and article %}{{ article.summary|striptags|truncate(155, True, '…') }}{% elif page == 'legal' %}{{ legal_body|striptags|truncate(155, True, '…') }}{% elif page == 'search' %}{{ ('نتائج البحث عن ' if lang == 'ar' else 'Search results for ') ~ (search_query or '') }}{% else %}{{ ui.hero_text }}{% endif %}">
-  {% if page == 'search' %}<meta name="robots" content="noindex,follow">{% else %}<meta name="robots" content="index,follow,max-image-preview:large">{% endif %}
-  <meta property="og:site_name" content="{{ site_name }}">
-  <meta property="og:type" content="{% if page == 'article' %}article{% else %}website{% endif %}">
-  <meta property="og:title" content="{% if page == 'article' and article %}{{ article.title }} — {% elif page == 'legal' %}{{ legal_title }} — {% endif %}{{ site_name }}">
-  <meta property="og:description" content="{% if page == 'article' and article %}{{ article.summary|striptags|truncate(155, True, '…') }}{% else %}{{ ui.hero_text }}{% endif %}">
-  {% if page == 'article' and article %}<meta property="og:image" content="{{ article.image_url or url_for('static', filename='world-pulse-placeholder.jpg', _external=True) }}">{% endif %}
-  <title>{% if page == 'article' and article %}{{ article.title }} — {% elif page == 'legal' %}{{ legal_title }} — {% elif page == 'search' %}{{ 'نتائج البحث' if lang == 'ar' else 'Search results' }} — {% endif %}{{ site_name }}</title>
+  <meta name="description" content="{{ ui.hero_text }}">
+  <title>{% if page == 'article' and article %}{{ article.title }} — {% elif page == 'static' and static_page %}{{ static_page['title_ar' if lang == 'ar' else 'title_en'] }} — {% elif page == 'contact' %}{{ 'اتصل بنا' if lang == 'ar' else 'Contact us' }} — {% endif %}{{ site_name }}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -129,11 +123,12 @@
           <span class="mt-0.5 block text-[10px] font-semibold uppercase tracking-[.22em] text-slate-500">{{ 'WORLD PULSE' if lang == 'ar' else 'NEWS · CONTEXT · PERSPECTIVE' }}</span>
         </span>
       </a>
-      <form action="{{ url_for('search', lang=lang) }}" method="get" role="search" class="hidden min-w-0 max-w-sm flex-1 items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 md:flex">
-        <label for="siteSearch" class="sr-only">{{ 'ابحث في الأخبار' if lang == 'ar' else 'Search news' }}</label>
-        <input id="siteSearch" name="q" value="{{ search_query if search_query is defined else '' }}" type="search" maxlength="160" required placeholder="{{ 'ابحث في الأخبار...' if lang == 'ar' else 'Search news...' }}" class="min-w-0 flex-1 bg-transparent text-sm outline-none" />
-        <button type="submit" aria-label="{{ 'بحث' if lang == 'ar' else 'Search' }}" class="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-pulse text-white"><svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="7"/><path d="m16 16 4 4" stroke-linecap="round"/></svg></button>
-      </form>
+      <div class="hidden items-center gap-2 md:flex">
+        <span class="rounded-full bg-white px-3 py-2 text-xs font-semibold text-slate-500 ring-1 ring-slate-200">{{ ui.search_hint }}</span>
+        <span class="grid h-9 w-9 place-items-center rounded-full bg-white text-slate-500 ring-1 ring-slate-200" aria-hidden="true">
+          <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="7"/><path d="m16 16 4 4" stroke-linecap="round"/></svg>
+        </span>
+      </div>
     </div>
     <nav class="border-t border-slate-200/70" aria-label="{{ 'الأقسام' if lang == 'ar' else 'News sections' }}">
       <div class="nav-scroll mx-auto flex max-w-7xl items-center gap-2 overflow-x-auto px-4 py-2.5 sm:px-6 lg:px-8">
@@ -152,38 +147,8 @@
     </div>
   </header>
 
-  <form action="{{ url_for('search', lang=lang) }}" method="get" role="search" class="mx-auto flex max-w-7xl items-center gap-2 px-4 pt-4 md:hidden sm:px-6 lg:px-8">
-    <label for="mobileSiteSearch" class="sr-only">{{ 'ابحث في الأخبار' if lang == 'ar' else 'Search news' }}</label>
-    <input id="mobileSiteSearch" name="q" value="{{ search_query if search_query is defined else '' }}" type="search" maxlength="160" required placeholder="{{ 'ابحث في الأخبار...' if lang == 'ar' else 'Search news...' }}" class="min-w-0 flex-1 rounded-full border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-pulse" />
-    <button type="submit" class="rounded-full bg-pulse px-4 py-3 text-sm font-bold text-white">{{ 'بحث' if lang == 'ar' else 'Search' }}</button>
-  </form>
   <main class="mx-auto max-w-7xl px-4 pb-16 pt-5 sm:px-6 sm:pt-8 lg:px-8">
-    {% if page == 'legal' %}
-      <section class="mx-auto max-w-3xl rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-10">
-        <h1 class="mb-5 text-3xl font-extrabold">{{ legal_title }}</h1>
-        <p class="whitespace-pre-line text-base leading-8 text-slate-600">{{ legal_body }}</p>
-        {% if legal_slug == 'contact' and contact_status is defined and contact_status %}
-          <div role="status" aria-live="polite" class="mt-5 rounded-2xl border px-4 py-3 text-sm leading-7 {% if contact_status == 'sent' %}border-emerald-200 bg-emerald-50 text-emerald-800{% elif contact_status == 'invalid' %}border-amber-200 bg-amber-50 text-amber-900{% else %}border-rose-200 bg-rose-50 text-rose-800{% endif %}">
-            {% if contact_status == 'sent' %}{{ 'تم إرسال رسالتك بنجاح، شكرًا لتواصلك.' if lang == 'ar' else 'Your message was sent successfully. Thank you.' }}
-            {% elif contact_status == 'invalid' %}{{ 'يرجى تعبئة الحقول والتأكد من صحة البريد الإلكتروني.' if lang == 'ar' else 'Please complete all fields and provide a valid email address.' }}
-            {% elif contact_status == 'failed' %}{{ 'تعذر إرسال الرسالة الآن. يرجى التواصل عبر syfsywf86@gmail.com.' if lang == 'ar' else 'We could not send your message. Please email syfsywf86@gmail.com.' }}{% endif %}
-          </div>
-        {% endif %}
-        {% if legal_slug == 'contact' %}
-          <form id="contact-form" action="{{ url_for('contact', lang=lang) }}" method="post" class="mt-8 space-y-4">
-            <input type="hidden" name="csrf_token" value="{{ contact_csrf_token }}">
-            <div><label for="contactName" class="mb-1 block text-sm font-bold">{{ 'الاسم' if lang == 'ar' else 'Name' }}</label><input id="contactName" name="name" maxlength="100" required class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm" /></div>
-            <div><label for="contactEmail" class="mb-1 block text-sm font-bold">{{ 'البريد الإلكتروني' if lang == 'ar' else 'Email' }}</label><input id="contactEmail" type="email" name="email" maxlength="160" required class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm" /></div>
-            <div><label for="contactMessage" class="mb-1 block text-sm font-bold">{{ 'الرسالة' if lang == 'ar' else 'Message' }}</label><textarea id="contactMessage" name="message" maxlength="3000" rows="5" required class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm"></textarea></div>
-            <p class="text-xs leading-6 text-slate-500">{% if contact_smtp_enabled %}{{ 'سيتم إرسال رسالتك مباشرة من الموقع إلى syfsywf86@gmail.com.' if lang == 'ar' else 'Your message will be sent directly to syfsywf86@gmail.com.' }}{% else %}{{ 'سيُفتح تطبيق البريد لديك لإكمال الإرسال إلى syfsywf86@gmail.com. يمكن تفعيل الإرسال المباشر بإعداد SMTP في Render.' if lang == 'ar' else 'Your email app will open to complete sending to syfsywf86@gmail.com. Direct sending can be enabled with SMTP settings in Render.' }}{% endif %}</p>
-            <button type="submit" class="rounded-full bg-pulse px-5 py-3 text-sm font-bold text-white">{{ 'متابعة الإرسال' if lang == 'ar' else 'Continue to email' }}</button>
-          </form>
-        {% endif %}
-      </section>
-    {% elif page == 'search' %}
-      <section class="mb-6"><h1 class="text-3xl font-extrabold">{{ 'نتائج البحث' if lang == 'ar' else 'Search results' }}</h1><p class="mt-2 text-sm text-slate-500">{{ 'عبارة البحث: ' if lang == 'ar' else 'Search query: ' }}{{ search_query }}</p></section>
-      {% if stories %}<div class="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3">{% for story in stories %}<article class="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"><p class="mb-2 text-xs font-bold text-pulse">{{ story.category_label }} · {{ story.source_name or ui.source }}</p><h2 class="text-lg font-extrabold leading-8"><a href="{{ url_for('article', slug=story.slug, lang=lang) }}">{{ story.title }}</a></h2><p class="mt-3 line-clamp-4 text-sm leading-7 text-slate-600">{{ story.summary }}</p><a class="mt-4 inline-block text-sm font-bold text-pulse" href="{{ url_for('article', slug=story.slug, lang=lang) }}">{{ 'اقرأ الخبر' if lang == 'ar' else 'Read story' }} ←</a></article>{% endfor %}</div>{% else %}<p class="rounded-2xl border border-slate-200 bg-white p-8 text-slate-500">{{ 'لا توجد نتائج مطابقة. جرّب كلمات أخرى.' if lang == 'ar' else 'No matching results. Try different keywords.' }}</p>{% endif %}
-    {% elif page == 'home' %}
+    {% if page == 'home' %}
       <section class="mb-6 overflow-hidden rounded-[2rem] bg-ink text-white shadow-soft">
         <div class="relative grid gap-8 px-6 py-9 sm:px-10 sm:py-12 lg:grid-cols-[1.1fr_.9fr] lg:items-center lg:px-14 lg:py-14">
           <div class="pointer-events-none absolute inset-y-0 {{ 'left-0' if lang == 'ar' else 'right-0' }} hidden w-2/5 opacity-20 lg:block editorial-grid"></div>
@@ -245,19 +210,22 @@
             {% for story in stories %}
               <article class="group flex h-full flex-col overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-sm transition duration-300 hover:-translate-y-1 hover:border-slate-300 hover:shadow-soft">
                 <a href="{{ url_for('article', slug=story.slug, lang=lang) }}" class="relative block aspect-[16/9] overflow-hidden bg-slate-200" tabindex="-1" aria-hidden="true">
-                  <img src="{{ url_for('static', filename='world-pulse-placeholder.jpg') }}" alt="World Pulse — {{ story.category_label }}" loading="lazy" decoding="async" class="absolute inset-0 z-0 h-full w-full object-cover" onerror="this.onerror=null;this.style.display='none';">
+                  <div class="story-image-placeholder absolute inset-0" data-category="{{ story.category }}" aria-label="{{ story.category_label }} image placeholder">
+                    <span class="select-none text-6xl font-black tracking-widest opacity-35">WP</span>
+                  </div>
                   {% if story.image_url %}
                     <img src="{{ story.image_url }}" alt="{{ story.title }}" loading="lazy" decoding="async" class="absolute inset-0 z-[1] h-full w-full object-cover transition duration-700 group-hover:scale-105" onerror="this.onerror=null;this.style.display='none';">
                   {% endif %}
                   <span class="absolute {{ 'right-4' if lang == 'ar' else 'left-4' }} top-4 rounded-full border border-white/25 bg-ink/80 px-3 py-1.5 text-xs font-bold text-white backdrop-blur">{{ story.category_label }}</span>
-                  {% if story.is_demo %}<span class="absolute bottom-3 {{ 'right-3' if lang == 'ar' else 'left-3' }} rounded-md bg-amber-100 px-2 py-1 text-[9px] font-extrabold text-amber-900">{{ ui.sample_badge }}</span>{% endif %}
                 </a>
                 <div class="flex flex-1 flex-col p-5 sm:p-6">
-                  {% if story.image_source != 'category' and story.image_credit %}
+                  {% if story.image_source in ['wikimedia_relevant', 'unsplash_api', 'pexels_api', 'presskit_approved'] and story.image_credit %}
                     <p class="mb-2 text-[10px] leading-5 text-slate-400">{{ ui.photo_credit }}:
                       {% if story.image_credit_url %}<a href="{{ story.image_credit_url }}" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">{{ story.image_credit }}</a>{% else %}{{ story.image_credit }}{% endif %}
-                      {% if story.image_license_name %} · {{ story.image_license_name }}{% endif %}{% if story.image_license_url %} · <a href="{{ story.image_license_url }}" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">{{ ui.photo_license }}</a>{% endif %}
-                      {% if story.image_provider_name and story.image_provider_url %} · <a href="{{ story.image_provider_url }}" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">{{ story.image_provider_name }}</a>{% endif %}
+                      {% if story.image_source == 'pexels_api' %} · <a href="https://www.pexels.com" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">{{ ui.photos_provided_by_pexels }}</a>{% if story.image_provider_url %} · <a href="{{ story.image_provider_url }}" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">{{ ui.photo_page }}</a>{% endif %}
+                      {% elif story.image_provider_url %} · <a href="{{ story.image_provider_url }}" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">{% if story.image_source == 'wikimedia_relevant' %}Wikimedia Commons{% elif story.image_source == 'unsplash_api' %}Unsplash{% else %}Press kit{% endif %}</a>{% endif %}
+                      {% if story.image_license_url %} · <a href="{{ story.image_license_url }}" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">{{ ui.photo_license }}</a>{% endif %}
+                      · <span>{{ ui.illustrative_image }}</span>
                     </p>
                   {% endif %}
                   <div class="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-medium text-slate-500">
@@ -282,7 +250,9 @@
           </div>
         {% else %}
           <div class="rounded-3xl border border-dashed border-slate-300 bg-white px-6 py-16 text-center">
-            <p class="text-base font-semibold text-slate-500">{{ ui.empty }}</p>
+            <p class="text-base font-semibold text-slate-700">{{ ui.empty }}</p>
+            <p class="mx-auto mt-3 max-w-2xl text-sm leading-7 text-slate-500">{{ ui.empty_detail }}</p>
+            <p class="mt-3 text-xs leading-6 text-slate-400">{{ 'حالة النظام: ' if lang == 'ar' else 'System status: ' }}<a class="underline underline-offset-2" href="/api/news-status" target="_blank" rel="noopener noreferrer">/api/news-status</a></p>
             <a href="{{ url_for('index', lang=lang, category='all') }}" class="mt-4 inline-flex rounded-full bg-ink px-4 py-2 text-sm font-bold text-white">{{ ui.all_news }}</a>
           </div>
         {% endif %}
@@ -299,12 +269,11 @@
 
       <article class="overflow-hidden rounded-[2rem] border border-slate-200/80 bg-white shadow-soft">
         <div class="relative aspect-[16/8] max-h-[540px] overflow-hidden bg-slate-200 sm:aspect-[16/7]">
-          <img src="{{ url_for('static', filename='world-pulse-placeholder.jpg') }}" alt="World Pulse — {{ article.category_label }}" decoding="async" class="absolute inset-0 z-0 h-full w-full object-cover" onerror="this.onerror=null;this.style.display='none';">
+          <div class="story-image-placeholder absolute inset-0" data-category="{{ article.category }}" aria-hidden="true"><span class="select-none text-8xl font-black tracking-widest opacity-35">WP</span></div>
           {% if article.image_url %}
             <img src="{{ article.image_url }}" alt="{{ article.title }}" decoding="async" class="absolute inset-0 z-[1] h-full w-full object-cover" onerror="this.onerror=null;this.style.display='none';">
           {% endif %}
           <div class="absolute inset-0 bg-gradient-to-t from-ink/75 via-ink/10 to-transparent"></div>
-          {% if article.is_demo %}<span class="absolute {{ 'right-6' if lang == 'ar' else 'left-6' }} top-6 rounded-full bg-amber-100 px-3 py-1.5 text-[10px] font-extrabold text-amber-900">{{ ui.sample_badge }}</span>{% endif %}
           <div class="absolute inset-x-0 bottom-0 p-6 text-white sm:p-10 lg:p-12">
             <div class="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2 text-xs font-semibold text-white/80 sm:text-sm">
               <span>{{ article.source_name or ui.source }}</span><span class="h-1 w-1 rounded-full bg-white/60"></span><time>{{ article.published_label }}</time><span class="h-1 w-1 rounded-full bg-white/60"></span><span>{{ article.read_minutes }} {{ ui.read_time }}</span>
@@ -312,12 +281,14 @@
             <h1 class="max-w-4xl text-2xl font-extrabold leading-[1.45] tracking-tight sm:text-3xl lg:text-5xl">{{ article.title }}</h1>
           </div>
         </div>
-        {% if article.image_credit %}
+        {% if article.image_source in ['wikimedia_relevant', 'unsplash_api', 'pexels_api', 'presskit_approved'] and article.image_credit %}
           <div class="border-b border-slate-100 px-6 py-3 text-[11px] leading-5 text-slate-400 sm:px-9 lg:px-12">
             {{ ui.photo_credit }}:
             {% if article.image_credit_url %}<a href="{{ article.image_credit_url }}" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">{{ article.image_credit }}</a>{% else %}{{ article.image_credit }}{% endif %}
-            {% if article.image_license_name %} · {{ article.image_license_name }}{% endif %}{% if article.image_license_url %} · <a href="{{ article.image_license_url }}" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">{{ ui.photo_license }}</a>{% endif %}
-            {% if article.image_provider_name and article.image_provider_url %} · <a href="{{ article.image_provider_url }}" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">{{ article.image_provider_name }}</a>{% endif %}
+            {% if article.image_source == 'pexels_api' %} · <a href="https://www.pexels.com" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">{{ ui.photos_provided_by_pexels }}</a>{% if article.image_provider_url %} · <a href="{{ article.image_provider_url }}" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">{{ ui.photo_page }}</a>{% endif %}
+            {% elif article.image_provider_url %} · <a href="{{ article.image_provider_url }}" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">{% if article.image_source == 'wikimedia_relevant' %}Wikimedia Commons{% elif article.image_source == 'unsplash_api' %}Unsplash{% else %}Press kit{% endif %}</a>{% endif %}
+            {% if article.image_license_url %} · <a href="{{ article.image_license_url }}" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">{{ ui.photo_license }}</a>{% endif %}
+            · <span>{{ ui.illustrative_image }}</span>
           </div>
         {% endif %}
 
@@ -326,47 +297,21 @@
             <div class="mb-8 rounded-2xl border-s-4 border-pulse bg-slate-50 p-5 sm:p-6">
               <p class="mb-2 text-xs font-extrabold uppercase tracking-wider text-pulse">{{ 'ملخص تنفيذي' if lang == 'ar' else 'Executive summary' }}</p>
               <p class="text-base font-semibold leading-8 text-slate-700">{{ article.summary }}</p>
-              {% if not article.is_demo %}<p class="mt-3 text-xs leading-6 text-slate-500">{{ 'ملخص وسياق تحريري بمساعدة الذكاء الاصطناعي استناداً إلى المعلومات المتاحة من المصدر؛ راجع المصدر الأصلي للتفاصيل والتحديثات.' if lang == 'ar' else 'AI-assisted editorial summary and context based on available source information; consult the original publisher for full details and updates.' }}</p>{% endif %}
             </div>
             {% if article.content %}
               <h2 class="mb-4 text-xl font-extrabold tracking-tight sm:text-2xl">{{ ui.article_details }}</h2>
               <div class="article-copy text-base leading-8 text-slate-700 sm:text-lg">{{ article.content }}</div>
-            {% elif not article.is_demo %}
-              <p class="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm leading-7 text-slate-500">{{ ui.body_unavailable }}</p>
             {% endif %}
-            {% if not article.is_demo %}
-              <section id="articleAsk" class="mt-9 rounded-2xl border border-slate-200 bg-slate-50 p-5 sm:p-6">
-                <div class="mb-4 flex items-start gap-3">
-                  <span class="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-pulse text-white" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3 14.3 9.7 21 12l-6.7 2.3L12 21l-2.3-6.7L3 12l6.7-2.3L12 3Z" stroke-linejoin="round"/><path d="m19 3 .8 2.2L22 6l-2.2.8L19 9l-.8-2.2L16 6l2.2-.8L19 3Z" stroke-linejoin="round"/></svg>
-                  </span>
-                  <div>
-                    <h2 class="text-lg font-extrabold">{{ ui.ai_ask_title }}</h2>
-                    <p class="mt-1 text-sm leading-7 text-slate-500">{{ ui.ai_ask_desc }}</p>
-                  </div>
-                </div>
-                <form id="articleAskForm" class="space-y-3">
-                  <label for="articleQuestion" class="sr-only">{{ ui.ai_question_placeholder }}</label>
-                  <textarea id="articleQuestion" name="question" rows="3" maxlength="500" required placeholder="{{ ui.ai_question_placeholder }}" class="w-full resize-y rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm leading-7 text-ink outline-none transition focus:border-pulse focus:ring-2 focus:ring-rose-500/15"></textarea>
-                  <div class="flex flex-wrap items-center gap-3">
-                    <button id="articleAskButton" type="submit" {% if not ai_ask_enabled %}disabled{% endif %} class="inline-flex items-center gap-2 rounded-full bg-pulse px-5 py-3 text-sm font-extrabold text-white transition hover:bg-rose-600 disabled:cursor-not-allowed disabled:opacity-50"><svg id="askSpinner" class="hidden h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-opacity=".25" stroke-width="3"/><path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg><span>{{ ui.ai_ask_button }}</span></button>
-                    <span id="articleAskStatus" role="status" aria-live="polite" class="text-xs leading-6 text-slate-500">{% if not ai_ask_enabled %}{{ ui.ai_disabled }}{% endif %}</span>
-                  </div>
-                </form>
-                <div id="articleAskAnswer" class="article-copy mt-4 hidden rounded-xl border border-slate-200 bg-white p-4 text-sm leading-7 text-slate-700" aria-live="polite"></div>
-                <p class="mt-3 text-[11px] leading-5 text-slate-400">{{ ui.ai_disclaimer }}</p>
-                <div class="mt-4 flex flex-wrap gap-2">
-                  <a id="askChatGPT" href="https://chatgpt.com/" target="_blank" rel="noopener noreferrer" class="inline-flex items-center rounded-full border border-slate-300 px-4 py-2 text-xs font-bold text-slate-600 transition hover:border-pulse hover:text-pulse">{{ ui.ask_chatgpt }}</a>
-                  <a id="askGemini" href="https://gemini.google.com/app" target="_blank" rel="noopener noreferrer" class="inline-flex items-center rounded-full border border-slate-300 px-4 py-2 text-xs font-bold text-slate-600 transition hover:border-pulse hover:text-pulse">{{ ui.ask_gemini }}</a>
-                </div>
-              </section>
+            {% if article.ai_enriched %}
               <p class="mt-8 border-t border-slate-100 pt-5 text-xs leading-6 text-slate-400">{{ ui.ai_note }}</p>
-              {% if article.source_url %}
-                <a href="{{ article.source_url }}" target="_blank" rel="noopener noreferrer" class="mt-6 inline-flex items-center gap-2 rounded-full bg-ink px-5 py-3 text-sm font-bold text-white transition hover:bg-pulse">
-                  {{ ui.open_source }}
-                  <svg viewBox="0 0 20 20" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M11 3h6v6M17 3 9 11" stroke-linecap="round" stroke-linejoin="round"/><path d="M15 11v5a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5" stroke-linecap="round"/></svg>
-                </a>
-              {% endif %}
+            {% else %}
+              <p class="mt-8 border-t border-slate-100 pt-5 text-xs leading-6 text-slate-400">{{ ui.brief_note }}</p>
+            {% endif %}
+            {% if article.source_url %}
+              <a href="{{ article.source_url }}" target="_blank" rel="noopener noreferrer" class="mt-6 inline-flex items-center gap-2 rounded-full bg-ink px-5 py-3 text-sm font-bold text-white transition hover:bg-pulse">
+                {{ ui.open_source }}
+                <svg viewBox="0 0 20 20" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M11 3h6v6M17 3 9 11" stroke-linecap="round" stroke-linejoin="round"/><path d="M15 11v5a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </a>
             {% endif %}
           </div>
           <aside class="border-t border-slate-100 pt-8 lg:border-t-0 lg:border-s {{ 'lg:ps-8' if lang == 'ar' else 'lg:pl-8' }} lg:pt-0">
@@ -375,7 +320,7 @@
               {% for story in related_stories %}
                 <a href="{{ url_for('article', slug=story.slug, lang=lang) }}" class="group flex gap-3">
                   <span class="relative block h-20 w-24 shrink-0 overflow-hidden rounded-xl bg-slate-200">
-                    <img src="{{ url_for('static', filename='world-pulse-placeholder.jpg') }}" alt="World Pulse — {{ story.category_label }}" loading="lazy" decoding="async" class="absolute inset-0 z-0 h-full w-full object-cover" onerror="this.onerror=null;this.style.display='none';">
+                    <span class="story-image-placeholder absolute inset-0" data-category="{{ story.category }}" aria-hidden="true"><span class="text-lg font-black opacity-40">WP</span></span>
                     {% if story.image_url %}
                       <img src="{{ story.image_url }}" alt="{{ story.title }}" loading="lazy" decoding="async" class="absolute inset-0 z-[1] h-full w-full object-cover" onerror="this.onerror=null;this.style.display='none';">
                     {% endif %}
@@ -385,12 +330,13 @@
                     <span class="line-clamp-3 block text-sm font-bold leading-6 transition group-hover:text-pulse">{{ story.title }}</span>
                   </span>
                 </a>
-                {% if story.image_credit %}
+                {% if story.image_source in ['wikimedia_relevant', 'unsplash_api', 'pexels_api', 'presskit_approved'] and story.image_credit %}
                   <p class="{{ 'mr-28' if lang == 'ar' else 'ml-28' }} -mt-3 text-[10px] leading-4 text-slate-400">
                     {{ ui.photo_credit }}:
                     {% if story.image_credit_url %}<a href="{{ story.image_credit_url }}" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">{{ story.image_credit }}</a>{% else %}{{ story.image_credit }}{% endif %}
-                    {% if story.image_license_name %} · {{ story.image_license_name }}{% endif %}{% if story.image_license_url %} · <a href="{{ story.image_license_url }}" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">{{ ui.photo_license }}</a>{% endif %}
-                    {% if story.image_provider_name and story.image_provider_url %} · <a href="{{ story.image_provider_url }}" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">{{ story.image_provider_name }}</a>{% endif %}
+                    {% if story.image_source == 'pexels_api' %} · <a href="https://www.pexels.com" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">{{ ui.photos_provided_by_pexels }}</a>{% if story.image_provider_url %} · <a href="{{ story.image_provider_url }}" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">{{ ui.photo_page }}</a>{% endif %}
+                    {% elif story.image_provider_url %} · <a href="{{ story.image_provider_url }}" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">{% if story.image_source == 'wikimedia_relevant' %}Wikimedia Commons{% elif story.image_source == 'unsplash_api' %}Unsplash{% else %}Press kit{% endif %}</a>{% endif %}
+                    {% if story.image_license_url %} · <a href="{{ story.image_license_url }}" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">{{ ui.photo_license }}</a>{% endif %}
                   </p>
                 {% endif %}
               {% else %}
@@ -400,6 +346,53 @@
           </aside>
         </div>
       </article>
+
+    {% elif page == 'static' and static_page %}
+      <article class="mx-auto max-w-4xl rounded-3xl border border-slate-200 bg-white px-6 py-8 shadow-sm sm:px-10 sm:py-12">
+        <p class="mb-3 text-xs font-extrabold uppercase tracking-[.18em] text-pulse">{{ site_name }}</p>
+        <h1 class="text-3xl font-extrabold tracking-tight sm:text-4xl">{{ static_page['title_ar' if lang == 'ar' else 'title_en'] }}</h1>
+        <div class="mt-8 space-y-8">
+          {% for heading, body in static_sections %}
+            <section>
+              <h2 class="mb-2 text-lg font-extrabold">{{ heading }}</h2>
+              <p class="text-sm leading-8 text-slate-600">{{ body }}</p>
+            </section>
+          {% endfor %}
+        </div>
+        {% if static_page_key == 'about' %}
+          <a href="{{ url_for('contact', lang=lang) }}" class="mt-9 inline-flex rounded-full bg-pulse px-5 py-3 text-sm font-bold text-white transition hover:bg-rose-600">{{ 'تواصل معنا' if lang == 'ar' else 'Contact us' }}</a>
+        {% endif %}
+      </article>
+
+    {% elif page == 'contact' %}
+      <section class="mx-auto max-w-3xl rounded-3xl border border-slate-200 bg-white px-6 py-8 shadow-sm sm:px-10 sm:py-12">
+        <p class="mb-3 text-xs font-extrabold uppercase tracking-[.18em] text-pulse">{{ site_name }}</p>
+        <h1 class="text-3xl font-extrabold tracking-tight sm:text-4xl">{{ 'اتصل بنا' if lang == 'ar' else 'Contact us' }}</h1>
+        <p class="mt-4 text-sm leading-8 text-slate-600">{{ 'للاقتراحات والتصحيحات والاستفسارات، ابعث لنا رسالة من النموذج التالي.' if lang == 'ar' else 'Send us suggestions, corrections, or questions using the form below.' }}</p>
+        {% if contact_sent %}
+          <div class="mt-6 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-semibold leading-7 text-emerald-800" role="status">{{ 'وصلتنا رسالتك بنجاح، شكراً لتواصلك معنا.' if lang == 'ar' else 'Your message was sent successfully. Thank you for contacting us.' }}</div>
+        {% endif %}
+        {% if contact_error %}
+          <div class="mt-6 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-7 text-amber-900" role="alert">{{ contact_error }}{% if not contact_csrf or 'غير مفعّل' in contact_error or 'not configured' in contact_error %} <a class="font-bold underline underline-offset-2" href="mailto:syfsywf86@gmail.com">syfsywf86@gmail.com</a>{% endif %}</div>
+        {% endif %}
+        <form method="post" action="{{ url_for('contact', lang=lang) }}" class="mt-8 space-y-5">
+          <input type="hidden" name="csrf_token" value="{{ contact_csrf }}">
+          <div>
+            <label for="contact-name" class="mb-2 block text-sm font-bold">{{ 'الاسم' if lang == 'ar' else 'Name' }}</label>
+            <input id="contact-name" name="name" type="text" maxlength="100" required autocomplete="name" class="w-full rounded-xl border border-slate-300 bg-transparent px-4 py-3 text-sm outline-none focus:border-pulse">
+          </div>
+          <div>
+            <label for="contact-email" class="mb-2 block text-sm font-bold">{{ 'البريد الإلكتروني' if lang == 'ar' else 'Email address' }}</label>
+            <input id="contact-email" name="email" type="email" maxlength="254" required autocomplete="email" class="w-full rounded-xl border border-slate-300 bg-transparent px-4 py-3 text-sm outline-none focus:border-pulse">
+          </div>
+          <div>
+            <label for="contact-message" class="mb-2 block text-sm font-bold">{{ 'الرسالة' if lang == 'ar' else 'Message' }}</label>
+            <textarea id="contact-message" name="message" rows="6" maxlength="5000" required class="w-full resize-y rounded-xl border border-slate-300 bg-transparent px-4 py-3 text-sm leading-7 outline-none focus:border-pulse"></textarea>
+          </div>
+          <button type="submit" class="rounded-full bg-pulse px-6 py-3 text-sm font-extrabold text-white transition hover:bg-rose-600">{{ 'إرسال الرسالة' if lang == 'ar' else 'Send message' }}</button>
+        </form>
+        <p class="mt-7 border-t border-slate-100 pt-5 text-sm leading-7 text-slate-500">{{ 'أو راسلنا مباشرة على' if lang == 'ar' else 'Or email us directly at' }} <a class="font-bold text-pulse underline underline-offset-2" href="mailto:syfsywf86@gmail.com">syfsywf86@gmail.com</a>.</p>
+      </section>
 
     {% else %}
       <section class="mx-auto max-w-xl rounded-3xl border border-slate-200 bg-white px-6 py-16 text-center shadow-sm">
@@ -414,14 +407,13 @@
   <footer class="border-t border-slate-200 bg-white">
     <div class="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-8 sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
       <a href="{{ url_for('index', lang=lang) }}" class="flex items-center gap-2 font-extrabold"><span class="grid h-8 w-8 place-items-center rounded-xl bg-pulse text-white">WP</span>{{ site_name }}</a>
-      <div class="flex flex-wrap gap-x-4 gap-y-2 text-xs font-semibold text-slate-500">
-        <a class="hover:text-pulse" href="{{ url_for('static_page', page_key='privacy', lang=lang) }}">{{ 'سياسة الخصوصية' if lang == 'ar' else 'Privacy Policy' }}</a>
-        <a class="hover:text-pulse" href="{{ url_for('static_page', page_key='terms', lang=lang) }}">{{ 'شروط الاستخدام' if lang == 'ar' else 'Terms of Service' }}</a>
+      <div class="flex flex-wrap gap-x-4 gap-y-2 text-xs text-slate-500">
         <a class="hover:text-pulse" href="{{ url_for('static_page', page_key='about', lang=lang) }}">{{ 'من نحن' if lang == 'ar' else 'About Us' }}</a>
-        <a class="hover:text-pulse" href="{{ url_for('contact', lang=lang) }}">{{ 'اتصل بنا' if lang == 'ar' else 'Contact Us' }}</a>
+        <a class="hover:text-pulse" href="{{ url_for('static_page', page_key='privacy', lang=lang) }}">{{ 'الخصوصية' if lang == 'ar' else 'Privacy' }}</a>
+        <a class="hover:text-pulse" href="{{ url_for('static_page', page_key='terms', lang=lang) }}">{{ 'الشروط' if lang == 'ar' else 'Terms' }}</a>
+        <a class="hover:text-pulse" href="{{ url_for('contact', lang=lang) }}">{{ 'اتصل بنا' if lang == 'ar' else 'Contact' }}</a>
       </div>
       <p class="text-xs leading-6 text-slate-500">{{ ui.footer }}</p>
-      <p class="text-xs text-slate-500"><a href="mailto:syfsywf86@gmail.com" class="underline underline-offset-4 hover:text-pulse">syfsywf86@gmail.com</a></p>
       <p class="text-[11px] font-medium text-slate-400">© {{ now_year if now_year is defined else 2026 }} {{ site_name }}</p>
     </div>
   </footer>
@@ -536,84 +528,6 @@
         }
       });
 
-      const askForm = document.getElementById('articleAskForm');
-      const askQuestion = document.getElementById('articleQuestion');
-      const askButton = document.getElementById('articleAskButton');
-      const askSpinner = document.getElementById('askSpinner');
-      const askStatus = document.getElementById('articleAskStatus');
-      const askAnswer = document.getElementById('articleAskAnswer');
-      const askChatGPT = document.getElementById('askChatGPT');
-      const askGemini = document.getElementById('askGemini');
-      const articleContext = {
-        slug: {{ (article.slug if article else '')|tojson }},
-        lang: {{ lang|tojson }},
-        title: {{ (article.title if article else '')|tojson }},
-        summary: {{ (article.summary if article else '')|tojson }}
-      };
-      const askText = {
-        required: {{ ui.question_required|tojson }},
-        thinking: {{ ui.ai_thinking|tojson }},
-        error: {{ ui.ai_error|tojson }},
-        limit: {{ ui.ai_rate_limit|tojson }},
-        disabled: {{ ui.ai_disabled|tojson }}
-      };
-      function externalPrompt() {
-        const question = (askQuestion?.value || '').trim();
-        return `${articleContext.lang === 'ar' ? 'أجب عن السؤال اعتماداً على الخبر التالي. وضح ما هو مؤكد وما هو غير متأكد، ولا تخترع معلومات.' : 'Answer the question using the following news story. Separate confirmed facts from uncertainty and do not invent information.'}\n\n${articleContext.title}\n\n${articleContext.summary}\n\n${articleContext.lang === 'ar' ? 'السؤال' : 'Question'}: ${question}`;
-      }
-      function updateExternalLinks() {
-        const prompt = externalPrompt();
-        if (askChatGPT) askChatGPT.href = 'https://chatgpt.com/?q=' + encodeURIComponent(prompt);
-        if (askGemini) askGemini.href = 'https://gemini.google.com/app?q=' + encodeURIComponent(prompt);
-      }
-      askQuestion?.addEventListener('input', updateExternalLinks);
-      updateExternalLinks();
-      askForm?.addEventListener('submit', async (event) => {
-        event.preventDefault();
-        const question = (askQuestion?.value || '').trim();
-        if (!question) {
-          if (askStatus) askStatus.textContent = askText.required;
-          return;
-        }
-        if (askButton?.disabled) return;
-        askButton.disabled = true;
-        askSpinner?.classList.remove('hidden');
-        if (askStatus) askStatus.textContent = askText.thinking;
-        if (askAnswer) {
-          askAnswer.classList.add('hidden');
-          askAnswer.textContent = '';
-        }
-        try {
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 25000);
-          const response = await fetch('/api/ask', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-            body: JSON.stringify({ slug: articleContext.slug, lang: articleContext.lang, question }),
-            cache: 'no-store',
-            signal: controller.signal
-          });
-          clearTimeout(timeoutId);
-          const data = await response.json().catch(() => ({}));
-          if (!response.ok) {
-            if (response.status === 429 || data.error === 'rate_limit') throw new Error('rate_limit');
-            if (response.status === 503 || data.error === 'disabled') throw new Error('disabled');
-            throw new Error('upstream');
-          }
-          if (askAnswer) {
-            askAnswer.textContent = data.answer || askText.error;
-            askAnswer.classList.remove('hidden');
-          }
-          if (askStatus) askStatus.textContent = '';
-        } catch (error) {
-          if (askStatus) {
-            askStatus.textContent = error.message === 'rate_limit' ? askText.limit : error.message === 'disabled' ? askText.disabled : error.name === 'AbortError' ? (articleContext.lang === 'ar' ? 'تأخر الرد. حاول مرة أخرى بعد قليل.' : 'The response timed out. Please try again.') : askText.error;
-          }
-        } finally {
-          if (askButton) askButton.disabled = false;
-          askSpinner?.classList.add('hidden');
-        }
-      });
     })();
   </script>
 </body>
