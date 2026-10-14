@@ -20,9 +20,12 @@ Gemini receives the source headline and a short RSS excerpt to prepare a bilingu
 The article-level Ask-Me AI question panel and `/api/ask` endpoint are removed. Bilingual article summarization and the optional Gemini illustration feature are separate and remain available.
 
 ## Image sourcing
-Eligible imagery is tried in this order: topic-specific Gemini illustration (if configured and within quota), eligible Wikimedia Commons media (CC0 / Public Domain / CC BY only), rights-filtered Library of Congress photo records, manually approved press-kit assets, and official Pexels/Unsplash API results when keys are configured. Provider, item/credit URL and licence/item record are stored where supplied.
 
-When no suitable image passes the checks, the fallback is `static/A.jpg` for Arabic-origin stories and `static/E.jpg` for English-origin stories, regardless of which language UI is open. The app does not treat publisher thumbnails, Google News thumbnails or image-search results as free-to-use assets.
+The system first searches for a topic-relevant image from Wikimedia Commons (only Public Domain Mark / CC0 / CC BY records accepted by the rights filter), then Library of Congress photo records whose own item page explicitly marks them as public domain or having no known restrictions, then manually approved press-kit assets, and official Pexels/Unsplash APIs when their credentials are configured. Provider/item pages, photographer credit and licence details are retained where available.
+
+Only when no suitable sourced image is found, the site may generate a topic-specific 16:9 Gemini editorial illustration, within the configured limits. A generated illustration is labelled as illustrative content and is not documentary evidence.
+
+When no appropriate sourced or generated image is available, the fallback is `static/A.jpg` for Arabic-origin stories and `static/E.jpg` for English-origin stories, regardless of which language UI is open. Publisher page thumbnails, Google News thumbnails and generic image-search results are not treated as free-to-use assets.
 
 API access and a free-to-view website do not mean an image is universally copyright-free. Follow each provider's current terms, item-level licence, attribution rules, hotlinking requirements and any third-party privacy, publicity, trademark or copyright rights. Human review is still required for commercial publication.
 
