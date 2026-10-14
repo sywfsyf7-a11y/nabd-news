@@ -1271,6 +1271,172 @@ def _search_approved_presskit_image(title: str, category: str) -> dict[str, str]
             best = (score, result)
     return best[1] if best else {}
 
+def _db_count_gemini_images_last_24h() -> int | None:
+    if not _ensure_schema():
+        return None
+    conn = _connect_db()
+    if conn is None:
+        return None
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT COUNT(*) FROM world_pulse_generated_images
+                WHERE created_at >= NOW() - INTERVAL '24 hours'
+            """)
+            row = cur.fetchone()
+            return int(row[0]) if row else 0
+    except Exception as exc:
+        logger.warning("Could not read Gemini image quota (%s)", type(exc).__name__)
+        return None
+    finally:
+        conn.close()
+
+def _store_gemini_generated_image(image_bytes: bytes, prompt: str) -> str:
+    if not image_bytes or len(image_bytes) > 8 * 1024 * 1024 or not _ensure_schema():
+        return ""
+    image_id = hashlib.sha256(image_bytes).hexdigest()[:32]
+    conn = _connect_db()
+    if conn is None:
+        return ""
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO world_pulse_generated_images (image_id, mime_type, image_data, prompt)
+                VALUES (%s, 'image/jpeg', %s, %s)
+                ON CONFLICT (image_id) DO NOTHING
+            """, (image_id, image_bytes, str(prompt or "")[:6000]))
+        conn.commit()
+        return image_id
+    except Exception as exc:
+        conn.rollback()
+        logger.warning("Could not persist Gemini-generated image (%s)", type(exc).__name__)
+        return ""
+    finally:
+        conn.close()
+
+def _read_gemini_generated_image(image_id: str) -> tuple[bytes, str] | None:
+    if not re.fullmatch(r"[a-f0-9]{32}", image_id or "") or not _ensure_schema():
+        return None
+    conn = _connect_db()
+    if conn is None:
+        return None
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT image_data, mime_type FROM world_pulse_generated_images
+                WHERE image_id = %s
+            """, (image_id,))
+            row = cur.fetchone()
+            if not row or not row[0]:
+                return None
+            mime_type = str(row[1] or "image/jpeg")
+            if mime_type not in {"image/jpeg", "image/png", "image/webp"}:
+                mime_type = "image/jpeg"
+            return bytes(row[0]), mime_type
+    except Exception as exc:
+        logger.debug("Generated image read failed (%s)", type(exc).__name__)
+        return None
+    finally:
+        conn.close()
+
+def _build_gemini_image_prompt(raw: dict[str, Any]) -> str:
+    lang = str(raw.get("original_language") or "en").lower()
+    if lang not in {"ar", "en"}:
+        lang = "ar" if _looks_arabic(str(raw.get("original_title") or "")) else "en"
+    category = str(raw.get("category") or "world")
+    category_name = CATEGORY_NAMES.get(category, CATEGORY_NAMES["world"])[lang]
+    headline = _clean_text(raw.get("original_title") or raw.get("image_search_title") or "", 180)
+    summary = _clean_text(raw.get("original_summary") or "", 480)
+    if not headline:
+        return ""
+    language_instruction = (
+        "All visible words must be short, correctly spelled Modern Standard Arabic. "
+        "Use the Arabic headline and Arabic labels."
+        if lang == "ar"
+        else "All visible words must be short, correctly spelled English. Use the English headline and English labels."
+    )
+    category_direction = {
+        "politics": "Use neutral civic, parliament, diplomacy, ballot or policy symbols as relevant.",
+        "economy": "Use clean financial charts, abstract currency symbols, trade, markets or business icons as relevant; do not invent values.",
+        "technology": "Use generic smart devices, circuits, cloud, wifi, settings, lightbulbs or data-flow icons as relevant.",
+        "gaming": "Use generic controllers, screens, pixels or esports-inspired shapes; never imitate a game character or game logo.",
+        "sports": "Use generic sports equipment, pitch geometry and anonymous athlete silhouettes; do not imitate a real athlete's likeness.",
+        "science": "Use precise-looking but non-data-specific laboratory, atom, orbit, planet, microscope or research symbols as relevant.",
+        "culture": "Use books, abstract artwork, cinema, theatre, music or museum symbols as relevant.",
+        "world": "Use a simplified globe, neutral geography-inspired shapes, transport and international connection symbols as relevant.",
+    }.get(category, "Use restrained editorial symbols directly related to the topic.")
+    return f"""Create one original, publication-ready editorial illustration for World Pulse / نبض العالم.
+NEWS CATEGORY: {category_name}
+HEADLINE: {headline}
+SOURCE EXCERPT FOR CONTEXT (do not copy as extra text): {summary or headline}
+
+ART DIRECTION:
+- Wide horizontal 16:9 hero image for a modern digital news website.
+- Clean minimalist 2D vector infographic, flat colors, bold crisp outlines, modern editorial/technology aesthetic, restrained depth, neat spacing and strong visual hierarchy.
+- Build a topic-specific composition from the verified headline and short excerpt. Use three vertical pillars/cards labelled 1, 2, 3 and connecting data-flow arrows only if a three-part structure naturally fits the story. Otherwise use a balanced central illustration with a few supporting panels/icons. Do not force unrelated icons or a tier list onto a story that does not fit.
+- {category_direction}
+- Use a soft, neutral, subtly defocused studio-like background so the foreground graphic is easy to read. Use a professional limited palette and accessible contrast.
+- Put a compact top banner with the headline, shortened only if needed to remain legible. Use at most three tiny supporting labels, and only if the supplied headline/excerpt supports them.
+- Add a subtle bottom brand banner reading exactly: {"نبض العالم" if lang == "ar" else "World Pulse"}.
+- {language_instruction}
+- Keep all text large enough to read; prioritize spelling and clean type. If exact text rendering is unreliable, leave the banner clean and uncluttered rather than inventing words.
+
+EDITORIAL ACCURACY AND RIGHTS:
+- This is an illustrative graphic, not a documentary photograph. Represent the topic symbolically; do not invent statistics, quotes, locations, outcomes or facts absent from the headline/excerpt.
+- Do not use Google News/publisher photographs, stock-photo compositions, third-party brand logos, exact product logos, copyrighted fictional characters, celebrity likenesses, signatures or watermarks. Use generic icons instead.
+- Avoid graphic injury, gore, sensational depictions and deceptive photorealism.
+- Output only the finished image, no explanation or prompt text."""
+    
+def _generate_gemini_article_image(raw: dict[str, Any]) -> dict[str, Any]:
+    if (
+        not GEMINI_IMAGE_GENERATION_ENABLED
+        or not GEMINI_API_KEY
+        or genai is None
+        or types is None
+        or not _control_enabled("image:gemini_generated", True)
+    ):
+        return {}
+    prompt = _build_gemini_image_prompt(raw)
+    if not prompt:
+        return {}
+    try:
+        client = genai.Client(
+            api_key=GEMINI_API_KEY,
+            http_options=types.HttpOptions(timeout=GEMINI_IMAGE_TIMEOUT_SECONDS * 1000),
+        )
+        interaction = client.interactions.create(model=GEMINI_IMAGE_MODEL, input=prompt)
+        output_image = getattr(interaction, "output_image", None)
+        encoded = getattr(output_image, "data", None) if output_image is not None else None
+        if not encoded:
+            raise ValueError("Gemini did not return an image block")
+        if isinstance(encoded, bytes):
+            generated_bytes = encoded
+        else:
+            generated_bytes = base64.b64decode(str(encoded), validate=True)
+        if not generated_bytes or len(generated_bytes) > 12 * 1024 * 1024:
+            raise ValueError("Generated image has an invalid size")
+        # Store a web-optimized JPEG in PostgreSQL so it survives Render restarts/deploys.
+        with Image.open(io.BytesIO(generated_bytes)) as opened:
+            optimized = opened.convert("RGB")
+            buffer = io.BytesIO()
+            optimized.save(buffer, format="JPEG", quality=88, optimize=True, progressive=True)
+            stored_bytes = buffer.getvalue()
+        image_id = _store_gemini_generated_image(stored_bytes, prompt)
+        if not image_id:
+            raise RuntimeError("Persistent storage for generated images is unavailable")
+        return {
+            "image_url": "/media/generated/" + image_id,
+            "image_source": "gemini_generated",
+            "image_credit": "AI-generated illustration with Google Gemini",
+            "image_credit_url": "",
+            "image_provider_url": "https://ai.google.dev/gemini-api/docs/image-generation",
+            "image_license_url": "",
+            "image_checked_at": datetime.now(timezone.utc),
+        }
+    except Exception as exc:
+        logger.warning("Gemini image generation failed (model=%s error=%s)", GEMINI_IMAGE_MODEL, type(exc).__name__)
+        return {}
+
 def _search_any_reusable_image(title: str, lang: str = "en", category: str = "world") -> dict[str, str]:
     finders = (
         ("image:wikimedia_relevant", lambda: _search_commons_image(title, lang)),
