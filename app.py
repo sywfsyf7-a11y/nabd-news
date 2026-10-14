@@ -956,6 +956,9 @@ _LAST_REFRESH_ATTEMPT = 0.0
 _LAST_REFRESH_SUCCESS = 0.0
 _MEMORY_ARTICLES: dict[str, dict[str, Any]] = {}
 _IMAGE_STATUS_LOCK = threading.Lock()
+_AI_IMAGE_BUDGET_LOCK = threading.Lock()
+_AI_IMAGE_REFRESH_MARKER = 0.0
+_AI_IMAGE_CALLS_THIS_REFRESH = 0
 _LAST_IMAGE_STATUS: dict[str, Any] = {"attempted": 0, "found": 0, "errors": 0, "providers": {}, "updated_at": None}
 _GEMINI_STATUS_LOCK = threading.Lock()
 _LAST_GEMINI_ERROR = {"stage": "", "type": "", "at": None}
@@ -1452,6 +1455,34 @@ def _search_any_reusable_image(title: str, lang: str = "en", category: str = "wo
             return result
     return {}
 
+def _reserve_gemini_image_slots(pending_count: int) -> int:
+    global _AI_IMAGE_REFRESH_MARKER, _AI_IMAGE_CALLS_THIS_REFRESH
+    if (
+        pending_count <= 0
+        or MAX_GEMINI_IMAGES_PER_REFRESH <= 0
+        or MAX_GEMINI_IMAGES_PER_24H <= 0
+        or not GEMINI_IMAGE_GENERATION_ENABLED
+        or not GEMINI_API_KEY
+        or genai is None
+        or types is None
+        or not _control_enabled("image:gemini_generated", True)
+    ):
+        return 0
+    recent_count = _db_count_gemini_images_last_24h()
+    if recent_count is None:
+        # Do not pay for generated images that cannot be stored durably.
+        return 0
+    marker = float(_LAST_REFRESH_ATTEMPT or 0.0)
+    with _AI_IMAGE_BUDGET_LOCK:
+        if marker != _AI_IMAGE_REFRESH_MARKER:
+            _AI_IMAGE_REFRESH_MARKER = marker
+            _AI_IMAGE_CALLS_THIS_REFRESH = 0
+        refresh_remaining = max(0, MAX_GEMINI_IMAGES_PER_REFRESH - _AI_IMAGE_CALLS_THIS_REFRESH)
+        daily_remaining = max(0, MAX_GEMINI_IMAGES_PER_24H - recent_count)
+        reserve_count = min(pending_count, refresh_remaining, daily_remaining)
+        _AI_IMAGE_CALLS_THIS_REFRESH += reserve_count
+        return reserve_count
+
 def _resolve_article_image(raw: dict[str, Any]) -> dict[str, Any]:
     existing = str(raw.get("image_url") or "").strip()
     source = str(raw.get("image_source") or "")
@@ -1477,6 +1508,11 @@ def _resolve_article_image(raw: dict[str, Any]) -> dict[str, Any]:
             }
 
     search_title = _clean_text(raw.get("image_search_title") or raw.get("original_title") or "", 240)
+    if search_title and raw.get("_allow_ai_image_generation"):
+        generated = _generate_gemini_article_image(raw)
+        if generated:
+            return generated
+    # Legacy licensed providers remain the automatic fallback whenever Gemini fails or is capped.
     if search_title:
         result = _search_any_reusable_image(search_title, str(raw.get("original_language") or "en"), str(raw.get("category") or "world"))
         if result:
@@ -1572,9 +1608,18 @@ def _enrich_article_images(raw_articles: list[dict[str, Any]]) -> None:
                     "image_credit_url": "", "image_provider_url": "", "image_license_url": "",
                     "image_checked_at": datetime.now(timezone.utc),
                 })
+    ai_slots = _reserve_gemini_image_slots(len(pending))
+    for index, item in enumerate(pending):
+        item["_allow_ai_image_generation"] = index < ai_slots
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        futures = {pool.submit(_resolve_article_image, item): item for item in pending}
+        for future in as_completed(futures):
+            item = futures[future]
+            # Existing future loop replaced below if this anchor unexpectedly matches a different block.
     with _IMAGE_STATUS_LOCK:
         _LAST_IMAGE_STATUS.update({
             "attempted": len(pending), "found": found, "errors": errors,
+            "ai_generation_attempted": ai_slots,
             "providers": dict(providers), "updated_at": datetime.now(timezone.utc).isoformat(),
         })
     logger.info("Image lookup finished: attempted=%d found=%d errors=%d providers=%s",
