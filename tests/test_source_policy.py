@@ -47,6 +47,55 @@ class SourcePolicyTests(unittest.TestCase):
         )
 
 
+
+    def test_gemini_prompt_is_topic_specific_and_brand_aligned(self):
+        prompt = world_pulse._build_gemini_image_prompt({
+            "category": "technology",
+            "original_language": "ar",
+            "original_title": "شركة تكشف عن أجهزة منزل ذكية جديدة",
+            "original_summary": "أجهزة جديدة تتصل بالشبكة وتعمل مع المنزل الذكي.",
+        })
+        self.assertIn("شركة تكشف عن أجهزة منزل ذكية جديدة", prompt)
+        self.assertIn("نْبض العالم" if False else "نبض العالم", prompt)
+        self.assertIn("2D vector infographic", prompt)
+        self.assertIn("generic smart devices", prompt)
+        self.assertIn("third-party brand logos", prompt)
+        self.assertIn("Arabic", prompt)
+
+    def test_gemini_failure_falls_back_to_existing_image_providers(self):
+        fallback = {
+            "image_url": "https://images.pexels.com/test.jpeg",
+            "image_source": "pexels_api",
+            "image_credit": "Photographer",
+            "image_credit_url": "https://www.pexels.com/",
+            "image_provider_url": "https://www.pexels.com/photo/test/",
+            "image_license_url": "https://www.pexels.com/license/",
+            "image_checked_at": None,
+        }
+        article = {
+            "original_title": "Generic technology story",
+            "image_search_title": "Generic technology story",
+            "original_language": "en",
+            "category": "technology",
+            "_allow_ai_image_generation": True,
+        }
+        from unittest.mock import patch
+        with patch.object(world_pulse, "_generate_gemini_article_image", return_value={}) as generator:
+            with patch.object(world_pulse, "_search_any_reusable_image", return_value=fallback) as old_sources:
+                result = world_pulse._resolve_article_image(article)
+        generator.assert_called_once_with(article)
+        old_sources.assert_called_once()
+        self.assertEqual(result["image_source"], "pexels_api")
+        self.assertEqual(result["image_url"], fallback["image_url"])
+
+    def test_generated_image_route_serves_persistent_asset_bytes(self):
+        from unittest.mock import patch
+        with patch.object(world_pulse, "_read_gemini_generated_image", return_value=(b"fake-jpeg-bytes", "image/jpeg")):
+            response = world_pulse.app.test_client().get("/media/generated/" + "a" * 32)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.mimetype, "image/jpeg")
+        self.assertIn("immutable", response.headers.get("Cache-Control", ""))
+
     def test_public_mutation_apis_require_csrf(self):
         client = world_pulse.app.test_client()
         refresh = client.post("/api/refresh", headers={"X-CSRF-Token": "not-a-valid-token"})
