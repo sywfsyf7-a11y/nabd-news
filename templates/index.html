@@ -10,7 +10,7 @@
   <meta property="og:type" content="{% if page == 'article' %}article{% else %}website{% endif %}">
   <meta property="og:title" content="{% if page == 'article' and article %}{{ article.title }} — {% elif page == 'legal' %}{{ legal_title }} — {% endif %}{{ site_name }}">
   <meta property="og:description" content="{% if page == 'article' and article %}{{ article.summary|striptags|truncate(155, True, '…') }}{% else %}{{ ui.hero_text }}{% endif %}">
-  {% if page == 'article' and article %}<meta property="og:image" content="{{ article.image_url or url_for('static', filename=('A.jpg' if article.original_language == 'ar' else 'E.jpg'), _external=True) }}">{% endif %}
+  {% if page == 'article' and article %}<meta property="og:image" content="{{ public_image_url(article.image_url) or url_for('static', filename=('A.jpg' if article.original_language == 'ar' else 'E.jpg'), _external=True) }}">{% endif %}
   {% if page == 'article' and article %}
     {% set canonical_url = url_for('article', slug=article.slug, lang=lang, _external=True) %}
   {% elif page == 'legal' and legal_slug == 'contact' %}
@@ -38,7 +38,7 @@
   <meta name="twitter:title" content="{% if page == 'article' and article %}{{ article.title }} — {% endif %}{{ site_name }}">
   <meta name="twitter:description" content="{% if page == 'article' and article %}{{ article.summary|striptags|truncate(155, True, '…') }}{% else %}{{ ui.hero_text }}{% endif %}">
   {% if page == 'article' and article %}
-    <meta name="twitter:image" content="{{ article.image_url or url_for('static', filename=('A.jpg' if article.original_language == 'ar' else 'E.jpg'), _external=True) }}">
+    <meta name="twitter:image" content="{{ public_image_url(article.image_url) or url_for('static', filename=('A.jpg' if article.original_language == 'ar' else 'E.jpg'), _external=True) }}">
     <script type="application/ld+json">
       {{ {
         "@context": "https://schema.org",
@@ -47,7 +47,7 @@
         "description": article.summary|striptags|truncate(300, True, "…"),
         "datePublished": article.published_at.isoformat() if article.published_at and article.published_at.isoformat is defined else none,
         "dateModified": article.published_at.isoformat() if article.published_at and article.published_at.isoformat is defined else none,
-        "image": [article.image_url or url_for('static', filename=('A.jpg' if article.original_language == 'ar' else 'E.jpg'), _external=True)],
+        "image": [public_image_url(article.image_url) or url_for('static', filename=('A.jpg' if article.original_language == 'ar' else 'E.jpg'), _external=True)],
         "mainEntityOfPage": canonical_url,
         "inLanguage": lang,
         "author": {"@type": "Organization", "name": site_name ~ " editorial desk"},
