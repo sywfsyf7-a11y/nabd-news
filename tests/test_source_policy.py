@@ -28,8 +28,6 @@ class SourcePolicyTests(unittest.TestCase):
         self.assertFalse(world_pulse._row_allowed_on_language_site(unapproved, "ar"))
 
     def test_missing_images_use_original_language_fallbacks(self):
-        from unittest.mock import patch
-
         base = {
             "slug": "story-fallback",
             "source_url": "https://example.test/story",
@@ -44,9 +42,8 @@ class SourcePolicyTests(unittest.TestCase):
             "image_url": "",
             "image_source": "none",
         }
-        with patch.object(world_pulse, "_is_image_blocked", return_value=False):
-            arabic = world_pulse._normalise_story(dict(base), "ar")
-            english = world_pulse._normalise_story(dict(base, original_language="en"), "en")
+        arabic = world_pulse._normalise_story(dict(base), "ar")
+        english = world_pulse._normalise_story(dict(base, original_language="en"), "en")
 
         self.assertEqual(arabic["image_url"], "/static/A.jpg")
         self.assertEqual(arabic["image_source"], "language_fallback")
