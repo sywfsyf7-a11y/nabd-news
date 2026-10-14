@@ -45,3 +45,10 @@ Security note: any API key disclosed in chat should be revoked and replaced. Con
 - Try AI generation first for new or otherwise unillustrated eligible stories, then fall back to the existing Commons, approved press-kit, Pexels and Unsplash sources. If every provider fails, retain the Arabic/English local fallback graphics.
 - Add a Gemini provider toggle in the source/image admin panel and safe generation status/configuration details to `/api/news-status`.
 - AI image output is credited as generated illustration, not represented as a stock-photo licence or a guarantee of copyright clearance.
+
+
+## Language-source and Ask-Me cleanup
+- Removed the article-level AI question/answer (“Ask me”) interface and its `/api/ask` endpoint; Gemini editorial briefs and optional generated illustrations remain separate features.
+- Enforced original-source-language separation for Arabic and English pages and expanded category discovery domains for economy, gaming, technology, science and culture/world news.
+- Added display-time image fallback: Arabic-origin stories use `/static/A.jpg`; English-origin stories use `/static/E.jpg`. Fallback artwork is never saved as a licensed-provider image.
+- Kept the image-provider allowlist and attribution checks. Publisher RSS thumbnails and unverified image URLs are not shown; fallback to A/E is used if AI generation and eligible providers fail.
