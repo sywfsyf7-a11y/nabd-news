@@ -62,6 +62,42 @@ class SourcePolicyTests(unittest.TestCase):
         self.assertIn("third-party brand logos", prompt)
         self.assertIn("Arabic", prompt)
 
+    def test_gemini_image_generation_uses_the_configured_model_and_persists_jpeg(self):
+        import base64
+        import io
+        from types import SimpleNamespace
+        from unittest.mock import MagicMock, patch
+        from PIL import Image
+
+        png_buffer = io.BytesIO()
+        Image.new("RGB", (48, 27), "white").save(png_buffer, format="PNG")
+        encoded_png = base64.b64encode(png_buffer.getvalue()).decode("ascii")
+        fake_client = MagicMock()
+        fake_client.interactions.create.return_value = SimpleNamespace(
+            output_image=SimpleNamespace(data=encoded_png, mime_type="image/png")
+        )
+        article = {
+            "category": "technology",
+            "original_language": "ar",
+            "original_title": "أجهزة منزل ذكية جديدة",
+            "original_summary": "ملخص قصير عن الأجهزة المتصلة",
+        }
+        with patch.object(world_pulse.genai, "Client", return_value=fake_client):
+            with patch.object(world_pulse, "GEMINI_API_KEY", "test-key"):
+                with patch.object(world_pulse, "GEMINI_IMAGE_GENERATION_ENABLED", True):
+                    with patch.object(world_pulse, "_control_enabled", return_value=True):
+                        with patch.object(world_pulse, "_store_gemini_generated_image", return_value="b" * 32) as store:
+                            result = world_pulse._generate_gemini_article_image(article)
+
+        self.assertEqual(result["image_source"], "gemini_generated")
+        self.assertEqual(result["image_url"], "/media/generated/" + "b" * 32)
+        store.assert_called_once()
+        self.assertTrue(store.call_args.args[0].startswith(b"\xff\xd8"))
+        call = fake_client.interactions.create.call_args.kwargs
+        self.assertEqual(call["model"], world_pulse.GEMINI_IMAGE_MODEL)
+        self.assertEqual(call["response_format"]["aspect_ratio"], "16:9")
+        self.assertEqual(call["response_format"]["image_size"], "1K")
+
     def test_gemini_failure_falls_back_to_existing_image_providers(self):
         fallback = {
             "image_url": "https://images.pexels.com/test.jpeg",
