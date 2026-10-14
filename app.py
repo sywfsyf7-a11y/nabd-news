@@ -2722,7 +2722,17 @@ def _admin_image_rows() -> list[dict[str, Any]]:
     for row in _MEMORY_ARTICLES.values():
         if row.get("image_url") and row.get("image_source") in TRUSTED_REUSABLE_IMAGE_SOURCES:
             rows.setdefault(str(row.get("slug") or row.get("source_url")), row)
-    return sorted(rows.values(), key=lambda row: row.get("published_at") or row.get("fetched_at") or datetime(1970, 1, 1, tzinfo=timezone.utc), reverse=True)[:80]
+    results = sorted(
+        (dict(row) for row in rows.values()),
+        key=lambda row: row.get("published_at") or row.get("fetched_at") or datetime(1970, 1, 1, tzinfo=timezone.utc),
+        reverse=True,
+    )[:80]
+    for row in results:
+        row["image_provider_display"] = _image_provider_label(str(row.get("image_source") or ""))
+        row["image_license_display"] = _image_license_label(
+            str(row.get("image_license_url") or ""), str(row.get("image_source") or "")
+        )
+    return results
 
 def _remove_article_image(slug: str) -> bool:
     changed = False
