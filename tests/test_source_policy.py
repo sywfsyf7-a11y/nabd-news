@@ -47,6 +47,96 @@ class SourcePolicyTests(unittest.TestCase):
         )
 
 
+
+    def test_gemini_prompt_is_topic_specific_and_brand_aligned(self):
+        prompt = world_pulse._build_gemini_image_prompt({
+            "category": "technology",
+            "original_language": "ar",
+            "original_title": "شركة تكشف عن أجهزة منزل ذكية جديدة",
+            "original_summary": "أجهزة جديدة تتصل بالشبكة وتعمل مع المنزل الذكي.",
+        })
+        self.assertIn("شركة تكشف عن أجهزة منزل ذكية جديدة", prompt)
+        self.assertIn("نبض العالم", prompt)
+        self.assertIn("2D vector infographic", prompt)
+        self.assertIn("generic smart devices", prompt)
+        self.assertIn("third-party brand logos", prompt)
+        self.assertIn("Arabic", prompt)
+
+    def test_gemini_image_generation_uses_the_configured_model_and_persists_jpeg(self):
+        import base64
+        import io
+        from types import SimpleNamespace
+        from unittest.mock import MagicMock, patch
+        from PIL import Image
+
+        png_buffer = io.BytesIO()
+        Image.new("RGB", (48, 27), "white").save(png_buffer, format="PNG")
+        encoded_png = base64.b64encode(png_buffer.getvalue()).decode("ascii")
+        fake_client = MagicMock()
+        fake_client.interactions.create.return_value = SimpleNamespace(
+            output_image=SimpleNamespace(data=encoded_png, mime_type="image/png")
+        )
+        article = {
+            "category": "technology",
+            "original_language": "ar",
+            "original_title": "أجهزة منزل ذكية جديدة",
+            "original_summary": "ملخص قصير عن الأجهزة المتصلة",
+        }
+        with patch.object(world_pulse.genai, "Client", return_value=fake_client):
+            with patch.object(world_pulse, "GEMINI_API_KEY", "test-key"):
+                with patch.object(world_pulse, "GEMINI_IMAGE_GENERATION_ENABLED", True):
+                    with patch.object(world_pulse, "_control_enabled", return_value=True):
+                        with patch.object(world_pulse, "_store_gemini_generated_image", return_value="b" * 32) as store:
+                            result = world_pulse._generate_gemini_article_image(article)
+
+        self.assertEqual(result["image_source"], "gemini_generated")
+        self.assertEqual(result["image_url"], "/media/generated/" + "b" * 32)
+        store.assert_called_once()
+        self.assertTrue(store.call_args.args[0].startswith(b"\xff\xd8"))
+        call = fake_client.interactions.create.call_args.kwargs
+        self.assertEqual(call["model"], world_pulse.GEMINI_IMAGE_MODEL)
+        self.assertEqual(call["response_format"]["aspect_ratio"], "16:9")
+        self.assertEqual(call["response_format"]["image_size"], "1K")
+
+    def test_gemini_failure_falls_back_to_existing_image_providers(self):
+        fallback = {
+            "image_url": "https://images.pexels.com/test.jpeg",
+            "image_source": "pexels_api",
+            "image_credit": "Photographer",
+            "image_credit_url": "https://www.pexels.com/",
+            "image_provider_url": "https://www.pexels.com/photo/test/",
+            "image_license_url": "https://www.pexels.com/license/",
+            "image_checked_at": None,
+        }
+        article = {
+            "original_title": "Generic technology story",
+            "image_search_title": "Generic technology story",
+            "original_language": "en",
+            "category": "technology",
+            "_allow_ai_image_generation": True,
+        }
+        from unittest.mock import patch
+        with patch.object(world_pulse, "_generate_gemini_article_image", return_value={}) as generator:
+            with patch.object(world_pulse, "_search_any_reusable_image", return_value=fallback) as old_sources:
+                result = world_pulse._resolve_article_image(article)
+        generator.assert_called_once_with(article)
+        old_sources.assert_called_once()
+        self.assertEqual(result["image_source"], "pexels_api")
+        self.assertEqual(result["image_url"], fallback["image_url"])
+
+    def test_all_jinja_templates_compile(self):
+        for template_name in world_pulse.app.jinja_env.list_templates():
+            with self.subTest(template=template_name):
+                world_pulse.app.jinja_env.get_template(template_name)
+
+    def test_generated_image_route_serves_persistent_asset_bytes(self):
+        from unittest.mock import patch
+        with patch.object(world_pulse, "_read_gemini_generated_image", return_value=(b"fake-jpeg-bytes", "image/jpeg")):
+            response = world_pulse.app.test_client().get("/media/generated/" + "a" * 32)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.mimetype, "image/jpeg")
+        self.assertIn("immutable", response.headers.get("Cache-Control", ""))
+
     def test_public_mutation_apis_require_csrf(self):
         client = world_pulse.app.test_client()
         refresh = client.post("/api/refresh", headers={"X-CSRF-Token": "not-a-valid-token"})

@@ -42,11 +42,15 @@ BBC, Reuters, AP News, TechCrunch, ESPN, The Guardian and Al Jazeera remain conf
 
 ## Image source pipeline
 
-Images are taken only from these configured providers:
+For new stories that need imagery, the app first attempts an original Gemini-generated 16:9 editorial illustration. It builds a prompt using the story's title, short source excerpt, category, and source language, and asks for minimal vector/infographic artwork with generic icons, a World Pulse / نبض العالم brand footer, and no copied third-party logos, copyrighted characters, invented facts or statistics. Arabic-origin stories use Arabic labels and English-origin stories use English labels.
 
-1. Wikimedia Commons assets accepted by the code's conservative filter for Public Domain Mark, CC0, or CC BY, with an image page, creator/credit and licence link where applicable.
-2. Manually reviewed press-kit files listed in `approved_presskit_images.json`. Every entry must be approved for commercial use and contain the image URL, source page, credit, licence name, licence URL and matching keywords.
-3. Official Pexels and Unsplash APIs when `PEXELS_API_KEY` / `UNSPLASH_ACCESS_KEY` are set and their controls are enabled; follow current provider API and attribution rules.
-4. Local fallback images: `static/A.jpg` for articles whose original language is Arabic and `static/E.jpg` for articles whose original language is English. These are fallback graphics, not photos sourced from Google News.
+The image model uses the same secret `GEMINI_API_KEY` as text generation, with a separate `GEMINI_IMAGE_MODEL` setting (default `gemini-nano-banana-2.1`). Generation is enabled by default, limited to three attempted images per refresh and eight per rolling 24 hours. The limits can be lowered or disabled with environment variables. Image generation may need an eligible paid API tier and may incur charges.
+
+Generated image bytes and their generation prompt are stored in `world_pulse_generated_images` in PostgreSQL/Supabase, then served at `/media/generated/<image_id>`. They are not saved only to Render's temporary local filesystem. If Gemini fails, its model is unavailable, its quota is exhausted, or persistent storage is unavailable, the app falls back to the existing sources:
+
+1. Eligible Wikimedia Commons assets accepted by the code's conservative filter for Public Domain Mark, CC0, or CC BY, with creator/credit and licence link where applicable.
+2. Manually reviewed press-kit files in `approved_presskit_images.json`. Entries must be approved for the intended commercial use and include the image URL, source page, credit, licence name, licence URL and matching keywords.
+3. Official Pexels or Unsplash APIs when `PEXELS_API_KEY` / `UNSPLASH_ACCESS_KEY` are set and their controls are enabled; follow current API and attribution rules.
+4. Local fallback graphics: `static/A.jpg` for Arabic-origin stories and `static/E.jpg` for English-origin stories.
 
 Google News RSS images and publisher page thumbnails are intentionally not used as an image provider. No automated licence checker can guarantee legal status in every jurisdiction; review the original asset, exact licence and any additional person/property/trademark rights before commercial use.

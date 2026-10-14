@@ -14,8 +14,12 @@ A bilingual Flask news portal with PostgreSQL/Supabase persistence, domain-focus
 - `SUPABASE_POOLER_URL`: Supabase **Session pooler** URI; preferred for Render IPv4. Keep it secret.
 - `DATABASE_URL`: optional fallback if `SUPABASE_POOLER_URL` is unset.
 - `GEMINI_API_KEY`: secret API key; never commit to GitHub.
-- `GEMINI_MODEL`: defaults to `gemini-3.8-flash`.
+- `GEMINI_MODEL`: defaults to `gemini-3.8-flash` for bilingual editorial summaries and Q&A.
 - `GEMINI_TIMEOUT_SECONDS`: default `20`.
+- `GEMINI_IMAGE_MODEL`: defaults to `gemini-nano-banana-2.1` for image generation using the same `GEMINI_API_KEY`.
+- `GEMINI_IMAGE_GENERATION_ENABLED=true` enables AI-generated editorial illustrations.
+- `MAX_GEMINI_IMAGES_PER_REFRESH=3` and `MAX_GEMINI_IMAGES_PER_24H=8` bound generation cost; set lower or to `0` to disable generation.
+- `GEMINI_IMAGE_TIMEOUT_SECONDS=75` limits the image-generation request time.
 - `NEWS_AUTO_FETCH=true`; `NEWS_REFRESH_MINUTES=15`; `MAX_ARTICLES_PER_REFRESH=24`; `MAX_ARTICLES_PER_CATEGORY=4`.
 - `AI_QUESTIONS_ENABLED=true`; `AI_QUESTIONS_PER_HOUR=5`; `AI_ANSWER_MAX_TOKENS=350`.
 - `UNSPLASH_ACCESS_KEY` and `PEXELS_API_KEY` (optional; use only official APIs, follow their API guidelines and provide required photographer/platform attribution).
@@ -36,11 +40,15 @@ Stories are written as bilingual editorial summaries from limited discovery meta
 
 ## Images
 
-Publisher thumbnails and Open Graph images are not reused. The app uses eligible Wikimedia Commons images with supported public-domain/CC0/CC BY licences, manually reviewed press-kit assets from `approved_presskit_images.json`, and optional official Pexels or Unsplash API results when their keys are configured and the provider is enabled. Required attribution and the original image/license page are retained when available. Google News is used only for discovery, never as the image provider.
+For a new story that needs an image, World Pulse first attempts to generate an original 16:9 editorial illustration using the configured Gemini image model. The prompt is assembled from the verified headline, short source excerpt, category and original language. It asks for clean vector/infographic artwork, minimal localized headline text, a World Pulse brand footer, generic icons rather than copied third-party logos, and no invented facts or statistics. A generated visual is an illustration, not documentary evidence.
 
-When no eligible image is available, the templates use `static/A.jpg` for Arabic-origin stories and `static/E.jpg` for English-origin stories, independent of which language page the visitor is viewing. The same rule is used for article Open Graph image metadata. Remove or replace a reused image from the admin page at `/admin/sources`.
+Generation uses the existing `GEMINI_API_KEY`, but uses `GEMINI_IMAGE_MODEL` separately from the text model. The `google-genai` SDK must be version `2.9.0` or newer within the supported `2.x` series for the Interactions image-generation API. It is quota-limited by default to 3 attempts per refresh and 8 generated images per rolling 24 hours. The code explicitly requests a 1K, 16:9 JPEG. Google's current pricing page lists the image-output component of this model at about US$0.0336 per 1K image on the standard paid tier; if all eight daily slots are used, that component alone is about US$0.27/day or US$8.06 per 30 days, excluding input tokens, taxes and any pricing changes. The image model does not list a free tier, so image generation may require a paid/eligible API tier and can incur charges. Check the [official Gemini API pricing](https://ai.google.dev/gemini-api/docs/pricing) before enabling it. Failures, missing model access, exhausted quota, or unavailable database storage cause the app to fall back to the existing sources below.
 
-An API result does not by itself guarantee the legal status of an image. Review the original file/license page for commercial use, and consider separate personality, trademark, privacy and other rights. Keep permission records for all approved press-kit assets.
+The generated image bytes and the prompt used are stored persistently in the PostgreSQL/Supabase database, not on Render's temporary filesystem. The image is served from `/media/generated/<id>`. Existing fallback providers remain in order: eligible Wikimedia Commons images, manually approved press-kit assets, then configured official Pexels/Unsplash API results. Those provider results retain credit/license details. Google News is used only for news discovery, never as an image provider.
+
+When no suitable image is generated or found, the templates use `static/A.jpg` for Arabic-origin stories and `static/E.jpg` for English-origin stories, independent of the current page language. The same image fallback is used for article Open Graph metadata. Remove/review a published image from `/admin/sources`.
+
+AI-generated images are not a guarantee of copyright clearance or legal safety. The prompt deliberately avoids third-party brand logos and recognisable copyrighted characters, but review output before commercial use, particularly if a generated image resembles a real person, trademark, distinctive product design or protected artwork. Review Google's current API/terms/pricing and keep the daily cap appropriate for your budget.
 
 ## Routes
 
@@ -49,7 +57,7 @@ An API result does not by itself guarantee the legal status of an image. Review 
 - `/article/<slug>` editorial story and Q&A
 - `/page/privacy`, `/page/terms`, `/page/about`, `/contact`
 - `/api/news-status`, `/api/refresh`, `/api/ask`, `/healthz`
-- `/robots.txt`, `/sitemap.xml`, `/news-sitemap.xml`
+- `/robots.txt`, `/sitemap.xml`, `/news-sitemap.xml`, `/media/generated/<image_id>`
 - `/admin/sources` and `/admin/login` with `ADMIN_PANEL_PASSWORD` set
 
 ## Local run
