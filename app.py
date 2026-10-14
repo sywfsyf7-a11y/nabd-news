@@ -2238,6 +2238,7 @@ def inject_shared_template_data() -> dict[str, Any]:
     return {
         "lang": lang,
         "site_csrf_token": site_csrf_token,
+        "public_image_url": lambda value: (_site_origin() + value if str(value or "").startswith("/media/generated/") else str(value or "")),
         "ui": UI_TEXT[lang],
         "site_name": SITE_NAME_AR if lang == "ar" else SITE_NAME_EN,
         "site_name_other": SITE_NAME_EN if lang == "ar" else SITE_NAME_AR,
