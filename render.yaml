@@ -3,7 +3,7 @@ services:
     name: world-pulse
     runtime: python
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn --workers 2 --threads 4 --timeout 90 app:app
+    startCommand: gunicorn --workers 2 --threads 4 --timeout 90 --bind 0.0.0.0:$PORT app:app
     healthCheckPath: /healthz
     envVars:
       - key: FLASK_SECRET_KEY

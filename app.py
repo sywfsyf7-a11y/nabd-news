@@ -23,6 +23,7 @@ from datetime import date, datetime, timezone
 from email.utils import parsedate_to_datetime
 from email.message import EmailMessage
 import smtplib
+import ssl
 from typing import Any
 from urllib.error import URLError, HTTPError
 from urllib.parse import urlencode, quote, urlparse
@@ -61,6 +62,16 @@ logging.basicConfig(
 )
 logger = logging.getLogger("world_pulse")
 
+@app.after_request
+def add_security_headers(response):
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+    if app.config.get("SESSION_COOKIE_SECURE"):
+        response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+    return response
+
 SITE_NAME_AR = "نبض العالم"
 SITE_NAME_EN = "World Pulse"
 TIMEZONE = ZoneInfo(os.getenv("SITE_TIMEZONE", "Asia/Amman"))
@@ -78,7 +89,7 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 MAX_ARTICLES_PER_REFRESH = max(8, min(40, int(os.getenv("MAX_ARTICLES_PER_REFRESH", "24"))))
 MAX_ARTICLES_PER_CATEGORY = max(1, min(8, int(os.getenv("MAX_ARTICLES_PER_CATEGORY", "4"))))
 IMAGE_SEARCH_TIMEOUT_SECONDS = max(3, min(12, int(os.getenv("IMAGE_SEARCH_TIMEOUT_SECONDS", "5"))))
-MAX_IMAGE_LOOKUPS_PER_REFRESH = max(0, min(40, int(os.getenv("MAX_IMAGE_LOOKUPS_PER_REFRESH", "16"))))
+MAX_IMAGE_LOOKUPS_PER_REFRESH = max(0, min(40, int(os.getenv("MAX_IMAGE_LOOKUPS_PER_REFRESH", "24"))))
 UNSPLASH_ACCESS_KEY = os.getenv("UNSPLASH_ACCESS_KEY", "").strip()
 PEXELS_API_KEY = os.getenv("PEXELS_API_KEY", "").strip()
 IMAGE_CACHE_MAX_AGE_SECONDS = max(3600, int(os.getenv("IMAGE_CACHE_MAX_AGE_HOURS", "168")) * 3600)
@@ -209,8 +220,6 @@ CATEGORY_QUERIES = {
     "world": {"ar": "أخبار العالم الدولية والمجتمعات والكوارث والإنجازات", "en": "world international news society environment humanitarian"},
 }
 
-# Source allowlist: each section is queried separately for Arabic and English.
-# Google News is used only to discover headlines/links, never as an image-rights source.
 CATEGORY_SOURCE_DOMAINS = {
     "politics": {
         "ar": ["aljazeera.net", "alarabiya.net", "skynewsarabia.com", "aawsat.com", "alquds.co.uk"],
@@ -404,6 +413,7 @@ def _row_allowed_on_language_site(row: dict[str, Any], lang: str) -> bool:
     if not host:
         return False
     return bool(_source_domain_for_category(category, lang, host) and not _domain_needs_license(host))
+
 
 LICENSE_REQUIRED_SOURCE_NAMES = (
     "bbc", "reuters", "associated press", "ap news", "techcrunch", "espn", "sciencedaily",
@@ -621,6 +631,7 @@ def _known_source_controls() -> list[dict[str, Any]]:
         })
     return rows
 
+
 def _db_fetch_all() -> list[dict[str, Any]]:
     if not _ensure_schema():
         return []
@@ -717,6 +728,91 @@ def _db_fetch_articles_needing_editorial(limit: int = 4) -> list[dict[str, Any]]
         return []
     finally:
         conn.close()
+
+def _db_fetch_articles_needing_images(limit: int = 6) -> list[dict[str, Any]]:
+    if not _ensure_schema():
+        return []
+    conn = _connect_db()
+    if conn is None:
+        return []
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""
+                SELECT slug, source_url, category, source_name, source_domain, image_url,
+                       image_source, image_credit, image_credit_url, image_provider_url,
+                       image_license_url, image_checked_at, title_ar, title_en,
+                       summary_ar, summary_en, content_ar, content_en, published_at,
+                       fetched_at, read_minutes, original_language, is_demo
+                FROM world_pulse_articles
+                WHERE is_demo = FALSE
+                  AND source_url <> ''
+                  AND COALESCE(image_url, '') = ''
+                  AND (image_checked_at IS NULL OR image_checked_at < NOW() - INTERVAL '7 days')
+                ORDER BY published_at DESC NULLS LAST, fetched_at DESC
+                LIMIT %s
+            """, (max(1, min(24, int(limit))),))
+            return [dict(row) for row in cur.fetchall()]
+    except Exception as exc:
+        logger.debug("Image backfill query failed (%s)", type(exc).__name__)
+        return []
+    finally:
+        conn.close()
+
+def _db_update_article_images(articles: list[dict[str, Any]]) -> int:
+    eligible = [item for item in articles if item.get("source_url")]
+    if not eligible or not _ensure_schema():
+        return 0
+    conn = _connect_db()
+    if conn is None:
+        return 0
+    updated = 0
+    try:
+        with conn.cursor() as cur:
+            for item in eligible:
+                source = str(item.get("image_source") or "none")
+                if source not in TRUSTED_REUSABLE_IMAGE_SOURCES:
+                    source = "none"
+                image_url = str(item.get("image_url") or "") if source in TRUSTED_REUSABLE_IMAGE_SOURCES else ""
+                cur.execute("""
+                    UPDATE world_pulse_articles SET
+                        image_url = %s, image_source = %s, image_credit = %s,
+                        image_credit_url = %s, image_provider_url = %s,
+                        image_license_url = %s, image_checked_at = %s
+                    WHERE source_url = %s AND is_demo = FALSE
+                """, (
+                    image_url, source, str(item.get("image_credit") or ""),
+                    str(item.get("image_credit_url") or ""), str(item.get("image_provider_url") or ""),
+                    str(item.get("image_license_url") or ""), item.get("image_checked_at") or datetime.now(timezone.utc),
+                    item["source_url"],
+                ))
+                updated += cur.rowcount
+        conn.commit()
+        return updated
+    except Exception as exc:
+        conn.rollback()
+        logger.warning("Image backfill update failed (%s)", type(exc).__name__)
+        return 0
+    finally:
+        conn.close()
+
+def _backfill_missing_article_images(limit: int = 6) -> int:
+    rows = _db_fetch_articles_needing_images(limit)
+    if not rows:
+        return 0
+    pending = [_raw_from_stored_article(row) for row in rows]
+    for raw, row in zip(pending, rows):
+        raw["image_search_title"] = row.get("title_en") or row.get("title_ar") or raw.get("original_title", "")
+    _enrich_article_images(pending)
+    _db_update_article_images(pending)
+    for raw in pending:
+        if not raw.get("source_url"):
+            continue
+        cached = _MEMORY_ARTICLES.get(str(raw["source_url"]))
+        if cached is not None:
+            for key in ("image_url", "image_source", "image_credit", "image_credit_url",
+                        "image_provider_url", "image_license_url", "image_checked_at"):
+                cached[key] = raw.get(key, "")
+    return sum(1 for raw in pending if raw.get("image_url") and raw.get("image_source") in TRUSTED_REUSABLE_IMAGE_SOURCES)
 
 def _raw_from_stored_article(row: dict[str, Any]) -> dict[str, Any]:
     original_language = row.get("original_language", "en")
@@ -837,10 +933,15 @@ def _db_upsert_many(articles: list[dict[str, Any]]) -> bool:
 
 _REFRESH_LOCK = threading.Lock()
 _STATE_LOCK = threading.Lock()
+_REFRESH_VISITOR_ATTEMPTS: dict[str, float] = {}
 _REFRESHING = False
 _LAST_REFRESH_ATTEMPT = 0.0
 _LAST_REFRESH_SUCCESS = 0.0
 _MEMORY_ARTICLES: dict[str, dict[str, Any]] = {}
+_IMAGE_STATUS_LOCK = threading.Lock()
+_LAST_IMAGE_STATUS: dict[str, Any] = {"attempted": 0, "found": 0, "errors": 0, "providers": {}, "updated_at": None}
+_GEMINI_STATUS_LOCK = threading.Lock()
+_LAST_GEMINI_ERROR = {"stage": "", "type": "", "at": None}
 _LAST_REFRESH_AT: datetime | None = None
 _LAST_REFRESH_STATE = "idle"
 _LAST_REFRESH_ERROR = ""
@@ -881,16 +982,39 @@ def _image_tokens(value: str) -> set[str]:
     return {t.casefold() for t in re.findall(r"[\w\u0600-\u06ff]{3,}", value or "") if t.casefold() not in _IMAGE_STOPWORDS}
 
 def _image_match_score(title: str, description: str) -> float:
+    """Conservative relevance score; query-based API ranking supplements metadata overlap."""
     title_tokens = _image_tokens(title)
     if not title_tokens:
         return 0.0
     image_tokens = _image_tokens(description)
     overlap_count = len(title_tokens & image_tokens)
-    required = 1 if len(title_tokens) <= 4 else 2
+    required = 1 if len(title_tokens) <= 6 else 2
     overlap_ratio = overlap_count / max(1, len(title_tokens))
-    if overlap_count < required or overlap_ratio < 0.12:
+    if overlap_count < required or overlap_ratio < 0.08:
         return 0.0
     return overlap_ratio + min(overlap_count, 4) * 0.025
+
+def _image_search_phrase(title: str, max_terms: int = 5) -> str:
+    """Shorten news headlines for image APIs, which work poorly with long headline syntax."""
+    query_stopwords = _IMAGE_STOPWORDS | {
+        "live", "exclusive", "analysis", "opinion", "explainer", "watch", "video",
+        "reporter", "reporting", "latest", "breaking", "update", "updated",
+        "عاجل", "مباشر", "خاص", "تحليل", "فيديو", "تغطية", "تفاصيل",
+        "announces", "announced", "reveals", "revealed", "launches", "launch",
+        "بعد", "أمام", "وسط", "ضمن", "عبر", "بسبب", "لماذا", "كيف",
+    }
+    words = re.findall(r"[A-Za-z0-9][A-Za-z0-9'’-]*|[\u0600-\u06ff]{3,}", _clean_text(title, 240))
+    kept = []
+    seen = set()
+    for word in words:
+        key = word.casefold().strip("'-’")
+        if len(key) < 3 or key in query_stopwords or key in seen:
+            continue
+        seen.add(key)
+        kept.append(word.strip("'-’"))
+        if len(kept) >= max_terms:
+            break
+    return " ".join(kept) or _clean_text(title, 100)
 
 def _https_url(value: Any, allowed_hosts: set[str] | None = None) -> str:
     url = str(value or "").strip()
@@ -905,101 +1029,109 @@ def _https_url(value: Any, allowed_hosts: set[str] | None = None) -> str:
         return ""
     return url
 
-def _search_commons_image(title: str, lang: str) -> dict[str, str]:
+def _search_commons_image(title: str, lang: str, category: str = "world") -> dict[str, str]:
     title = _clean_text(title, 240)
     if not title:
         return {}
-    params = {
-        "action": "query", "generator": "search", "gsrsearch": title,
-        "gsrnamespace": 6, "gsrlimit": 12, "prop": "imageinfo",
-        "iiprop": "url|extmetadata|mime", "iiurlwidth": 1400,
-        "format": "json", "formatversion": 2,
-    }
-    url = "https://commons.wikimedia.org/w/api.php?" + urlencode(params)
-    request_obj = Request(url, headers={"User-Agent": "WorldPulseNews/1.3 (news image finder; Wikimedia Commons API)"})
-    title_tokens = _image_tokens(title)
-    if not title_tokens:
-        return {}
+    short_query = _image_search_phrase(title, 5)
+    queries = [title]
+    if short_query and short_query.casefold() != title.casefold():
+        queries.append(short_query)
+    best: tuple[float, dict[str, str]] | None = None
     try:
-        with urlopen(request_obj, timeout=IMAGE_SEARCH_TIMEOUT_SECONDS) as response:
-            data = json.loads(response.read(1_800_000).decode("utf-8", errors="replace"))
-        pages = data.get("query", {}).get("pages", [])
-        if isinstance(pages, dict):
-            pages = list(pages.values())
-        best: tuple[float, dict[str, str]] | None = None
-        for page in pages:
-            imageinfos = page.get("imageinfo") or []
-            if not imageinfos:
-                continue
-            info = imageinfos[0]
-            mime = str(info.get("mime", "")).lower()
-            if mime not in {"image/jpeg", "image/png", "image/webp"}:
-                continue
-            page_title = str(page.get("title", ""))
-            if re.search(r"(?i)\b(logo|icon|wordmark|commons-logo|flag icon|map icon)\b", page_title):
-                continue
-            ext = info.get("extmetadata") or {}
-            license_short = _clean_text((ext.get("LicenseShortName") or {}).get("value", ""), 100).casefold()
-            license_url = _https_url(html.unescape((ext.get("LicenseUrl") or {}).get("value", "")), {"creativecommons.org"})
-            license_url_path = urlparse(license_url).path.casefold() if license_url else ""
-            is_cc0_url = bool(re.search(r"/publicdomain/zero/1\.0/?$", license_url_path))
-            is_pd_url = bool(re.search(r"/publicdomain/mark/1\.0/?$", license_url_path))
-            is_cc_by_url = bool(re.search(r"/licenses/by/(?:2\.0|3\.0|4\.0)/?$", license_url_path))
-            license_ok = is_pd_url or is_cc0_url or is_cc_by_url
-            forbidden = any(term in license_short for term in ("noncommercial", "non-commercial", "no derivatives", "no-derivatives", "by-nc", "by-nd", "by-sa", "share alike"))
-            artist = _clean_text((ext.get("Artist") or {}).get("value", ""), 180)
-            if is_cc_by_url and not artist:
-                continue
-            if not license_ok or forbidden:
-                continue
-            image_url = _https_url(info.get("thumburl") or info.get("url"), {"wikimedia.org", "wikipedia.org"})
-            if not image_url:
-                continue
-            desc = _clean_text((ext.get("ImageDescription") or {}).get("value", ""), 1000)
-            score = _image_match_score(title, page_title + " " + desc)
-            if score <= 0:
-                continue
-            file_page_url = "https://commons.wikimedia.org/wiki/" + quote(page_title.replace(" ", "_"), safe=":_()!,.'-")
-            credit = artist or "Public-domain image via Wikimedia Commons"
-            result = {
-                "image_url": image_url,
-                "image_source": "wikimedia_relevant",
-                "image_credit": credit,
-                "image_credit_url": file_page_url,
-                "image_provider_url": file_page_url,
-                "image_license_url": license_url,
-                "image_checked_at": datetime.now(timezone.utc),
+        for query in queries:
+            params = {
+                "action": "query", "generator": "search", "gsrsearch": query,
+                "gsrnamespace": 6, "gsrlimit": 12, "prop": "imageinfo",
+                "iiprop": "url|extmetadata|mime", "iiurlwidth": 1400,
+                "format": "json", "formatversion": 2,
             }
-            if best is None or score > best[0]:
-                best = (score, result)
+            url = "https://commons.wikimedia.org/w/api.php?" + urlencode(params)
+            request_obj = Request(url, headers={"User-Agent": "WorldPulseNews/1.4 (news image finder; Wikimedia Commons API; contact site owner)"})
+            with urlopen(request_obj, timeout=IMAGE_SEARCH_TIMEOUT_SECONDS) as response:
+                data = json.loads(response.read(1_800_000).decode("utf-8", errors="replace"))
+            pages = data.get("query", {}).get("pages", [])
+            if isinstance(pages, dict):
+                pages = list(pages.values())
+            for page in pages:
+                imageinfos = page.get("imageinfo") or []
+                if not imageinfos:
+                    continue
+                info = imageinfos[0]
+                mime = str(info.get("mime", "")).lower()
+                if mime not in {"image/jpeg", "image/png", "image/webp"}:
+                    continue
+                page_title = str(page.get("title", ""))
+                if re.search(r"(?i)\b(logo|icon|wordmark|commons-logo|flag icon|map icon|banner logo)\b", page_title):
+                    continue
+                ext = info.get("extmetadata") or {}
+                license_short = _clean_text((ext.get("LicenseShortName") or {}).get("value", ""), 100).casefold()
+                license_url = _https_url(html.unescape((ext.get("LicenseUrl") or {}).get("value", "")), {"creativecommons.org"})
+                license_url_path = urlparse(license_url).path.casefold() if license_url else ""
+                is_cc0_url = bool(re.search(r"/publicdomain/zero/1\.0/?$", license_url_path))
+                is_pd_url = bool(re.search(r"/publicdomain/mark/1\.0/?$", license_url_path))
+                is_cc_by_url = bool(re.search(r"/licenses/by/(?:2\.0|3\.0|4\.0)/?$", license_url_path))
+                license_ok = is_pd_url or is_cc0_url or is_cc_by_url
+                forbidden = any(term in license_short for term in ("noncommercial", "non-commercial", "no derivatives", "no-derivatives", "by-nc", "by-nd", "by-sa", "share alike"))
+                artist = _clean_text((ext.get("Artist") or {}).get("value", ""), 180)
+                if is_cc_by_url and not artist:
+                    continue
+                if not license_ok or forbidden:
+                    continue
+                image_url = _https_url(info.get("thumburl") or info.get("url"), {"wikimedia.org", "wikipedia.org"})
+                if not image_url:
+                    continue
+                desc = _clean_text((ext.get("ImageDescription") or {}).get("value", ""), 1000)
+                score = max(_image_match_score(title, page_title + " " + desc),
+                            _image_match_score(query, page_title + " " + desc))
+                if score <= 0:
+                    continue
+                file_page_url = "https://commons.wikimedia.org/wiki/" + quote(page_title.replace(" ", "_"), safe=":_()!,.'-")
+                credit = artist or "Public-domain image via Wikimedia Commons"
+                result = {
+                    "image_url": image_url,
+                    "image_source": "wikimedia_relevant",
+                    "image_credit": credit,
+                    "image_credit_url": file_page_url,
+                    "image_provider_url": file_page_url,
+                    "image_license_url": license_url,
+                    "image_checked_at": datetime.now(timezone.utc),
+                }
+                if best is None or score > best[0]:
+                    best = (score, result)
         return best[1] if best else {}
-    except Exception:
-        return {}
+    except Exception as exc:
+        logger.debug("Wikimedia image lookup failed (%s)", type(exc).__name__)
+        return best[1] if best else {}
 
 def _search_pexels_image(title: str) -> dict[str, str]:
     if not PEXELS_API_KEY or not title:
         return {}
-    query = _clean_text(title, 100)
+    query = _image_search_phrase(_clean_text(title, 180), 5)[:100]
     params = urlencode({"query": query, "per_page": 10, "orientation": "landscape"})
     request_obj = Request(
         "https://api.pexels.com/v1/search?" + params,
-        headers={"Authorization": PEXELS_API_KEY, "User-Agent": "WorldPulseNews/1.3 (+image sourcing)"},
+        headers={"Authorization": PEXELS_API_KEY, "User-Agent": "WorldPulseNews/1.4 (+image sourcing)"},
     )
     try:
         with urlopen(request_obj, timeout=IMAGE_SEARCH_TIMEOUT_SECONDS) as response:
             data = json.loads(response.read(1_500_000).decode("utf-8", errors="replace"))
         best: tuple[float, dict[str, str]] | None = None
-        for photo in data.get("photos", [])[:10]:
+        for index, photo in enumerate(data.get("photos", [])[:10]):
             src = photo.get("src") or {}
             image_url = _https_url(src.get("large") or src.get("large2x") or src.get("medium"), {"pexels.com"})
             photo_page = _https_url(photo.get("url"), {"pexels.com"})
             photographer = _clean_text(photo.get("photographer", ""), 160)
             photographer_url = _https_url(photo.get("photographer_url"), {"pexels.com"})
+            alt = _clean_text(photo.get("alt", ""), 400)
             if not image_url or not photo_page or not photographer:
                 continue
-            score = _image_match_score(title, " ".join([str(photo.get("alt", "")), photographer]))
+            score = _image_match_score(query, alt)
+            # Pexels ranks results for the query; an empty alt field is not evidence of a mismatch.
             if score <= 0:
-                continue
+                if alt:
+                    continue
+                score = max(0.01, 0.05 - index * 0.003)
             result = {
                 "image_url": image_url,
                 "image_source": "pexels_api",
@@ -1012,7 +1144,8 @@ def _search_pexels_image(title: str) -> dict[str, str]:
             if best is None or score > best[0]:
                 best = (score, result)
         return best[1] if best else {}
-    except Exception:
+    except Exception as exc:
+        logger.debug("Pexels image lookup failed (%s)", type(exc).__name__)
         return {}
 
 def _with_unsplash_tracking(url: Any) -> str:
@@ -1029,7 +1162,8 @@ def _with_unsplash_tracking(url: Any) -> str:
 def _search_unsplash_image(title: str) -> dict[str, str]:
     if not UNSPLASH_ACCESS_KEY or not title:
         return {}
-    params = urlencode({"query": _clean_text(title, 100), "per_page": 10, "orientation": "landscape", "content_filter": "high"})
+    query = _image_search_phrase(_clean_text(title, 180), 5)[:100]
+    params = urlencode({"query": query, "per_page": 10, "orientation": "landscape", "content_filter": "high"})
     request_obj = Request(
         "https://api.unsplash.com/search/photos?" + params,
         headers={
@@ -1057,7 +1191,7 @@ def _search_unsplash_image(title: str) -> dict[str, str]:
                 str(photo.get("alt_description", "")), str(photo.get("description", "")),
                 " ".join(_clean_text(tag.get("title", ""), 80) for tag in photo.get("tags", [])[:12] if isinstance(tag, dict)),
             ])
-            score = _image_match_score(title, description)
+            score = _image_match_score(query, description)
             if score <= 0:
                 continue
             result = {
@@ -1072,7 +1206,8 @@ def _search_unsplash_image(title: str) -> dict[str, str]:
             if best is None or score > best[0]:
                 best = (score, result)
         return best[1] if best else {}
-    except Exception:
+    except Exception as exc:
+        logger.debug("Unsplash image lookup failed (%s)", type(exc).__name__)
         return {}
 
 def _search_approved_presskit_image(title: str, category: str) -> dict[str, str]:
@@ -1233,18 +1368,34 @@ def _enrich_article_images(raw_articles: list[dict[str, Any]]) -> None:
     ][:MAX_IMAGE_LOOKUPS_PER_REFRESH]
     if not pending:
         return
+    found = 0
+    providers: dict[str, int] = {}
+    errors = 0
     with ThreadPoolExecutor(max_workers=4) as pool:
         futures = {pool.submit(_resolve_article_image, item): item for item in pending}
         for future in as_completed(futures):
             item = futures[future]
             try:
                 item.update(future.result())
-            except Exception:
+                if item.get("image_url") and item.get("image_source") in TRUSTED_REUSABLE_IMAGE_SOURCES:
+                    found += 1
+                    provider = str(item.get("image_source"))
+                    providers[provider] = providers.get(provider, 0) + 1
+            except Exception as exc:
+                errors += 1
+                logger.debug("Image enrichment failed (%s)", type(exc).__name__)
                 item.update({
                     "image_url": "", "image_source": "none", "image_credit": "",
                     "image_credit_url": "", "image_provider_url": "", "image_license_url": "",
                     "image_checked_at": datetime.now(timezone.utc),
                 })
+    with _IMAGE_STATUS_LOCK:
+        _LAST_IMAGE_STATUS.update({
+            "attempted": len(pending), "found": found, "errors": errors,
+            "providers": dict(providers), "updated_at": datetime.now(timezone.utc).isoformat(),
+        })
+    logger.info("Image lookup finished: attempted=%d found=%d errors=%d providers=%s",
+                len(pending), found, errors, providers)
 
 def _parse_any_rss(feed_url: str, category: str, lang: str, default_source: str) -> tuple[str, str, list[dict[str, Any]]]:
     request_obj = Request(feed_url, headers={"User-Agent": "WorldPulseNews/1.3 (+Google News RSS discovery)"})
@@ -1279,7 +1430,6 @@ def _parse_any_rss(feed_url: str, category: str, lang: str, default_source: str)
                 continue
             if _domain_needs_license(publisher_host) or _publisher_requires_license(publisher, (url, source_href)):
                 continue
-            # Reject cross-language headlines even when Google News returns them in the wrong locale.
             if lang == "ar" and not _looks_arabic(title):
                 continue
             if lang == "en" and _looks_arabic(title):
@@ -1482,8 +1632,12 @@ Stories to edit: {json.dumps(payload, ensure_ascii=False)}'''
                         and len(fields.get("content_ar", "")) >= 220
                         and len(fields.get("content_en", "")) >= 220):
                     result[index] = fields
-        except Exception:
-            continue
+        except Exception as exc:
+            logger.warning("Gemini editorial enrichment failed (model=%s batch=%d-%d error=%s)",
+                           GEMINI_MODEL, batch_start, batch_end - 1, type(exc).__name__)
+            with _GEMINI_STATUS_LOCK:
+                _LAST_GEMINI_ERROR.update({"stage": "editorial", "type": type(exc).__name__,
+                                           "at": datetime.now(timezone.utc).isoformat()})
     return result
 
 def _reading_minutes(article: dict[str, Any]) -> int:
@@ -1552,6 +1706,8 @@ def _refresh_news_job() -> None:
                     known_urls.add(source_url)
 
         if not raw_articles:
+            if schema_available and MAX_IMAGE_LOOKUPS_PER_REFRESH > 0:
+                _backfill_missing_article_images(limit=min(6, MAX_IMAGE_LOOKUPS_PER_REFRESH))
             raise RuntimeError("No eligible RSS stories were returned.")
 
         translations = _translate_batch(raw_articles)
@@ -1562,17 +1718,22 @@ def _refresh_news_job() -> None:
             enriched = translations.get(index)
             source_url = str(raw.get("source_url", ""))
             if not enriched:
-                if source_url not in existing_urls:
+                # Keep verified source-language headlines available during a Gemini outage.
+                # Existing records are left intact; translation can be retried in a later refresh.
+                if source_url in existing_urls:
                     continue
+                raw["image_search_title"] = raw.get("original_title", "")
+                raw_to_publish.append((index, raw))
                 continue
             raw["image_search_title"] = enriched.get("title_en") or raw.get("original_title", "")
             raw_to_publish.append((index, raw))
 
         if not raw_to_publish:
+            backfilled = _backfill_missing_article_images(limit=min(6, MAX_IMAGE_LOOKUPS_PER_REFRESH)) if schema_available and MAX_IMAGE_LOOKUPS_PER_REFRESH > 0 else 0
             _LAST_REFRESH_SUCCESS = time.monotonic()
             _LAST_REFRESH_AT = datetime.now(timezone.utc)
             _LAST_REFRESH_STATE = "success"
-            _LAST_REFRESH_ERROR = "No new stories to publish; existing stories were retained."
+            _LAST_REFRESH_ERROR = "No new stories; existing stories retained. Images repaired: %d." % backfilled
             return
 
         image_candidates = [raw for _index, raw in raw_to_publish]
@@ -1590,6 +1751,9 @@ def _refresh_news_job() -> None:
         saved = _db_upsert_many(ready)
         for article_data in ready:
             _MEMORY_ARTICLES[article_data["source_url"]] = article_data
+        backfilled = _backfill_missing_article_images(limit=min(6, MAX_IMAGE_LOOKUPS_PER_REFRESH)) if schema_available and MAX_IMAGE_LOOKUPS_PER_REFRESH > 0 else 0
+        if backfilled:
+            logger.info("Repaired %d previously missing article images", backfilled)
         _LAST_REFRESH_SUCCESS = time.monotonic()
         _LAST_REFRESH_AT = datetime.now(timezone.utc)
         _LAST_REFRESH_STATE = "success" if saved else "memory_only"
@@ -1597,7 +1761,8 @@ def _refresh_news_job() -> None:
     except Exception as exc:
         _LAST_REFRESH_AT = datetime.now(timezone.utc)
         _LAST_REFRESH_STATE = "error"
-        _LAST_REFRESH_ERROR = str(exc)[:500]
+        _LAST_REFRESH_ERROR = "Refresh failed (%s); check server logs." % type(exc).__name__
+        logger.warning("News refresh failed (error=%s)", type(exc).__name__)
     finally:
         with _STATE_LOCK:
             _REFRESHING = False
@@ -1806,8 +1971,13 @@ def current_language() -> str:
 @app.context_processor
 def inject_shared_template_data() -> dict[str, Any]:
     lang = current_language()
+    site_csrf_token = session.get("wp_site_csrf")
+    if not site_csrf_token:
+        site_csrf_token = secrets.token_urlsafe(24)
+        session["wp_site_csrf"] = site_csrf_token
     return {
         "lang": lang,
+        "site_csrf_token": site_csrf_token,
         "ui": UI_TEXT[lang],
         "site_name": SITE_NAME_AR if lang == "ar" else SITE_NAME_EN,
         "site_name_other": SITE_NAME_EN if lang == "ar" else SITE_NAME_AR,
@@ -1903,6 +2073,10 @@ def _ai_ask_cache_key(slug: str, lang: str, question: str) -> str:
 
 @app.post("/api/ask")
 def ask_article_ai():
+    expected_csrf = str(session.get("wp_site_csrf") or "")
+    supplied_csrf = str(request.headers.get("X-CSRF-Token") or "")
+    if not expected_csrf or not supplied_csrf or not secrets.compare_digest(expected_csrf, supplied_csrf):
+        return jsonify({"error": "csrf"}), 400
     if not AI_QUESTIONS_ENABLED or not GEMINI_API_KEY or genai is None or types is None:
         return jsonify({"error": "disabled"}), 503
     payload = request.get_json(silent=True) or {}
@@ -1959,7 +2133,11 @@ def ask_article_ai():
         with _AI_ASK_LOCK:
             _AI_ASK_CACHE[cache_key] = (time.monotonic(), answer)
         return jsonify({"answer": answer, "cached": False}), 200
-    except Exception:
+    except Exception as exc:
+        logger.warning("Gemini article Q&A failed (model=%s error=%s)", GEMINI_MODEL, type(exc).__name__)
+        with _GEMINI_STATUS_LOCK:
+            _LAST_GEMINI_ERROR.update({"stage": "article_qa", "type": type(exc).__name__,
+                                       "at": datetime.now(timezone.utc).isoformat()})
         return jsonify({"error": "upstream_error"}), 502
 
 @app.get("/api/news-status")
@@ -1976,18 +2154,45 @@ def news_status():
         "error": _LAST_REFRESH_ERROR,
         "database_url_configured": bool(_database_url()),
         "gemini_api_key_configured": bool(GEMINI_API_KEY),
+        "gemini_sdk_loaded": genai is not None and types is not None,
+        "gemini_model": GEMINI_MODEL,
+        "image_providers": {
+            "wikimedia_commons": _control_enabled("image:wikimedia_relevant", True),
+            "presskit_manifest_configured": _presskit_provider_configured(),
+            "pexels_configured": bool(PEXELS_API_KEY),
+            "pexels_enabled": _control_enabled("image:pexels_api", True),
+            "unsplash_configured": bool(UNSPLASH_ACCESS_KEY),
+            "unsplash_enabled": _control_enabled("image:unsplash_api", True),
+        },
+        "image_status": dict(_LAST_IMAGE_STATUS),
+        "last_gemini_error": dict(_LAST_GEMINI_ERROR),
         "setup_issues": _news_setup_issues(),
     }), 200
 
 @app.post("/api/refresh")
 def refresh_news_api():
     global _REFRESHING, _LAST_REFRESH_ATTEMPT, _LAST_REFRESH_STATE
+    expected_csrf = str(session.get("wp_site_csrf") or "")
+    supplied_csrf = str(request.headers.get("X-CSRF-Token") or "")
+    if not expected_csrf or not supplied_csrf or not secrets.compare_digest(expected_csrf, supplied_csrf):
+        return jsonify({"error": "csrf"}), 400
     now = time.monotonic()
+    visitor_id = str(session.get("wp_refresh_visitor") or "")
+    if not visitor_id:
+        visitor_id = secrets.token_urlsafe(18)
+        session["wp_refresh_visitor"] = visitor_id
     with _STATE_LOCK:
+        for key, stamp in list(_REFRESH_VISITOR_ATTEMPTS.items()):
+            if now - stamp > 3600:
+                _REFRESH_VISITOR_ATTEMPTS.pop(key, None)
+        previous = _REFRESH_VISITOR_ATTEMPTS.get(visitor_id, 0.0)
+        if previous and now - previous < 180:
+            return jsonify({"state": "cooldown"}), 429
         if _REFRESHING:
             return jsonify({"state": "running"}), 202
-        if _LAST_REFRESH_ATTEMPT and now - _LAST_REFRESH_ATTEMPT < 20:
+        if _LAST_REFRESH_ATTEMPT and now - _LAST_REFRESH_ATTEMPT < 60:
             return jsonify({"state": "cooldown"}), 429
+        _REFRESH_VISITOR_ATTEMPTS[visitor_id] = now
         _LAST_REFRESH_ATTEMPT = now
         _REFRESHING = True
         _LAST_REFRESH_STATE = "running"
@@ -1998,18 +2203,46 @@ def refresh_news_api():
 STATIC_PAGES = {
     "about": {
         "title_ar": "من نحن", "title_en": "About Us",
-        "sections_ar": [("رسالتنا", "نبض العالم منصة إخبارية وتحليلية...")],
-        "sections_en": [("Our mission", "World Pulse is a news platform...")],
+        "sections_ar": [
+            ("رسالتنا", "نبض العالم منصة مستقلة لعرض الأخبار والملخصات بلغتين، العربية والإنجليزية، مع إبقاء رابط الناشر الأصلي ظاهرًا للقارئ."),
+            ("كيف نعمل", "نجمع عناوين وروابط من مصادر منشورة، ثم قد نستخدم أدوات آلية للمساعدة في التلخيص والترجمة والتنظيم. الملخص ليس بديلًا عن التقرير الأصلي، ولا ندّعي أننا الناشر الأصلي للأخبار المرتبطة."),
+            ("التصحيحات والتواصل", "إذا لاحظت خطأً أو مشكلة في مصدر أو صورة أو ترجمة، أرسل التفاصيل عبر صفحة التواصل. نراجع الطلب ونتخذ الإجراء المناسب عند التحقق منه."),
+        ],
+        "sections_en": [
+            ("Our mission", "World Pulse is a bilingual news discovery and briefing platform for Arabic and English readers, with links to the original publisher kept visible."),
+            ("How we work", "We collect headlines and links from published sources and may use automated tools to assist with summarizing, translation and organization. A brief is not a substitute for the original reporting, and linked stories are not represented as original World Pulse reporting."),
+            ("Corrections and contact", "Please use the contact page to report an error, source issue, image concern or translation problem. We review reports and take appropriate action when a concern is verified."),
+        ],
     },
     "privacy": {
         "title_ar": "سياسة الخصوصية", "title_en": "Privacy Policy",
-        "sections_ar": [("المعلومات", "...")],
-        "sections_en": [("Information", "...")],
+        "sections_ar": [
+            ("ما الذي قد نعالجه", "قد يعالج الموقع لغة العرض وإعدادات الجلسة، واستعلامات البحث والأسئلة المرسلة إلى مساعد الخبر، وبيانات الاتصال التي يرسلها الزائر. قد تسجل الاستضافة بيانات تقنية أساسية للأمان وتشخيص الأخطاء."),
+            ("الذكاء الاصطناعي والخدمات الخارجية", "عند استخدام سؤال الذكاء الاصطناعي، يُرسل السؤال وسياق الخبر ذي الصلة إلى Google Gemini لمعالجة الطلب. وتعتمد معالجة هذا الطلب على إعدادات الخدمة وشروط وسياسة Google السارية. كما تُستخدم خدمات خارجية لاكتشاف الأخبار أو البحث عن الصور عند تفعيلها."),
+            ("التخزين والاحتفاظ", "تُحفظ المقالات وبيانات المصادر والصور في قاعدة بيانات الموقع عند توفرها. تُستخدم ملفات الجلسة لتشغيل خصائص الموقع وحدود الاستخدام، ويُحفظ تفضيل المظهر على جهاز الزائر. لا ترسل معلومات سرية في الأسئلة أو نموذج التواصل."),
+            ("حقوقك والاستفسارات", "للاستفسار عن البيانات أو طلب تصحيحها أو حذفها عندما يكون ذلك ممكنًا، تواصل عبر عنوان البريد الظاهر في صفحة التواصل. ينبغي على مالك الموقع تحديث هذه السياسة إذا أضاف التحليلات أو الإعلانات أو تسجيل الحسابات أو أي معالجة جديدة."),
+        ],
+        "sections_en": [
+            ("Information we may process", "The site may process display-language and session preferences, search queries, questions submitted to the article assistant, and contact details submitted by visitors. The hosting provider may record basic technical information for security and troubleshooting."),
+            ("AI and third-party services", "When you use article Q&A, the question and relevant story context are sent to Google Gemini for processing. That processing is subject to the service configuration and Google's then-current terms and privacy policy. External services may also be used for news discovery or image search when enabled."),
+            ("Storage and retention", "Articles, source details and image-attribution metadata may be stored in the site's database. Session cookies support site features and rate limits, while the appearance preference is stored in the visitor's browser. Do not submit secrets through Q&A or the contact form."),
+            ("Requests and changes", "For questions about information or requests to correct or delete it where feasible, use the contact email shown on the contact page. The site owner should update this policy if analytics, advertising, account registration or other processing is added."),
+        ],
     },
     "terms": {
-        "title_ar": "شروط الاستخدام", "title_en": "Terms of Service",
-        "sections_ar": [("الاستخدام", "...")],
-        "sections_en": [("Use", "...")],
+        "title_ar": "شروط الاستخدام", "title_en": "Terms of Use",
+        "sections_ar": [
+            ("طبيعة المحتوى", "يعرض الموقع عناوين وروابط وملخصات إخبارية لأغراض الاطلاع. قد تتأخر المعلومات أو تتغير أو تحتوي على أخطاء، ويجب الرجوع إلى الناشر الأصلي للتحقق من التفاصيل والتحديثات."),
+            ("محتوى الذكاء الاصطناعي", "قد تُنشأ الملخصات والترجمات والإجابات بمساعدة الذكاء الاصطناعي. لا تُعد هذه المخرجات نصيحة مهنية أو تأكيدًا مستقلًا للحقائق، ولا ينبغي الاعتماد عليها وحدها في القرارات المهمة."),
+            ("المصادر والصور", "تظل حقوق الأخبار والصور والعلامات لأصحابها. تُعرض روابط المصادر ومعلومات الإسناد والترخيص حيثما تتوفر. لا يعني ظهور صورة على الإنترنت أو في Google News أن إعادة استخدامها مسموحة."),
+            ("الاستخدام المقبول والتعديلات", "يُمنع استخدام الموقع للإضرار بالخدمات أو تجاوز حدود الاستخدام أو نسخ المحتوى بما يخالف حقوق أصحابه. قد تتغير الميزات أو تتوقف مؤقتًا لأسباب تقنية أو تحريرية."),
+        ],
+        "sections_en": [
+            ("Nature of the content", "The site provides news headlines, links and briefings for information and discovery. Information may be delayed, change or contain errors; consult the original publisher to verify details and updates."),
+            ("AI-assisted content", "Briefs, translations and answers may be produced with AI assistance. They are not professional advice or independent verification of facts and should not be the sole basis for important decisions."),
+            ("Sources and images", "Rights to reporting, images and trademarks remain with their respective owners. Source links and attribution/licence details are shown where available. Appearance online or in Google News does not make an image free to reuse."),
+            ("Acceptable use and changes", "Do not use the site to disrupt services, bypass usage limits or copy material in violation of its owner's rights. Features may change or be temporarily unavailable for technical or editorial reasons."),
+        ],
     },
 }
 
@@ -2036,6 +2269,46 @@ def static_page(page_key: str):
         related_stories=[], article=None,
     )
 
+def _contact_smtp_configured() -> bool:
+    return bool(os.getenv("SMTP_HOST", "").strip()
+                and os.getenv("SMTP_USERNAME", "").strip()
+                and os.getenv("SMTP_PASSWORD", "").strip())
+
+def _send_contact_message(name: str, sender_email: str, message_body: str) -> bool:
+    host = os.getenv("SMTP_HOST", "").strip()
+    username = os.getenv("SMTP_USERNAME", "").strip()
+    password = os.getenv("SMTP_PASSWORD", "")
+    if not host or not username or not password:
+        return False
+    try:
+        port = max(1, min(65535, int(os.getenv("SMTP_PORT", "587"))))
+    except ValueError:
+        port = 587
+    use_ssl = os.getenv("SMTP_USE_SSL", "false").strip().lower() in {"1", "true", "yes"} or port == 465
+    message = EmailMessage()
+    message["Subject"] = "World Pulse website contact"
+    message["From"] = os.getenv("SMTP_FROM_EMAIL", "").strip() or username
+    message["To"] = CONTACT_EMAIL
+    message["Reply-To"] = sender_email
+    message.set_content(f"Name: {name}\nEmail: {sender_email}\n\nMessage:\n{message_body}")
+    try:
+        if use_ssl:
+            with smtplib.SMTP_SSL(host, port, timeout=12, context=ssl.create_default_context()) as server:
+                server.login(username, password)
+                server.send_message(message)
+        else:
+            with smtplib.SMTP(host, port, timeout=12) as server:
+                server.ehlo()
+                if os.getenv("SMTP_STARTTLS", "true").strip().lower() not in {"0", "false", "no"}:
+                    server.starttls(context=ssl.create_default_context())
+                    server.ehlo()
+                server.login(username, password)
+                server.send_message(message)
+        return True
+    except Exception as exc:
+        logger.warning("Contact email delivery failed (%s)", type(exc).__name__)
+        return False
+
 @app.route("/contact", methods=["GET", "POST"])
 def contact():
     lang = current_language()
@@ -2045,37 +2318,98 @@ def contact():
     if not token:
         token = secrets.token_urlsafe(24)
         session["contact_csrf"] = token
+    smtp_enabled = _contact_smtp_configured()
     if request.method == "POST":
         if not secrets.compare_digest(str(request.form.get("csrf_token", "")), token):
             abort(400)
         name = _clean_text(request.form.get("name", ""), 100)
         email = _clean_text(request.form.get("email", ""), 254)
-        message = _clean_text(request.form.get("message", ""), 5000)
-        if not name or not email or not message:
-            error = "error"
+        message = _clean_text(request.form.get("message", ""), 3000)
+        if not name or not email or not message or not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
+            error = "invalid"
+        elif not smtp_enabled:
+            error = "not_configured"
         else:
-            sent = True
+            sent = _send_contact_message(name, email, message)
+            if not sent:
+                error = "failed"
     legal_title = "اتصل بنا" if lang == "ar" else "Contact Us"
     legal_body = "البريد الرسمي للتواصل: " + CONTACT_EMAIL
     return render_template(
         "index.html", page="legal", legal_slug="contact", legal_title=legal_title, legal_body=legal_body,
-        contact_status="sent" if sent else ("failed" if error else ""), contact_csrf_token=token,
-        contact_smtp_enabled=False, stories=[], all_story_count=0, active_category="all",
+        contact_status="sent" if sent else error, contact_csrf_token=token,
+        contact_smtp_enabled=smtp_enabled, stories=[], all_story_count=0, active_category="all",
         breaking_story=None, related_stories=[], article=None,
     ), 200
 
 @app.get("/sitemap.xml")
 def sitemap():
     origin = _site_origin()
-    urls = [url_for("index", _external=False)]
-    urls += [url_for("static_page", page_key=key, _external=False) for key in STATIC_PAGES]
-    xml_urls = "".join(f"<url><loc>{html.escape(origin + path)}</loc></url>" for path in dict.fromkeys(urls))
-    body = '<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">' + xml_urls + '</urlset>'
+    paths: list[str] = []
+    for lang in ("ar", "en"):
+        paths.append(url_for("index", lang=lang, _external=False))
+        paths.extend(url_for("static_page", page_key=key, lang=lang, _external=False) for key in STATIC_PAGES)
+        if lang == "ar":
+            paths.append(url_for("contact", lang=lang, _external=False))
+        else:
+            paths.append(url_for("contact", lang=lang, _external=False))
+        for story in _get_display_stories(lang):
+            paths.append(url_for("article", slug=story["slug"], lang=lang, _external=False))
+    unique_paths = list(dict.fromkeys(paths))
+    xml_urls = "".join(
+        "<url><loc>" + html.escape(origin + path, quote=True) + "</loc></url>"
+        for path in unique_paths
+    )
+    body = '<?xml version="1.0" encoding="UTF-8"?>' + \
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">' + xml_urls + '</urlset>'
+    return app.response_class(body, mimetype="application/xml")
+
+@app.get("/news-sitemap.xml")
+def news_sitemap():
+    origin = _site_origin()
+    now = datetime.now(timezone.utc)
+    cutoff = now.timestamp() - (48 * 60 * 60)
+    entries: list[str] = []
+    for lang in ("ar", "en"):
+        lang_name = SITE_NAME_AR if lang == "ar" else SITE_NAME_EN
+        for story in _get_display_stories(lang):
+            published = story.get("published_at")
+            if isinstance(published, str):
+                try:
+                    published = datetime.fromisoformat(published.replace("Z", "+00:00"))
+                except ValueError:
+                    continue
+            if not isinstance(published, datetime):
+                continue
+            if published.tzinfo is None:
+                published = published.replace(tzinfo=timezone.utc)
+            published = published.astimezone(timezone.utc)
+            if published.timestamp() < cutoff:
+                continue
+            article_url = origin + url_for("article", slug=story["slug"], lang=lang, _external=False)
+            title = html.escape(str(story.get("title") or "")[:200], quote=True)
+            date_value = html.escape(published.isoformat().replace("+00:00", "Z"), quote=True)
+            article_url = html.escape(article_url, quote=True)
+            publication = html.escape(lang_name, quote=True)
+            entries.append(
+                "<url><loc>" + article_url + "</loc><news:news><news:publication><news:name>" +
+                publication + "</news:name><news:language>" + lang + "</news:language></news:publication>" +
+                "<news:publication_date>" + date_value + "</news:publication_date>" +
+                "<news:title>" + title + "</news:title></news:news></url>"
+            )
+            if len(entries) >= 1000:
+                break
+        if len(entries) >= 1000:
+            break
+    body = '<?xml version="1.0" encoding="UTF-8"?>' + \
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" ' + \
+        'xmlns:news="http://www.google.com/schemas/sitemap-news/0.9">' + "".join(entries) + '</urlset>'
     return app.response_class(body, mimetype="application/xml")
 
 @app.get("/robots.txt")
 def robots():
-    body = f"User-agent: *\nAllow: /\nDisallow: /api/\nSitemap: {_site_origin()}/sitemap.xml\n"
+    origin = _site_origin()
+    body = f"User-agent: *\nAllow: /\nDisallow: /api/\nSitemap: {origin}/sitemap.xml\nSitemap: {origin}/news-sitemap.xml\n"
     return app.response_class(body, mimetype="text/plain")
 
 @app.get("/healthz")

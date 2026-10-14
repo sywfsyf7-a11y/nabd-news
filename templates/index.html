@@ -11,6 +11,50 @@
   <meta property="og:title" content="{% if page == 'article' and article %}{{ article.title }} — {% elif page == 'legal' %}{{ legal_title }} — {% endif %}{{ site_name }}">
   <meta property="og:description" content="{% if page == 'article' and article %}{{ article.summary|striptags|truncate(155, True, '…') }}{% else %}{{ ui.hero_text }}{% endif %}">
   {% if page == 'article' and article %}<meta property="og:image" content="{{ article.image_url or url_for('static', filename=('A.jpg' if article.original_language == 'ar' else 'E.jpg'), _external=True) }}">{% endif %}
+  {% if page == 'article' and article %}
+    {% set canonical_url = url_for('article', slug=article.slug, lang=lang, _external=True) %}
+  {% elif page == 'legal' and legal_slug == 'contact' %}
+    {% set canonical_url = url_for('contact', lang=lang, _external=True) %}
+  {% elif page == 'legal' %}
+    {% set canonical_url = url_for('static_page', page_key=legal_slug, lang=lang, _external=True) %}
+  {% else %}
+    {% set canonical_url = url_for('index', lang=lang, _external=True) %}
+  {% endif %}
+  {% if page not in ['search', '404'] %}<link rel="canonical" href="{{ canonical_url }}">{% endif %}
+  {% if page == 'article' and article and article.title_ar and article.title_en %}
+    <link rel="alternate" hreflang="ar" href="{{ url_for('article', slug=article.slug, lang='ar', _external=True) }}">
+    <link rel="alternate" hreflang="en" href="{{ url_for('article', slug=article.slug, lang='en', _external=True) }}">
+  {% elif page == 'home' %}
+    <link rel="alternate" hreflang="ar" href="{{ url_for('index', lang='ar', _external=True) }}">
+    <link rel="alternate" hreflang="en" href="{{ url_for('index', lang='en', _external=True) }}">
+  {% elif page == 'legal' and legal_slug == 'contact' %}
+    <link rel="alternate" hreflang="ar" href="{{ url_for('contact', lang='ar', _external=True) }}">
+    <link rel="alternate" hreflang="en" href="{{ url_for('contact', lang='en', _external=True) }}">
+  {% elif page == 'legal' %}
+    <link rel="alternate" hreflang="ar" href="{{ url_for('static_page', page_key=legal_slug, lang='ar', _external=True) }}">
+    <link rel="alternate" hreflang="en" href="{{ url_for('static_page', page_key=legal_slug, lang='en', _external=True) }}">
+  {% endif %}
+  <meta name="twitter:card" content="{% if page == 'article' and article %}summary_large_image{% else %}summary{% endif %}">
+  <meta name="twitter:title" content="{% if page == 'article' and article %}{{ article.title }} — {% endif %}{{ site_name }}">
+  <meta name="twitter:description" content="{% if page == 'article' and article %}{{ article.summary|striptags|truncate(155, True, '…') }}{% else %}{{ ui.hero_text }}{% endif %}">
+  {% if page == 'article' and article %}
+    <meta name="twitter:image" content="{{ article.image_url or url_for('static', filename=('A.jpg' if article.original_language == 'ar' else 'E.jpg'), _external=True) }}">
+    <script type="application/ld+json">
+      {{ {
+        "@context": "https://schema.org",
+        "@type": "NewsArticle",
+        "headline": article.title,
+        "description": article.summary|striptags|truncate(300, True, "…"),
+        "datePublished": article.published_at.isoformat() if article.published_at and article.published_at.isoformat is defined else none,
+        "dateModified": article.published_at.isoformat() if article.published_at and article.published_at.isoformat is defined else none,
+        "image": [article.image_url or url_for('static', filename=('A.jpg' if article.original_language == 'ar' else 'E.jpg'), _external=True)],
+        "mainEntityOfPage": canonical_url,
+        "inLanguage": lang,
+        "author": {"@type": "Organization", "name": site_name ~ " editorial desk"},
+        "publisher": {"@type": "Organization", "name": site_name}
+      }|tojson }}
+    </script>
+  {% endif %}
   <title>{% if page == 'article' and article %}{{ article.title }} — {% elif page == 'legal' %}{{ legal_title }} — {% elif page == 'search' %}{{ 'نتائج البحث' if lang == 'ar' else 'Search results' }} — {% endif %}{{ site_name }}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -166,7 +210,8 @@
           <div role="status" aria-live="polite" class="mt-5 rounded-2xl border px-4 py-3 text-sm leading-7 {% if contact_status == 'sent' %}border-emerald-200 bg-emerald-50 text-emerald-800{% elif contact_status == 'invalid' %}border-amber-200 bg-amber-50 text-amber-900{% else %}border-rose-200 bg-rose-50 text-rose-800{% endif %}">
             {% if contact_status == 'sent' %}{{ 'تم إرسال رسالتك بنجاح، شكرًا لتواصلك.' if lang == 'ar' else 'Your message was sent successfully. Thank you.' }}
             {% elif contact_status == 'invalid' %}{{ 'يرجى تعبئة الحقول والتأكد من صحة البريد الإلكتروني.' if lang == 'ar' else 'Please complete all fields and provide a valid email address.' }}
-            {% elif contact_status == 'failed' %}{{ 'تعذر إرسال الرسالة الآن. يرجى التواصل عبر syfsywf86@gmail.com.' if lang == 'ar' else 'We could not send your message. Please email syfsywf86@gmail.com.' }}{% endif %}
+            {% elif contact_status == 'not_configured' %}{{ 'الإرسال من النموذج غير مفعّل بعد. استخدم رابط البريد الإلكتروني أدناه.' if lang == 'ar' else 'Website email delivery is not configured yet. Please use the email link below.' }}
+            {% elif contact_status == 'failed' %}{{ 'تعذر إرسال الرسالة الآن. يرجى التواصل عبر البريد الإلكتروني أدناه.' if lang == 'ar' else 'We could not send your message. Please use the email link below.' }}{% endif %}
           </div>
         {% endif %}
         {% if legal_slug == 'contact' %}
@@ -175,8 +220,9 @@
             <div><label for="contactName" class="mb-1 block text-sm font-bold">{{ 'الاسم' if lang == 'ar' else 'Name' }}</label><input id="contactName" name="name" maxlength="100" required class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm" /></div>
             <div><label for="contactEmail" class="mb-1 block text-sm font-bold">{{ 'البريد الإلكتروني' if lang == 'ar' else 'Email' }}</label><input id="contactEmail" type="email" name="email" maxlength="160" required class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm" /></div>
             <div><label for="contactMessage" class="mb-1 block text-sm font-bold">{{ 'الرسالة' if lang == 'ar' else 'Message' }}</label><textarea id="contactMessage" name="message" maxlength="3000" rows="5" required class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm"></textarea></div>
-            <p class="text-xs leading-6 text-slate-500">{% if contact_smtp_enabled %}{{ 'سيتم إرسال رسالتك مباشرة من الموقع إلى syfsywf86@gmail.com.' if lang == 'ar' else 'Your message will be sent directly to syfsywf86@gmail.com.' }}{% else %}{{ 'سيُفتح تطبيق البريد لديك لإكمال الإرسال إلى syfsywf86@gmail.com. يمكن تفعيل الإرسال المباشر بإعداد SMTP في Render.' if lang == 'ar' else 'Your email app will open to complete sending to syfsywf86@gmail.com. Direct sending can be enabled with SMTP settings in Render.' }}{% endif %}</p>
-            <button type="submit" class="rounded-full bg-pulse px-5 py-3 text-sm font-bold text-white">{{ 'متابعة الإرسال' if lang == 'ar' else 'Continue to email' }}</button>
+            <p class="text-xs leading-6 text-slate-500">{% if contact_smtp_enabled %}{{ 'سيتم إرسال رسالتك مباشرة بعد تأكيد خدمة البريد.' if lang == 'ar' else 'Your message will be sent after the mail service confirms delivery.' }}{% else %}{{ 'الإرسال المباشر يحتاج إعداد SMTP في Render. يمكنك مراسلتنا مباشرة عبر البريد الإلكتروني.' if lang == 'ar' else 'Direct sending requires SMTP settings in Render. You can contact us directly by email.' }}{% endif %}</p>
+            <a href="mailto:syfsywf86@gmail.com" class="inline-flex rounded-full border border-slate-300 px-5 py-3 text-sm font-bold text-slate-700">{{ 'فتح البريد الإلكتروني' if lang == 'ar' else 'Email us directly' }}</a>
+            <button type="submit" class="rounded-full bg-pulse px-5 py-3 text-sm font-bold text-white">{{ 'إرسال الرسالة' if lang == 'ar' else 'Send message' }}</button>
           </form>
         {% endif %}
       </section>
@@ -245,7 +291,7 @@
             {% for story in stories %}
               <article class="group flex h-full flex-col overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-sm transition duration-300 hover:-translate-y-1 hover:border-slate-300 hover:shadow-soft">
                 <a href="{{ url_for('article', slug=story.slug, lang=lang) }}" class="relative block aspect-[16/9] overflow-hidden bg-slate-200" tabindex="-1" aria-hidden="true">
-                  <!-- fallback is chosen from the story source language, not the UI language -->
+                  <!-- التعديل هنا: استخدام A.jpg أو E.jpg بدل البلايسهولدر القديم حسب لغة المتصفح/الموقع -->
                   <img src="{{ url_for('static', filename=('A.jpg' if story.original_language == 'ar' else 'E.jpg')) }}" alt="World Pulse — {{ story.category_label }}" loading="lazy" decoding="async" class="absolute inset-0 z-0 h-full w-full object-cover" onerror="this.onerror=null;this.style.display='none';">
                   {% if story.image_url %}
                     <img src="{{ story.image_url }}" alt="{{ story.title }}" loading="lazy" decoding="async" class="absolute inset-0 z-[1] h-full w-full object-cover transition duration-700 group-hover:scale-105" onerror="this.onerror=null;this.style.display='none';">
@@ -502,7 +548,7 @@
             const baselineResponse = await fetch('/api/news-status', { cache: 'no-store' });
             if (baselineResponse.ok) baselineAt = (await baselineResponse.json()).last_refresh_at || '';
           } catch (_) {}
-          const response = await fetch('/api/refresh', { method: 'POST', headers: { 'Accept': 'application/json' }, cache: 'no-store' });
+          const response = await fetch('/api/refresh', { method: 'POST', headers: { 'Accept': 'application/json', 'X-CSRF-Token': {{ site_csrf_token|tojson }} }, cache: 'no-store' });
           const result = await response.json();
           if (result.state === 'cooldown') {
             if (refreshButtonText) refreshButtonText.textContent = text.refresh;
@@ -589,7 +635,7 @@
           const timeoutId = setTimeout(() => controller.abort(), 25000);
           const response = await fetch('/api/ask', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-Token': {{ site_csrf_token|tojson }} },
             body: JSON.stringify({ slug: articleContext.slug, lang: articleContext.lang, question }),
             cache: 'no-store',
             signal: controller.signal
