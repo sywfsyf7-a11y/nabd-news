@@ -4,7 +4,7 @@
 1. Push this folder's files to a Git repository. Keep `app.py` at the repository root and `index.html` inside `templates/`.
 2. Create a PostgreSQL database in Supabase and copy its Session Pooler connection string into Render as `SUPABASE_POOLER_URL` (or use `DATABASE_URL`). Keep SSL required.
 3. Keep `FLASK_SECRET_KEY` set to a long random secret.
-4. **Recommended for full publishing:** set `GEMINI_API_KEY` and either `SUPABASE_POOLER_URL` or `DATABASE_URL` in Render Environment. If Gemini is unavailable, the site can still display real, attributed RSS headlines with a short teaser and a clear note that AI editorial enrichment is unavailable; it does not invent sample news. If PostgreSQL is unavailable, results may remain only in the current worker memory and are not reliably persistent, so restore the database URL as soon as possible.
+4. **Recommended for full publishing:** set `GEMINI_API_KEY` and either `SUPABASE_POOLER_URL` or `DATABASE_URL` in Render Environment. If Gemini is unavailable, the site can still display real, attributed RSS headlines with a clear note that AI editorial enrichment is unavailable and a link to the original source; it does not invent sample news or show the raw RSS excerpt as article copy. If PostgreSQL is unavailable, results may remain only in the current worker memory and are not reliably persistent, so restore the database URL as soon as possible.
 5. Never commit API keys to Git or put them in HTML.
 6. For the contact form, configure `SMTP_HOST`, `SMTP_PORT` (usually 587), `SMTP_USERNAME`, `SMTP_PASSWORD`, and optionally `SMTP_FROM`.
 7. Set `SITE_URL` to your public HTTPS origin for the sitemap.
@@ -13,7 +13,7 @@
 ## News sourcing and copyright safeguards
 - The collector runs two Google News RSS discovery passes per category and language: a broad query and a query focused on the source domains listed in `CATEGORY_SOURCE_DOMAINS`.
 - The application does **not** poll the named publishers' own RSS endpoints and does **not** fetch or scrape their full article pages. It uses the headline, source attribution, original link and a short discovery excerpt (maximum 500 characters) as input for editorial drafting.
-- Gemini is prompted to write original, attributed briefs, not to copy source sentences or pretend that a short excerpt supports an investigation. If Gemini fails or returns an incomplete draft, the system can show only the real headline and a short RSS teaser with an explicit preliminary-brief note; it does not present that item as AI-enriched reporting.
+- Gemini is prompted to write original, attributed briefs, not to copy source sentences or pretend that a short excerpt supports an investigation. If Gemini fails or returns an incomplete draft, the system shows the real headline, a clear editorial-unavailable note and the source link; it does not present a raw RSS excerpt as original reporting or label it AI-enriched.
 - Publisher terms vary. A source's appearance in `CATEGORY_SOURCE_DOMAINS` is a discovery preference, **not** permission to republish its content. The current conservative gate skips items whose source is identifiable as BBC, Reuters, AP News, TechCrunch, ESPN, ScienceDaily, The Guardian or Al Jazeera, pending suitable permission/licensing. Before adding direct syndication or changing this gate, check the exact current publisher terms and obtain written permission where required. Keep the source name and a prominent link to the original story.
 - Do not re-publish full feed summaries verbatim or add publisher text/images without an applicable licence. The code avoids reusing images from publisher RSS or `og:image` metadata because these do not themselves establish reuse rights.
 - Images are never accepted from publisher RSS thumbnails or `og:image` metadata alone. The current provider order and attribution requirements are documented below under **Image sourcing and rights safeguards**.
@@ -26,8 +26,19 @@ The automatic source-domain allowlist is configured in `CATEGORY_SOURCE_DOMAINS`
 - Demo/sample story cards are disabled and the static sample story data is not used by live routes. Empty feeds produce an empty state and diagnostic status endpoint, not fake news.
 - The refresh process asks Gemini for Arabic and English original reporting briefs with a useful executive summary, factual details from available source material, restrained context, and explicit unknowns where relevant.
 - The editorial model does not claim to read publisher article pages or independently verify stories. Headlines and brief RSS excerpts may not contain enough evidence for a long report; in those cases, content should remain short rather than inventing detail.
-- Previously stored real articles are not hidden only because their body is short. A short or unenriched item is clearly labelled as a preliminary RSS brief, while the source link remains available. A small number of thin stored articles are reprocessed each refresh when Gemini is available.
+- Previously stored real articles are not hidden only because their body is short. Unenriched items are not allowed to display legacy raw RSS excerpts as article copy; they show a transparent note and the source link until Gemini rewrites them. A small number of legacy articles are reprocessed each refresh when Gemini is available.
 - AI assistance does not replace human fact-checking. Review important claims, attribution, categories and context before relying on the content.
+
+
+### Source and image review panel
+- Configure `ADMIN_USERNAME` and `ADMIN_PASSWORD` in Render using strong, unique credentials. Open `/admin/sources` while logged in. The route uses HTTP Basic authentication and CSRF tokens; it also requires a working PostgreSQL connection.
+- The panel lets you disable any catalog publisher, confirm a licence review for a restricted publisher, switch image providers off, and block/unblock a specific image URL. Blocked images are matched without their query string so tracking parameters cannot bypass a block.
+- Do not enable a restricted publisher merely to increase article counts. Mark the licence reviewed only if you've checked the publisher's current terms and obtained permission where required.
+
+### Search and content repair
+- The header and home-page search forms submit to `/search`; the search first scans the stored archive and then runs a live RSS query across enabled allowlisted sources.
+- The first refresh after a strict image-rights migration may leave older stories on the CSS placeholder. Up to `MAX_IMAGE_BACKFILL_PER_REFRESH` saved stories are re-checked per refresh, and poor executive summaries are repaired in small batches when Gemini is configured.
+- Search, news fetching and image retrieval depend on external RSS/API availability. The `/api/news-status` endpoint reports the latest refresh state.
 
 ## Important
 - No code can guarantee Google AdSense approval. Approval depends on the published site's actual usefulness, originality, user experience, policy compliance, traffic quality and Google's review.
@@ -40,13 +51,13 @@ Required for stable production operation:
 - `FLASK_SECRET_KEY` — persistent Flask session signing key.
 
 Recommended / optional:
-- `GEMINI_API_KEY` — enables Gemini editorial drafting and Arabic/English versions; without it, the app can show the original-language RSS headline and short teaser.
+- `GEMINI_API_KEY` — enables Gemini editorial drafting and Arabic/English versions; without it, the app shows the original-language RSS headline and a note/link to the source, not a verbatim RSS excerpt.
 - `GEMINI_MODEL` — Gemini model name.
 - `NEWS_REFRESH_MINUTES` — refresh interval, default 15 minutes.
 - `NEWS_AUTO_FETCH` — disable automatic fetch with `false` if using a separate cron job.
 - `MAX_ARTICLES_PER_REFRESH` — target number of stories per refresh, capped by application settings.
 - `MAX_ARTICLES_PER_CATEGORY` — per-category collection limit.
-- `MAX_IMAGE_LOOKUPS_PER_REFRESH` — maximum article image lookup jobs per refresh across configured providers (default 24).
+- `MAX_IMAGE_LOOKUPS_PER_REFRESH` — maximum article image lookup jobs per refresh across configured providers (default 48).
 
 ## Image sourcing and rights safeguards
 
