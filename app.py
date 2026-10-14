@@ -637,7 +637,7 @@ def _known_source_controls() -> list[dict[str, Any]]:
         ("presskit_approved", "صور صحفية معتمدة", _presskit_provider_configured()),
         ("pexels_api", "Pexels API", bool(PEXELS_API_KEY)),
         ("unsplash_api", "Unsplash API", bool(UNSPLASH_ACCESS_KEY)),
-        ("gemini_generated", "توليد صور تحريرية باستخدام Gemini", bool(GEMINI_API_KEY) and genai is not None and types is not None),
+        ("gemini_generated", "توليد صور تحريرية باستخدام Gemini", bool(GEMINI_IMAGE_GENERATION_ENABLED and GEMINI_API_KEY) and genai is not None and types is not None),
     ]
     for provider, title, configured in image_providers:
         key = f"image:{provider}"
@@ -1408,7 +1408,16 @@ def _generate_gemini_article_image(raw: dict[str, Any]) -> dict[str, Any]:
             api_key=GEMINI_API_KEY,
             http_options=types.HttpOptions(timeout=GEMINI_IMAGE_TIMEOUT_SECONDS * 1000),
         )
-        interaction = client.interactions.create(model=GEMINI_IMAGE_MODEL, input=prompt)
+        interaction = client.interactions.create(
+            model=GEMINI_IMAGE_MODEL,
+            input=prompt,
+            response_format={
+                "type": "image",
+                "mime_type": "image/jpeg",
+                "aspect_ratio": "16:9",
+                "image_size": "1K",
+            },
+        )
         output_image = getattr(interaction, "output_image", None)
         encoded = getattr(output_image, "data", None) if output_image is not None else None
         if not encoded:
@@ -1439,6 +1448,12 @@ def _generate_gemini_article_image(raw: dict[str, Any]) -> dict[str, Any]:
         }
     except Exception as exc:
         logger.warning("Gemini image generation failed (model=%s error=%s)", GEMINI_IMAGE_MODEL, type(exc).__name__)
+        with _GEMINI_STATUS_LOCK:
+            _LAST_GEMINI_ERROR.update({
+                "stage": "image_generation",
+                "type": type(exc).__name__,
+                "at": datetime.now(timezone.utc).isoformat(),
+            })
         return {}
 
 def _search_any_reusable_image(title: str, lang: str = "en", category: str = "world") -> dict[str, str]:
@@ -2424,7 +2439,7 @@ def news_status():
             "per_24_hours": MAX_GEMINI_IMAGES_PER_24H,
         },
         "image_providers": {
-            "gemini_image_generation": _control_enabled("image:gemini_generated", True),
+            "gemini_image_generation": GEMINI_IMAGE_GENERATION_ENABLED and _control_enabled("image:gemini_generated", True),
             "wikimedia_commons": _control_enabled("image:wikimedia_relevant", True),
             "presskit_manifest_configured": _presskit_provider_configured(),
             "pexels_configured": bool(PEXELS_API_KEY),
