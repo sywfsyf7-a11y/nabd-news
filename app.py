@@ -1577,16 +1577,17 @@ def _resolve_article_image(raw: dict[str, Any]) -> dict[str, Any]:
             }
 
     search_title = _clean_text(raw.get("image_search_title") or raw.get("original_title") or "", 240)
-    if search_title and raw.get("_allow_ai_image_generation"):
-        generated = _generate_gemini_article_image(raw)
-        if generated:
-            return generated
-    # Legacy licensed providers remain the automatic fallback whenever Gemini fails or is capped.
+    # Prefer a topic-matched image with explicit reuse terms before creating an illustration.
     if search_title:
         result = _search_any_reusable_image(search_title, str(raw.get("original_language") or "en"), str(raw.get("category") or "world"))
         if result:
             result["image_checked_at"] = datetime.now(timezone.utc)
             return result
+    # Only use the separately budgeted Gemini feature when no eligible sourced image was found.
+    if search_title and raw.get("_allow_ai_image_generation"):
+        generated = _generate_gemini_article_image(raw)
+        if generated:
+            return generated
 
     fallback = raw.get("_fallback_cached_image")
     if isinstance(fallback, dict):
@@ -1767,7 +1768,7 @@ def _parse_any_rss(feed_url: str, category: str, lang: str, default_source: str)
                 "category": category, "source_url": url, "source_name": publisher, "source_domain": publisher_host,
                 "image_url": "", "image_source": "none", "image_credit": "",
                 "image_credit_url": "", "image_provider_url": "", "image_license_url": "", "image_checked_at": None,
-                "original_title": title, "original_summary": _clean_text(summary_raw, 320),
+                "original_title": title, "original_summary": _clean_text(summary_raw, 900),
                 "published_at": _parse_published(entry), "original_language": lang,
             })
         return category, lang, items
@@ -1925,7 +1926,7 @@ def _translate_batch(raw_articles: list[dict[str, Any]]) -> dict[int, dict[str, 
                 "source": raw_articles[i].get("source_name", "")[:120],
                 "source_url": raw_articles[i].get("source_url", "")[:500],
                 "headline": raw_articles[i].get("original_title", "")[:350],
-                "rss_excerpt": raw_articles[i].get("original_summary", "")[:500],
+                "rss_excerpt": raw_articles[i].get("original_summary", "")[:900],
                 "source_language": raw_articles[i].get("original_language", "en"),
             }
             for i in range(batch_start, batch_end)
