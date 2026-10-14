@@ -1,103 +1,74 @@
 # World Pulse / نبض العالم
 
-## Deploy on Render
-1. Push this folder's files to a Git repository. Keep `app.py` at the repository root and `index.html` inside `templates/`.
-2. Create a PostgreSQL database in Supabase and copy its Session Pooler connection string into Render as `SUPABASE_POOLER_URL` (or use `DATABASE_URL`). Keep SSL required.
-3. Keep `FLASK_SECRET_KEY` set to a long random secret.
-4. **Recommended for full publishing:** set `GEMINI_API_KEY` and either `SUPABASE_POOLER_URL` or `DATABASE_URL` in Render Environment. If Gemini is unavailable, the site can still display real, attributed RSS headlines with a short teaser and a clear note that AI editorial enrichment is unavailable; it does not invent sample news. If PostgreSQL is unavailable, results are only cached in the current worker and are not reliably persistent, so restore the database URL as soon as possible.
-5. Never commit API keys to Git or put them in HTML.
-6. For the contact form, configure `SMTP_HOST`, `SMTP_PORT` (usually 587), `SMTP_USERNAME`, `SMTP_PASSWORD`, and optionally `SMTP_FROM`.
-7. Set `SITE_URL` to your public HTTPS origin for the sitemap.
-8. Optional: create a Render Cron Job with command `python app.py --refresh-news` to refresh feeds independently of web traffic.
+A bilingual Flask news portal with PostgreSQL/Supabase persistence, domain-focused Google News RSS discovery, Gemini editorial briefs and Q&A, source attribution, image license checks, search, legal pages and a branded fallback image.
 
-## News sourcing and copyright safeguards
-- The collector runs two Google News RSS discovery passes per category and language: a broad query and a query focused on the source domains listed in `CATEGORY_SOURCE_DOMAINS`.
-- The application does **not** poll the named publishers' own RSS endpoints and does **not** fetch or scrape their full article pages. It uses the headline, source attribution, original link and a short discovery excerpt (maximum 500 characters) as input for editorial drafting.
-- Gemini is prompted to write original, attributed briefs, not to copy source sentences or pretend that a short excerpt supports an investigation. If Gemini fails or returns an incomplete draft, the system can show only the real headline and a short RSS teaser with an explicit preliminary-brief note; it does not present that item as AI-enriched reporting.
-- Publisher terms vary. A source's appearance in `CATEGORY_SOURCE_DOMAINS` is a discovery preference, **not** permission to republish its content. The current conservative gate skips items whose source is identifiable as BBC, Reuters, AP News, TechCrunch, ESPN, ScienceDaily, The Guardian or Al Jazeera, pending suitable permission/licensing. Before adding direct syndication or changing this gate, check the exact current publisher terms and obtain written permission where required. Keep the source name and a prominent link to the original story.
-- Do not re-publish full feed summaries verbatim or add publisher text/images without an applicable licence. The code avoids reusing images from publisher RSS or `og:image` metadata because these do not themselves establish reuse rights.
-- Images are never accepted from publisher RSS thumbnails or `og:image` metadata alone. The current provider order and attribution requirements are documented below under **Image sourcing and rights safeguards**.
-- A technical safeguard lowers copyright risk but cannot guarantee legal compliance in every jurisdiction or with every publisher's contractual terms. Review the terms of the exact sources you use and seek licensing/legal advice before monetizing content at scale.
+## Render
 
-## Publisher source catalog
-The automatic source-domain filters are configured in `CATEGORY_SOURCE_DOMAINS` in `app.py`; each category has Arabic and English source domains. This is a source-discovery map, not a redistribution licence. Some named publishers remain visible in the code for reference but are excluded automatically by the rights gate above until appropriate permission is established.
+- Build command: `pip install -r requirements.txt`
+- Start command (also configured in `render.yaml`): `gunicorn --workers 2 --threads 4 --timeout 90 --bind 0.0.0.0:$PORT app:app`
+- Optional Render Cron Job command: `python app.py --refresh-news`, schedule `*/15 * * * *`.
 
-## Editorial quality and backfill
-- Demo/sample story cards are disabled and the static sample story data is not used by live routes. Empty feeds produce an empty state and diagnostic status endpoint, not fake news.
-- The refresh process asks Gemini for Arabic and English original reporting briefs with a useful executive summary, factual details from available source material, restrained context, and explicit unknowns where relevant.
-- The editorial model does not claim to read publisher article pages or independently verify stories. Headlines and brief RSS excerpts may not contain enough evidence for a long report; in those cases, content should remain short rather than inventing detail.
-- Previously stored real articles are not hidden only because their body is short. A short or unenriched item is clearly labelled as a preliminary RSS brief, while the source link remains available. A small number of thin stored articles are reprocessed each refresh when Gemini is available.
-- AI assistance does not replace human fact-checking. Review important claims, attribution, categories and context before relying on the content.
+## Required/optional Render environment variables
 
-## Admin review panel
+- `FLASK_SECRET_KEY`: long random session secret.
+- `SUPABASE_POOLER_URL`: Supabase **Session pooler** URI; preferred for Render IPv4. Keep it secret.
+- `DATABASE_URL`: optional fallback if `SUPABASE_POOLER_URL` is unset.
+- `GEMINI_API_KEY`: secret API key; never commit to GitHub.
+- `GEMINI_MODEL`: defaults to `gemini-3.8-flash` for bilingual editorial summaries and Q&A.
+- `GEMINI_TIMEOUT_SECONDS`: default `20`.
+- `GEMINI_IMAGE_MODEL`: defaults to `gemini-nano-banana-2.1` for image generation using the same `GEMINI_API_KEY`.
+- `GEMINI_IMAGE_GENERATION_ENABLED=true` enables AI-generated editorial illustrations.
+- `MAX_GEMINI_IMAGES_PER_REFRESH=3` and `MAX_GEMINI_IMAGES_PER_24H=8` bound generation cost; set lower or to `0` to disable generation.
+- `GEMINI_IMAGE_TIMEOUT_SECONDS=75` limits the image-generation request time.
+- `NEWS_AUTO_FETCH=true`; `NEWS_REFRESH_MINUTES=15`; `MAX_ARTICLES_PER_REFRESH=24`; `MAX_ARTICLES_PER_CATEGORY=4`.
+- `AI_QUESTIONS_ENABLED=true`; `AI_QUESTIONS_PER_HOUR=5`; `AI_ANSWER_MAX_TOKENS=350`.
+- `UNSPLASH_ACCESS_KEY` and `PEXELS_API_KEY` (optional; use only official APIs, follow their API guidelines and provide required photographer/platform attribution).
+- `CONTENT_LICENSE_APPROVED_DOMAINS`: optional comma-separated domains only after reviewing their current terms for this site's intended commercial/editorial use or obtaining written permission. Do not set this just to bypass the protection gate.
+- `CONTACT_EMAIL`: contact inbox (defaults to the configured site email).
+- `SMTP_HOST`, `SMTP_PORT` (default `587`), `SMTP_USERNAME`, `SMTP_PASSWORD`, and `SMTP_FROM_EMAIL`: optional mail-server settings for direct contact form delivery.
+- `SMTP_USE_SSL=true` for SSL SMTP (normally port `465`); otherwise `SMTP_STARTTLS=true` is used by default (normally port `587`). Without SMTP, the contact page gives a direct email link and does not falsely report delivery.
+- `ADMIN_PANEL_PASSWORD` (optional; when set, enables `/admin/login` and `/admin/sources`; use a strong unique password. `ADMIN_PASSWORD` remains a backwards-compatible alias in the app.)
+- `SITE_URL` (recommended canonical site origin, e.g. your Render domain).
 
-Visit `/admin/review` after setting `ADMIN_PASSWORD` in the hosting environment. The panel lists the configured discovery domains, lets you block/unblock publisher domains, reviews saved image credits/licence URLs, and lets you block a specific image URL (which also removes it from saved articles). These controls are stored in PostgreSQL, so they survive redeploys. A block prevents future ingestion and hides already-saved articles from that source. This panel does not automatically determine whether a publisher grants commercial rights; check each source's current terms and keep uncertain sources blocked until permission is confirmed.
+## News sources and copyright safeguards
 
-## Important
-- No code can guarantee Google AdSense approval. Approval depends on the published site's actual usefulness, originality, user experience, policy compliance, traffic quality and Google's review.
-- If a publisher's terms do not allow the intended commercial use, remove it from the automatic source search or obtain a suitable licence; merely linking or giving credit is not a substitute for permission when permission is required.
-- Rotate any API key that has been shared in chat or placed in source code. Use environment variables only.
+The eight news sections have separate publisher allowlists for Arabic and English. Discovery requests to Google News RSS are constrained to the configured publisher domains; the parser verifies the publisher's domain and rejects wrong-language headlines before the story is stored. If every eligible source for a category/language is disabled or blocked, that feed returns no stories rather than switching to unrestricted discovery. Publisher controls are available at `/admin/sources`.
 
-## Required and optional environment variables
-Required:
-- `GEMINI_API_KEY` — enables Gemini editorial drafting; if missing, article refresh fails visibly instead of publishing examples.
-- `SUPABASE_POOLER_URL` or `DATABASE_URL` — PostgreSQL persistence. If neither is configured or the database cannot be reached, new stories are not published as transient worker memory.
-- `FLASK_SECRET_KEY` — persistent Flask session signing key.
-- `ADMIN_PASSWORD` — **set a long unique password** to enable the source/image review panel at `/admin/review`. If unset, the panel returns 404. Do not share this password or commit it to Git.
+A publisher link, RSS result, or attribution is **not** a licence to republish an article or its thumbnail. The app does not use Google News images. Review each publisher's current RSS, AI, commercial and republication terms before enabling sources for a monetized site. Rights-gated sources are excluded unless the configured licence-approval list explicitly permits them; that safeguard is not legal advice or a guarantee that a permission covers every use.
 
-Optional:
-- `GEMINI_MODEL` — Gemini model name.
-- `NEWS_REFRESH_MINUTES` — refresh interval, default 15 minutes.
-- `NEWS_AUTO_FETCH` — disable automatic fetch with `false` if using a separate cron job.
-- `MAX_ARTICLES_PER_REFRESH` — target number of stories per refresh, capped by application settings.
-- `MAX_ARTICLES_PER_CATEGORY` — per-category collection limit.
-- `MAX_IMAGE_LOOKUPS_PER_REFRESH` — maximum article image lookup jobs per refresh across configured providers (default 24; lower it if API quotas require).
+Stories are written as bilingual editorial summaries from limited discovery metadata, not as copies of source articles. Automated generation can still make errors or provide insufficient original value; editorial review is necessary and no code change guarantees acceptance by advertising or search platforms.
 
-## Image sourcing and rights safeguards
+## Images
 
-Images are resolved in this order: **(1)** Wikimedia Commons, but only when machine-readable metadata identifies Public Domain, CC0 or a plain CC BY licence (not BY-SA, NC or ND); **(2)** the local `approved_presskit_images.json` allowlist; **(3)** Pexels API when `PEXELS_API_KEY` is configured; **(4)** Unsplash API when `UNSPLASH_ACCESS_KEY` is configured; **(5)** the site's CSS placeholder. If a provider does not return a relevant result or its metadata is incomplete, the article keeps the placeholder instead of grabbing a publisher thumbnail or a random Google Images result.
+The article-level “Ask me” AI question panel and its `/api/ask` endpoint have been removed; this does not disable article summarisation or optional Gemini image generation.
 
-### Optional photo APIs
+For a new story that needs an image, World Pulse first attempts to generate an original 16:9 editorial illustration using the configured Gemini image model. The prompt is assembled from the verified headline, short source excerpt, category and original language. It asks for clean vector/infographic artwork, minimal localized headline text, a World Pulse brand footer, generic icons rather than copied third-party logos, and no invented facts or statistics. A generated visual is an illustration, not documentary evidence.
 
-- `UNSPLASH_ACCESS_KEY` — an access key for the official Unsplash API. The implementation uses the image URL returned by the API unchanged and links the photographer and photo page with Unsplash referral parameters. Follow the current Unsplash API guidelines and apply for production access if required.
-- `PEXELS_API_KEY` — an existing Pexels API key. The photo credit links the photographer and the photo page, and links to the Pexels licence. Pexels requires a prominent link back to Pexels for API usage and asks developers to credit photographers when possible.
-- `IMAGE_CACHE_MAX_AGE_HOURS` — maximum age before a cached image result is resolved again; default 168 hours (7 days).
-- `MAX_IMAGE_LOOKUPS_PER_REFRESH` and `IMAGE_SEARCH_TIMEOUT_SECONDS` — control the amount and timeout of image lookup work.
+Generation uses the existing `GEMINI_API_KEY`, but uses `GEMINI_IMAGE_MODEL` separately from the text model. The `google-genai` SDK must be version `2.9.0` or newer within the supported `2.x` series for the Interactions image-generation API. It is quota-limited by default to 3 attempts per refresh and 8 generated images per rolling 24 hours. The code explicitly requests a 1K, 16:9 JPEG. Google's current pricing page lists the image-output component of this model at about US$0.0336 per 1K image on the standard paid tier; if all eight daily slots are used, that component alone is about US$0.27/day or US$8.06 per 30 days, excluding input tokens, taxes and any pricing changes. The image model does not list a free tier, so image generation may require a paid/eligible API tier and can incur charges. Check the [official Gemini API pricing](https://ai.google.dev/gemini-api/docs/pricing) before enabling it. Failures, missing model access, exhausted quota, or unavailable database storage cause the app to fall back to the existing sources below.
 
-An API key does not mean every image may be used in every context. Avoid implying that an illustrative stock photo depicts the actual event, and use the caption `Illustrative image` for automatically found images. The searcher does not use a publisher's RSS thumbnail or `og:image` just because it is publicly visible.
+The generated image bytes and the prompt used are stored persistently in the PostgreSQL/Supabase database, not on Render's temporary filesystem. The image is served from `/media/generated/<id>`. Existing fallback providers remain in order: eligible Wikimedia Commons images, manually approved press-kit assets, then configured official Pexels/Unsplash API results. Those provider results retain credit/license details. Google News is used only for news discovery, never as an image provider.
 
-### Official press kits (NASA, companies, public agencies)
+When no suitable image is generated or found, the templates use `static/A.jpg` for Arabic-origin stories and `static/E.jpg` for English-origin stories, independent of the current page language. The same image fallback is used for article Open Graph metadata. Remove/review a published image from `/admin/sources`.
 
-The application does not scrape arbitrary pressrooms or automatically treat NASA/company imagery as public domain. Exact image-specific rights and third-party credits can differ. Instead, manually review and add only items where the specific source's current terms or written permission allow your intended commercial use to `approved_presskit_images.json`. Start from this structure:
+AI-generated images are not a guarantee of copyright clearance or legal safety. The prompt deliberately avoids third-party brand logos and recognisable copyrighted characters, but review output before commercial use, particularly if a generated image resembles a real person, trademark, distinctive product design or protected artwork. Review Google's current API/terms/pricing and keep the daily cap appropriate for your budget.
 
-```json
-[
-  {
-    "approved_for_commercial_use": true,
-    "category": "science",
-    "keywords": ["artemis", "moon", "rocket"],
-    "description": "Approved image related to the Artemis program",
-    "image_url": "https://example.gov/path/to/image.jpg",
-    "image_page_url": "https://example.gov/media/asset-page",
-    "credit": "Agency / photographer as specified by the source",
-    "credit_url": "https://example.gov/media/asset-page",
-    "license_name": "Exact permission/licence reviewed by the site owner",
-    "license_url": "https://example.gov/terms-or-permission-page"
-  }
-]
+## Routes
+
+- `/` latest news and category filters
+- `/search?q=...` searchable article database
+- `/article/<slug>` editorial story and Q&A
+- `/page/privacy`, `/page/terms`, `/page/about`, `/contact`
+- `/api/news-status`, `/api/refresh`, `/api/ask`, `/healthz`
+- `/robots.txt`, `/sitemap.xml`, `/news-sitemap.xml`, `/media/generated/<image_id>`
+- `/admin/sources` and `/admin/login` with `ADMIN_PANEL_PASSWORD` set
+
+## Local run
+
+```bash
+pip install -r requirements.txt
+python app.py
 ```
 
-This is an example schema only: **do not copy these example URLs into production**. Add a real item only after checking the image-specific terms, attribution and any third-party restrictions. The manifest is a manual approval list, not a licence checker.
+The repository CI runs Python byte-compilation and focused unit tests for source/language enforcement and image search matching. The live Supabase database, Gemini credentials, external image APIs, SMTP configuration and Render deployment still need production smoke tests after deploying. Never commit API keys or SMTP credentials to GitHub.
 
-### Fallback and presentation
-
-The former fixed Unsplash stock URLs have been removed from default/category placeholders. If no approved, relevant asset is found, the site shows its own CSS-generated `WP` placeholder (no external image asset). Captions show the contributor/provider and licence/terms link where available, and automatically found images are labelled as illustrative. This lowers risk but cannot guarantee that every image is free of claims; licences, personality/privacy rights, trademarks and news context may require case-by-case review.
-
-### Official provider documentation
-
-- Wikimedia Commons API and image licensing metadata: https://commons.wikimedia.org/wiki/Commons:API/MediaWiki and https://commons.wikimedia.org/wiki/Commons:Machine-readable_data
-- Unsplash API guidelines and hotlinking: https://help.unsplash.com/en/articles/2511245-unsplash-api-guidelines and https://help.unsplash.com/en/articles/2511271-guideline-hotlinking-images
-- Pexels API usage and attribution: https://www.pexels.com/api/documentation/
-- NASA image/media usage guidelines: https://www.nasa.gov/nasa-brand-center/images-and-media/
-
-NASA says much of its content is usable editorially, but also states that third-party copyrighted materials may appear on its site, NASA branding is restricted, and identifiable people can raise separate commercial-use issues. That is why NASA or other press-kit files are not automatically harvested: approve the exact asset in the local manifest only after reviewing the particular usage terms.
+If Gemini Q&A is disabled or fails, check `/api/news-status` for non-secret readiness information (key configured, SDK availability, active model, provider setup and the last Gemini error type), then inspect Render server logs. The app keeps verified source-language headlines available if Gemini editing is temporarily unavailable. The current default model is `gemini-3.8-flash`; if your Render variable overrides `GEMINI_MODEL`, confirm the selected model is enabled for your API key.
