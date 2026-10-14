@@ -35,3 +35,13 @@ Python syntax compilation, Jinja template parsing, policy checks, and mocked RSS
 - Added GitHub Actions syntax/policy tests.
 
 Security note: any API key disclosed in chat should be revoked and replaced. Configure the replacement only in the hosting secret settings; never add it to source code or Git history.
+
+
+## Gemini image generation
+- Added a separate Gemini image model setting powered by the existing `GEMINI_API_KEY`, with category-aware, source-language-aware prompts for original vector/infographic news illustrations.
+- Added daily/per-refresh image generation caps; default limits are three image attempts per refresh and eight per rolling 24 hours.
+- Store optimized generated JPEGs and the prompt in PostgreSQL/Supabase so image URLs survive Render restarts and deployments.
+- Serve generated images through `/media/generated/<image_id>`; generated-image URLs are converted to absolute URLs for Open Graph, Twitter and JSON-LD metadata.
+- Try AI generation first for new or otherwise unillustrated eligible stories, then fall back to the existing Commons, approved press-kit, Pexels and Unsplash sources. If every provider fails, retain the Arabic/English local fallback graphics.
+- Add a Gemini provider toggle in the source/image admin panel and safe generation status/configuration details to `/api/news-status`.
+- AI image output is credited as generated illustration, not represented as a stock-photo licence or a guarantee of copyright clearance.
