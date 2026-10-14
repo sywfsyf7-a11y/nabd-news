@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>إدارة المصادر والصور — World Pulse</title>
+  <style>
+    :root{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;color:#172033;background:#f3f6fb}
+    body{margin:0;padding:24px}main{max-width:1150px;margin:auto}h1{margin:0 0 8px}h2{margin:0 0 12px;font-size:1.2rem}
+    .muted{color:#64748b;font-size:.9rem;line-height:1.8}.card{background:#fff;border:1px solid #dfe6ef;border-radius:16px;padding:18px;margin:16px 0;box-shadow:0 4px 16px #11224408}
+    .item{display:flex;align-items:center;justify-content:space-between;gap:16px;border-top:1px solid #e8edf4;padding:13px 0;flex-wrap:wrap}.item:first-of-type{border-top:0}
+    .item-main{min-width:220px;flex:1}.item-title{font-weight:750}.tiny{font-size:.8rem;color:#64748b;direction:ltr;text-align:right;unicode-bidi:plaintext}
+    button{border:0;border-radius:9px;padding:9px 13px;background:#d73545;color:#fff;font-weight:750;cursor:pointer}button.off{background:#e9eef5;color:#26354c}button:disabled{background:#f1f5f9;color:#9a3412;cursor:not-allowed}
+    .tag{display:inline-block;padding:4px 9px;margin-top:5px;border-radius:100px;background:#fff4e5;color:#9a3412;font-size:.75rem}.ok{background:#eaf9f0;color:#166534}.notice{padding:12px 14px;border-radius:10px;background:#eaf9f0;color:#166534;line-height:1.8}
+    .image{width:150px;height:84px;object-fit:cover;border-radius:9px;background:#edf1f6}.top{display:flex;align-items:center;justify-content:space-between;gap:15px;flex-wrap:wrap}
+  </style>
+</head>
+<body><main>
+  <div class="top"><div><h1>إدارة المصادر والصور</h1><p class="muted">World Pulse — مصادر الأخبار والصور. لا يمكن تجاوز بوابة الحقوق للمصادر المقيّدة من هذه الصفحة.</p></div>
+    <form method="post" action="{{ url_for('admin_logout') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="off" type="submit">تسجيل الخروج</button></form>
+  </div>
+  {% if notice %}<p class="notice" role="status">{{ notice }}</p>{% endif %}
+  <section class="card"><h2>مصادر الأخبار حسب القسم واللغة</h2><p class="muted">المصادر التي تحتاج إذناً لا تُجلب حتى تراجع شروطها وتضيف الموافقة المناسبة إلى إعداد الخادم. إيقاف المصدر يمنع جلب أخبار جديدة منه.</p>
+    {% for item in controls if item.type == 'news' %}
+    <div class="item"><div class="item-main"><div class="item-title">{{ item.category_label }} · {{ item.language_label }} · {{ item.name }}</div><div class="tiny">{{ item.key }}</div>
+      {% if item.license_required %}<span class="tag">محجوب حتى مراجعة الترخيص أو الإذن</span>{% elif item.enabled %}<span class="tag ok">مفعّل</span>{% else %}<span class="tag">معطّل</span>{% endif %}
+    </div>
+    <form method="post"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="action" value="toggle"><input type="hidden" name="control_key" value="{{ item.key }}"><input type="hidden" name="enabled" value="{{ 'false' if item.enabled else 'true' }}">
+      <button type="submit" {% if item.license_required %}disabled title="يلزم إذن مناسب أولاً"{% endif %} class="{{ 'off' if item.enabled else '' }}">{{ 'تعطيل المصدر' if item.enabled else 'تفعيل المصدر' }}</button>
+    </form></div>
+    {% endfor %}
+  </section>
+  <section class="card"><h2>مزودو الصور</h2><p class="muted">Google News ليس مزود صور. الصور التي تظهر في Google News لا تُعتبر مجانية الاستخدام. عند عدم توفر صورة مناسبة، يُستخدم A للخبر العربي وE للخبر الإنجليزي.</p>
+    {% for item in controls if item.type == 'image' %}
+    <div class="item"><div class="item-main"><div class="item-title">{{ item.name }}</div><div class="tiny">{{ item.key }}</div>
+      {% if not item.configured %}<span class="tag">مفتاح API غير مضبوط؛ لن يعمل هذا المزود بعد</span>{% elif item.enabled %}<span class="tag ok">مفعّل</span>{% else %}<span class="tag">معطّل</span>{% endif %}
+    </div><form method="post"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="action" value="toggle"><input type="hidden" name="control_key" value="{{ item.key }}"><input type="hidden" name="enabled" value="{{ 'false' if item.enabled else 'true' }}"><button type="submit" class="{{ 'off' if item.enabled else '' }}">{{ 'تعطيل المزود' if item.enabled else 'تفعيل المزود' }}</button></form></div>
+    {% endfor %}
+  </section>
+  <section class="card"><h2>الصور المنشورة — مراجعة الترخيص والإسناد</h2><p class="muted">إزالة صورة تمسح بياناتها الحالية من قاعدة البيانات، وتُستبدل ببطاقة الموقع البديلة عند العرض. قد يجلب التحديث اللاحق صورة أخرى من مزود مفعّل.</p>
+    {% for image in images %}<div class="item"><div class="item-main"><div class="item-title">{{ image.title_ar or image.title_en or image.slug }}</div><div class="muted">{{ image.source_name }} · {{ image.image_source }}</div><div class="muted">الرخصة: {{ image.image_license_url or 'غير متوفرة' }}</div>{% if image.image_credit %}<div class="muted">صاحب الصورة: {{ image.image_credit }}</div>{% endif %}</div>
+      {% if image.image_url %}<img class="image" src="{{ image.image_url }}" alt="">{% endif %}
+      <form method="post" onsubmit="return confirm('هل تريد إزالة هذه الصورة؟');"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="action" value="hide_image"><input type="hidden" name="slug" value="{{ image.slug }}"><button type="submit">إزالة الصورة</button></form></div>
+    {% else %}<p class="muted">لا توجد صور خارجية منشورة حالياً أو تعذر الاتصال بقاعدة البيانات.</p>{% endfor %}
+  </section>
+</main></body></html>
