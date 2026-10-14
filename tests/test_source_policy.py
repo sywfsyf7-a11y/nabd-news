@@ -56,7 +56,7 @@ class SourcePolicyTests(unittest.TestCase):
             "original_summary": "أجهزة جديدة تتصل بالشبكة وتعمل مع المنزل الذكي.",
         })
         self.assertIn("شركة تكشف عن أجهزة منزل ذكية جديدة", prompt)
-        self.assertIn("نْبض العالم" if False else "نبض العالم", prompt)
+        self.assertIn("نبض العالم", prompt)
         self.assertIn("2D vector infographic", prompt)
         self.assertIn("generic smart devices", prompt)
         self.assertIn("third-party brand logos", prompt)
