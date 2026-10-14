@@ -22,3 +22,16 @@
 
 ## Validation and limits
 Python syntax compilation, Jinja template parsing, policy checks, and mocked RSS allowlist/language checks passed. Real Flask dependencies, Supabase/PostgreSQL connectivity, Gemini, provider API keys, and the live Render deployment were not available for end-to-end validation in this environment. The changes are packaged in this ZIP and have not been pushed to GitHub.
+
+
+## Reliability and launch-readiness follow-up
+- Improved Commons, Pexels and Unsplash query relevance, and recorded image-search outcomes without exposing credentials.
+- Added bounded retry/backfill for existing articles with missing images; only reusable provider/licence metadata is saved, and A/E remain the fallback.
+- Kept verified source-language headlines available if Gemini editorial enrichment is temporarily unavailable, and logged Gemini failure types.
+- Added non-secret Gemini and image-provider diagnostics to `/api/news-status`.
+- Implemented actual SMTP contact delivery and made contact-form status truthful when email delivery is not configured or fails.
+- Replaced placeholder about/privacy/terms pages; added article JSON-LD, canonical/hreflang/social metadata, current-article sitemap URLs and a 48-hour news sitemap.
+- Added CSRF protection and cooldowns for manual refresh/Q&A endpoints, baseline response security headers, and Render public-port binding.
+- Added GitHub Actions syntax/policy tests.
+
+Security note: any API key disclosed in chat should be revoked and replaced. Configure the replacement only in the hosting secret settings; never add it to source code or Git history.
