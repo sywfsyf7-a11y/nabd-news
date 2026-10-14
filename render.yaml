@@ -3,14 +3,22 @@ services:
     name: world-pulse
     runtime: python
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn --workers 2 --threads 4 --timeout 90 app:app
+    startCommand: gunicorn --workers 2 --threads 4 --timeout 90 --bind 0.0.0.0:$PORT app:app
     healthCheckPath: /healthz
     envVars:
       - key: FLASK_SECRET_KEY
         generateValue: true
-      - key: ADMIN_PASSWORD
+      - key: ADMIN_PANEL_PASSWORD
         sync: false
       - key: SESSION_COOKIE_SECURE
         value: "true"
       - key: NEWS_AUTO_FETCH
         value: "true"
+      - key: GEMINI_IMAGE_MODEL
+        value: "gemini-nano-banana-2.1"
+      - key: GEMINI_IMAGE_GENERATION_ENABLED
+        value: "true"
+      - key: MAX_GEMINI_IMAGES_PER_REFRESH
+        value: "3"
+      - key: MAX_GEMINI_IMAGES_PER_24H
+        value: "8"
