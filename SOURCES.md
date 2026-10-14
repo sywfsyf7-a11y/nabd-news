@@ -46,12 +46,14 @@ World Pulse prepares its own short bilingual brief from the source headline and 
 
 ## Image pipeline
 
-1. Original, topic-aware 16:9 Gemini editorial illustrations, if enabled and within configured limits. They are illustrations, not documentary proof, and still need human review.
-2. Wikimedia Commons results accepted only when item metadata indicates Public Domain Mark, CC0 or CC BY (and rejects noncommercial, no-derivatives and share-alike variants); creator, file page and licence are retained.
-3. Library of Congress photo records only where the individual item record explicitly indicates public domain, no known restrictions, CC0, or free-to-use-and-reuse status. Ambiguous/contradictory rights notes are rejected and the exact record URL is retained.
-4. Manually reviewed press-kit assets whose manifest records approval for the intended commercial use and includes source, creator/credit and licence fields.
-5. Official Pexels and Unsplash API results, only when the corresponding API key is configured; follow current API, attribution, hotlinking and other usage requirements.
-6. Local fallbacks: `static/A.jpg` for Arabic-origin news and `static/E.jpg` for English-origin news.
+1. Wikimedia Commons results accepted only when item metadata indicates Public Domain Mark, CC0 or CC BY (and rejects noncommercial, no-derivatives and share-alike variants); creator, file page and licence are retained.
+2. Library of Congress photo records only where the individual item record explicitly indicates public domain, no known restrictions, CC0, or free-to-use-and-reuse status. Ambiguous/contradictory rights notes are rejected and the exact record URL is retained.
+3. Manually reviewed press-kit assets whose manifest records approval for the intended commercial use and includes source, creator/credit and licence fields.
+4. Official Pexels and Unsplash API results, only when the corresponding API key is configured; follow current API, attribution, hotlinking and other usage requirements.
+5. Original, topic-aware 16:9 Gemini editorial illustrations, only after no suitable sourced image was found and if generation is enabled and within configured limits. They are illustrations, not documentary proof, and still need human review.
+6. Local fallbacks: `static/A.jpg` for Arabic-origin stories and `static/E.jpg` for English-origin stories.
+
+Google News thumbnails, unverified RSS images, publisher-page thumbnails and generic image-search results are not treated as reusable licensed images. API access alone is not a universal copyright clearance: confirm the original item's licence, attribution rules, trademarks, privacy/publicity rights and any additional restrictions before commercial reuse.
 
 Google News thumbnails, unverified RSS images, publisher-page thumbnails and generic image-search results are not treated as reusable licensed images. API access alone is not a universal copyright clearance: confirm the original item's licence, attribution rules, trademarks, privacy/publicity rights and any additional restrictions before commercial reuse.
 
