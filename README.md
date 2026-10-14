@@ -29,21 +29,23 @@ The automatic source-domain filters are configured in `CATEGORY_SOURCE_DOMAINS` 
 - Previously stored real articles are not hidden only because their body is short. A short or unenriched item is clearly labelled as a preliminary RSS brief, while the source link remains available. A small number of thin stored articles are reprocessed each refresh when Gemini is available.
 - AI assistance does not replace human fact-checking. Review important claims, attribution, categories and context before relying on the content.
 
-## Admin review panel
-
-Visit `/admin/review` after setting `ADMIN_PASSWORD` in the hosting environment. The panel lists the configured discovery domains, lets you block/unblock publisher domains, reviews saved image credits/licence URLs, and lets you block a specific image URL (which also removes it from saved articles). These controls are stored in PostgreSQL, so they survive redeploys. A block prevents future ingestion and hides already-saved articles from that source. This panel does not automatically determine whether a publisher grants commercial rights; check each source's current terms and keep uncertain sources blocked until permission is confirmed.
-
 ## Important
 - No code can guarantee Google AdSense approval. Approval depends on the published site's actual usefulness, originality, user experience, policy compliance, traffic quality and Google's review.
 - If a publisher's terms do not allow the intended commercial use, remove it from the automatic source search or obtain a suitable licence; merely linking or giving credit is not a substitute for permission when permission is required.
 - Rotate any API key that has been shared in chat or placed in source code. Use environment variables only.
+
+## Admin dashboard: sources and image licensing review
+
+Set `ADMIN_PANEL_PASSWORD` to a long, unique password in Render Environment. The panel is available at `/admin/sources` and the login page at `/admin/login`; if the environment variable is missing, these routes return 404. The panel stores source/provider enablement in the Supabase `world_pulse_controls` table, so toggles survive redeploys. It can disable configured news domains, disable image providers, remove existing images from a disabled provider, and remove an individual article image after review. The admin session uses HTTP-only, SameSite cookies and CSRF tokens for changes.
+
+The source panel does not grant copyright permissions. Sources flagged by the conservative publisher licence gate remain excluded from automated article processing until permission is obtained, even if a domain appears in the catalogue. Keep `ADMIN_PANEL_PASSWORD` secret and rotate it if exposed.
 
 ## Required and optional environment variables
 Required:
 - `GEMINI_API_KEY` — enables Gemini editorial drafting; if missing, article refresh fails visibly instead of publishing examples.
 - `SUPABASE_POOLER_URL` or `DATABASE_URL` — PostgreSQL persistence. If neither is configured or the database cannot be reached, new stories are not published as transient worker memory.
 - `FLASK_SECRET_KEY` — persistent Flask session signing key.
-- `ADMIN_PASSWORD` — **set a long unique password** to enable the source/image review panel at `/admin/review`. If unset, the panel returns 404. Do not share this password or commit it to Git.
+- `ADMIN_PANEL_PASSWORD` — required to enable the protected source/licence dashboard.
 
 Optional:
 - `GEMINI_MODEL` — Gemini model name.
@@ -51,7 +53,7 @@ Optional:
 - `NEWS_AUTO_FETCH` — disable automatic fetch with `false` if using a separate cron job.
 - `MAX_ARTICLES_PER_REFRESH` — target number of stories per refresh, capped by application settings.
 - `MAX_ARTICLES_PER_CATEGORY` — per-category collection limit.
-- `MAX_IMAGE_LOOKUPS_PER_REFRESH` — maximum article image lookup jobs per refresh across configured providers (default 24; lower it if API quotas require).
+- `MAX_IMAGE_LOOKUPS_PER_REFRESH` — maximum article image lookup jobs per refresh across configured providers (default 8 to keep free-tier API traffic modest).
 
 ## Image sourcing and rights safeguards
 

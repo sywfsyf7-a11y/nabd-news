@@ -123,23 +123,19 @@
           <span class="mt-0.5 block text-[10px] font-semibold uppercase tracking-[.22em] text-slate-500">{{ 'WORLD PULSE' if lang == 'ar' else 'NEWS · CONTEXT · PERSPECTIVE' }}</span>
         </span>
       </a>
-      <form method="get" action="{{ url_for('index') }}" role="search" class="flex min-w-0 flex-1 items-center gap-2 md:max-w-md">
-        <input type="hidden" name="lang" value="{{ lang }}">
-        {% if active_category and active_category != 'all' %}<input type="hidden" name="category" value="{{ active_category }}">{% endif %}
-        <label for="site-search" class="sr-only">{{ 'ابحث عن خبر' if lang == 'ar' else 'Search news' }}</label>
-        <input id="site-search" name="q" type="search" value="{{ search_query|default('') }}" maxlength="160" placeholder="{{ 'ابحث عن عنوان أو موضوع أو مصدر…' if lang == 'ar' else 'Search headlines, topics, or sources…' }}" class="min-w-0 flex-1 rounded-full border border-slate-200 bg-white px-4 py-2.5 text-sm text-ink outline-none transition placeholder:text-slate-400 focus:border-pulse focus:ring-2 focus:ring-rose-100" autocomplete="off">
-        <button type="submit" class="inline-flex shrink-0 items-center gap-2 rounded-full bg-pulse px-4 py-2.5 text-sm font-bold text-white transition hover:bg-rose-600">
-          <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m16 16 4 4" stroke-linecap="round"/></svg>
-          <span>{{ 'بحث' if lang == 'ar' else 'Search' }}</span>
-        </button>
-      </form>
+      <div class="hidden items-center gap-2 md:flex">
+        <span class="rounded-full bg-white px-3 py-2 text-xs font-semibold text-slate-500 ring-1 ring-slate-200">{{ ui.search_hint }}</span>
+        <span class="grid h-9 w-9 place-items-center rounded-full bg-white text-slate-500 ring-1 ring-slate-200" aria-hidden="true">
+          <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="7"/><path d="m16 16 4 4" stroke-linecap="round"/></svg>
+        </span>
+      </div>
     </div>
     <nav class="border-t border-slate-200/70" aria-label="{{ 'الأقسام' if lang == 'ar' else 'News sections' }}">
       <div class="nav-scroll mx-auto flex max-w-7xl items-center gap-2 overflow-x-auto px-4 py-2.5 sm:px-6 lg:px-8">
         <a href="{{ url_for('index', lang=lang, category='all') }}"
            class="shrink-0 rounded-full px-4 py-2 text-sm font-bold transition {{ 'bg-ink text-white' if active_category == 'all' else 'text-slate-600 hover:bg-white hover:text-ink' }}">{{ ui.all_news }}</a>
         {% for item in categories %}
-          <a href="{{ url_for('index', lang=lang, category=item.key, q=(search_query|default('') or None)) }}"
+          <a href="{{ url_for('index', lang=lang, category=item.key) }}"
              class="shrink-0 rounded-full px-4 py-2 text-sm font-semibold transition {{ 'bg-ink text-white' if active_category == item.key else 'text-slate-600 hover:bg-white hover:text-ink' }}">{{ item.label }}</a>
         {% endfor %}
       </div>
@@ -174,7 +170,7 @@
               </div>
               <div class="grid grid-cols-2 gap-3">
                 {% for item in categories[:4] %}
-                  <a href="{{ url_for('index', lang=lang, category=item.key, q=(search_query|default('') or None)) }}" class="rounded-2xl border border-white/10 bg-ink/30 p-4 transition hover:border-rose-400/60 hover:bg-white/10">
+                  <a href="{{ url_for('index', lang=lang, category=item.key) }}" class="rounded-2xl border border-white/10 bg-ink/30 p-4 transition hover:border-rose-400/60 hover:bg-white/10">
                     <span class="mb-4 block h-1 w-8 rounded-full bg-pulse"></span>
                     <span class="text-sm font-bold">{{ item.label }}</span>
                     <span class="mt-1 block text-xs text-slate-400">{{ 'اقرأ آخر التغطيات' if lang == 'ar' else 'Explore coverage' }}</span>
@@ -201,12 +197,6 @@
       </section>
 
       <section id="latest-stories" class="scroll-mt-40">
-        {% if search_query|default('') %}
-          <div class="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3">
-            <p class="text-sm font-semibold text-slate-700">{{ ('نتائج البحث عن: ' if lang == 'ar' else 'Search results for: ') }}<span class="text-pulse">{{ search_query }}</span></p>
-            <a href="{{ url_for('index', lang=lang, category=active_category) }}" class="text-sm font-bold text-pulse underline underline-offset-4">{{ 'مسح البحث' if lang == 'ar' else 'Clear search' }}</a>
-          </div>
-        {% endif %}
         <div class="mb-6 flex flex-wrap items-end justify-between gap-3">
           <div>
             <p class="mb-2 text-xs font-extrabold uppercase tracking-[.18em] text-pulse">{{ ui.live }}</p>
@@ -260,8 +250,8 @@
           </div>
         {% else %}
           <div class="rounded-3xl border border-dashed border-slate-300 bg-white px-6 py-16 text-center">
-            <p class="text-base font-semibold text-slate-700">{% if search_query|default('') %}{{ 'ما لقينا أخبار تطابق بحثك.' if lang == 'ar' else 'No stories matched your search.' }}{% else %}{{ ui.empty }}{% endif %}</p>
-            <p class="mx-auto mt-3 max-w-2xl text-sm leading-7 text-slate-500">{% if search_query|default('') %}{{ 'جرّب كلمات ثانية أو امسح البحث لعرض الأخبار المتاحة.' if lang == 'ar' else 'Try different keywords or clear the search to see available stories.' }}{% else %}{{ ui.empty_detail }}{% endif %}</p>
+            <p class="text-base font-semibold text-slate-700">{{ ui.empty }}</p>
+            <p class="mx-auto mt-3 max-w-2xl text-sm leading-7 text-slate-500">{{ ui.empty_detail }}</p>
             <p class="mt-3 text-xs leading-6 text-slate-400">{{ 'حالة النظام: ' if lang == 'ar' else 'System status: ' }}<a class="underline underline-offset-2" href="/api/news-status" target="_blank" rel="noopener noreferrer">/api/news-status</a></p>
             <a href="{{ url_for('index', lang=lang, category='all') }}" class="mt-4 inline-flex rounded-full bg-ink px-4 py-2 text-sm font-bold text-white">{{ ui.all_news }}</a>
           </div>

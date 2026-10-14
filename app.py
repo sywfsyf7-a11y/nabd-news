@@ -33,7 +33,7 @@ from zoneinfo import ZoneInfo
 import feedparser
 import psycopg2
 from psycopg2.extras import RealDictCursor
-from flask import Flask, abort, jsonify, redirect, render_template, render_template_string, request, session, url_for
+from flask import Flask, abort, jsonify, redirect, render_template, request, session, url_for
 
 try:
     from google import genai
@@ -73,10 +73,9 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 MAX_ARTICLES_PER_REFRESH = max(8, min(40, int(os.getenv("MAX_ARTICLES_PER_REFRESH", "24"))))
 MAX_ARTICLES_PER_CATEGORY = max(1, min(8, int(os.getenv("MAX_ARTICLES_PER_CATEGORY", "4"))))
 IMAGE_SEARCH_TIMEOUT_SECONDS = max(3, min(12, int(os.getenv("IMAGE_SEARCH_TIMEOUT_SECONDS", "5"))))
-MAX_IMAGE_LOOKUPS_PER_REFRESH = max(0, min(40, int(os.getenv("MAX_IMAGE_LOOKUPS_PER_REFRESH", "24"))))
+MAX_IMAGE_LOOKUPS_PER_REFRESH = max(0, min(40, int(os.getenv("MAX_IMAGE_LOOKUPS_PER_REFRESH", "8"))))
 UNSPLASH_ACCESS_KEY = os.getenv("UNSPLASH_ACCESS_KEY", "").strip()
 PEXELS_API_KEY = os.getenv("PEXELS_API_KEY", "").strip()
-ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "").strip()
 IMAGE_CACHE_MAX_AGE_SECONDS = max(3600, int(os.getenv("IMAGE_CACHE_MAX_AGE_HOURS", "168")) * 3600)
 TRUSTED_REUSABLE_IMAGE_SOURCES = {
     "wikimedia_relevant", "unsplash_api", "pexels_api", "presskit_approved"
@@ -274,10 +273,9 @@ LEGACY_IMAGE_URLS = LEGACY_CATEGORY_IMAGE_URLS
 _SCHEMA_LOCK = threading.Lock()
 _SCHEMA_READY = False
 _DB_RETRY_AFTER = 0.0
-_CONTROL_CACHE_LOCK = threading.Lock()
-_CONTROL_CACHE_AT = 0.0
-_CONTROL_CACHE: dict[str, list[dict[str, Any]]] = {"world_pulse_source_blocks": [], "world_pulse_image_blocks": []}
 _DB_LOCK = threading.Lock()
+_CONTROL_CACHE: dict[str, tuple[bool, float]] = {}
+_CONTROL_CACHE_LOCK = threading.Lock()
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS world_pulse_articles (
@@ -315,95 +313,12 @@ ALTER TABLE world_pulse_articles ADD COLUMN IF NOT EXISTS image_credit_url TEXT 
 ALTER TABLE world_pulse_articles ADD COLUMN IF NOT EXISTS image_provider_url TEXT NOT NULL DEFAULT '';
 ALTER TABLE world_pulse_articles ADD COLUMN IF NOT EXISTS image_license_url TEXT NOT NULL DEFAULT '';
 ALTER TABLE world_pulse_articles ADD COLUMN IF NOT EXISTS image_checked_at TIMESTAMPTZ NULL;
-CREATE TABLE IF NOT EXISTS world_pulse_source_blocks (
-    domain TEXT PRIMARY KEY,
-    reason TEXT NOT NULL DEFAULT '',
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-CREATE TABLE IF NOT EXISTS world_pulse_image_blocks (
-    image_url TEXT PRIMARY KEY,
-    reason TEXT NOT NULL DEFAULT '',
+CREATE TABLE IF NOT EXISTS world_pulse_controls (
+    control_key TEXT PRIMARY KEY,
+    enabled BOOLEAN NOT NULL DEFAULT TRUE,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 """
-
-
-def _review_control_rows(table: str, force_refresh: bool = False) -> list[dict[str, Any]]:
-    """Read admin block lists with a short per-worker cache to avoid a DB query per RSS item."""
-    global _CONTROL_CACHE_AT
-    if table not in {"world_pulse_source_blocks", "world_pulse_image_blocks"} or not _ensure_schema():
-        return []
-    now = time.monotonic()
-    with _CONTROL_CACHE_LOCK:
-        if not force_refresh and now - _CONTROL_CACHE_AT < 30:
-            return list(_CONTROL_CACHE.get(table, []))
-        conn = _connect_db()
-        if conn is None:
-            return list(_CONTROL_CACHE.get(table, []))
-        try:
-            with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                for known_table in ("world_pulse_source_blocks", "world_pulse_image_blocks"):
-                    cur.execute(f"SELECT * FROM {known_table} ORDER BY updated_at DESC")
-                    _CONTROL_CACHE[known_table] = [dict(row) for row in cur.fetchall()]
-            _CONTROL_CACHE_AT = now
-            return list(_CONTROL_CACHE.get(table, []))
-        except Exception:
-            logger.exception("Could not read review controls")
-            return list(_CONTROL_CACHE.get(table, []))
-        finally:
-            conn.close()
-
-
-def _is_source_blocked(source_url: str, source_name: str = "", source_href: str = "") -> bool:
-    """Match block rules against article/source URLs and publisher labels (Google News may wrap links)."""
-    hosts = set()
-    for candidate in (source_url, source_href):
-        try:
-            host = (urlparse(candidate).hostname or "").casefold().rstrip(".")
-        except ValueError:
-            host = ""
-        if host:
-            hosts.add(host)
-    normal_name = re.sub(r"[^a-z0-9]", "", (source_name or "").casefold())
-    aliases = {
-        "apnews.com": {"associatedpress", "apnews", "ap"},
-        "bbc.com": {"bbc", "bbcnews", "bbcsport"},
-        "bbc.co.uk": {"bbc", "bbcnews", "bbcsport"},
-        "theguardian.com": {"guardian", "theguardian"},
-        "aljazeera.net": {"aljazeera", "aljazeeranews"},
-        "reuters.com": {"reuters"},
-    }
-    for row in _review_control_rows("world_pulse_source_blocks"):
-        domain = str(row.get("domain") or "").casefold().strip().lstrip(".")
-        if not domain:
-            continue
-        if any(host == domain or host.endswith("." + domain) for host in hosts):
-            return True
-        stem = domain.split(".")[0]
-        if normal_name and (normal_name == stem or (len(stem) >= 4 and stem in normal_name) or normal_name in aliases.get(domain, set())):
-            return True
-    return False
-
-
-def _is_image_blocked(image_url: str) -> bool:
-    if not image_url:
-        return False
-    return any(str(row.get("image_url") or "") == image_url for row in _review_control_rows("world_pulse_image_blocks"))
-
-
-def _admin_csrf_token() -> str:
-    token = session.get("admin_csrf")
-    if not token:
-        token = secrets.token_urlsafe(32)
-        session["admin_csrf"] = token
-    return token
-
-
-def _require_admin() -> None:
-    if not ADMIN_PASSWORD:
-        abort(404)
-    if not session.get("world_pulse_admin"):
-        abort(401)
 
 
 def _database_url() -> str:
@@ -483,6 +398,68 @@ def _ensure_schema() -> bool:
             conn.close()
 
 
+def _control_enabled(control_key: str, default: bool = True) -> bool:
+    """Persistent source/provider toggle with a short cache to avoid per-story DB queries."""
+    now = time.monotonic()
+    with _CONTROL_CACHE_LOCK:
+        cached = _CONTROL_CACHE.get(control_key)
+        if cached and cached[1] > now:
+            return cached[0]
+    if not _ensure_schema():
+        return default
+    conn = _connect_db()
+    if conn is None:
+        return default
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT enabled FROM world_pulse_controls WHERE control_key = %s", (control_key,))
+            row = cur.fetchone()
+            value = bool(row[0]) if row else default
+            with _CONTROL_CACHE_LOCK:
+                _CONTROL_CACHE[control_key] = (value, time.monotonic() + 20)
+            return value
+    except Exception:
+        logger.debug("Could not read source control %s", control_key, exc_info=True)
+        return default
+    finally:
+        conn.close()
+
+
+def _set_control_enabled(control_key: str, enabled: bool) -> bool:
+    if not _ensure_schema():
+        return False
+    conn = _connect_db()
+    if conn is None:
+        return False
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""INSERT INTO world_pulse_controls(control_key, enabled, updated_at)
+                VALUES (%s, %s, NOW()) ON CONFLICT(control_key) DO UPDATE
+                SET enabled = EXCLUDED.enabled, updated_at = NOW()""", (control_key, enabled))
+        conn.commit()
+        with _CONTROL_CACHE_LOCK:
+            _CONTROL_CACHE[control_key] = (enabled, time.monotonic() + 20)
+        return True
+    except Exception:
+        conn.rollback()
+        logger.exception("Could not update source control")
+        return False
+    finally:
+        conn.close()
+
+
+def _known_source_controls() -> list[dict[str, str]]:
+    rows = []
+    for category, langs in CATEGORY_SOURCE_DOMAINS.items():
+        for lang, domains in langs.items():
+            for domain in domains:
+                key = f"news:{category}:{lang}:{domain}"
+                rows.append({"key": key, "type": "news", "category": category, "lang": lang, "name": domain, "default": "true", "license_required": any(domain == blocked or domain.endswith("." + blocked) for blocked in LICENSE_REQUIRED_DOMAINS)})
+    for provider, title in [("wikimedia_relevant", "Wikimedia Commons"), ("presskit_approved", "Approved press kits"), ("pexels_api", "Pexels API"), ("unsplash_api", "Unsplash API")]:
+        rows.append({"key": f"image:{provider}", "type": "image", "category": "images", "lang": "all", "name": title, "default": "true"})
+    return rows
+
+
 def _db_fetch_all() -> list[dict[str, Any]]:
     if not _ensure_schema():
         return []
@@ -499,10 +476,10 @@ def _db_fetch_all() -> list[dict[str, Any]]:
                        read_minutes, original_language, is_demo
                 FROM world_pulse_articles
                 WHERE is_demo = FALSE
-                  AND LENGTH(TRIM(COALESCE(title_ar, ''))) > 0
-                  AND LENGTH(TRIM(COALESCE(title_en, ''))) > 0
+                  AND LENGTH(TRIM(COALESCE(content_ar, ''))) >= 220
+                  AND LENGTH(TRIM(COALESCE(content_en, ''))) >= 220
                 ORDER BY published_at DESC NULLS LAST, fetched_at DESC
-                LIMIT 300
+                LIMIT 120
             """)
             return [dict(row) for row in cur.fetchall()]
     except Exception:
@@ -989,12 +966,15 @@ def _search_approved_presskit_image(title: str, category: str) -> dict[str, str]
 
 def _search_any_reusable_image(title: str, lang: str = "en", category: str = "world") -> dict[str, str]:
     """Provider priority: verified Commons, owner-approved press kit, then opt-in stock-photo APIs."""
-    for finder in (
-        lambda: _search_commons_image(title, lang),
-        lambda: _search_approved_presskit_image(title, category),
-        lambda: _search_pexels_image(title),
-        lambda: _search_unsplash_image(title),
-    ):
+    finders = (
+        ("image:wikimedia_relevant", lambda: _search_commons_image(title, lang)),
+        ("image:presskit_approved", lambda: _search_approved_presskit_image(title, category)),
+        ("image:pexels_api", lambda: _search_pexels_image(title)),
+        ("image:unsplash_api", lambda: _search_unsplash_image(title)),
+    )
+    for control_key, finder in finders:
+        if not _control_enabled(control_key, True):
+            continue
         result = finder()
         if result:
             return result
@@ -1004,7 +984,8 @@ def _search_any_reusable_image(title: str, lang: str = "en", category: str = "wo
 def _resolve_article_image(raw: dict[str, Any]) -> dict[str, Any]:
     existing = str(raw.get("image_url") or "").strip()
     source = str(raw.get("image_source") or "")
-    if existing and source in TRUSTED_REUSABLE_IMAGE_SOURCES and existing not in LEGACY_IMAGE_URLS and not _is_image_blocked(existing):
+    if (existing and source in TRUSTED_REUSABLE_IMAGE_SOURCES and existing not in LEGACY_IMAGE_URLS
+            and _control_enabled(f"image:{source}", True)):
         checked = raw.get("image_checked_at")
         if isinstance(checked, str):
             try:
@@ -1027,7 +1008,7 @@ def _resolve_article_image(raw: dict[str, Any]) -> dict[str, Any]:
     search_title = _clean_text(raw.get("image_search_title") or raw.get("original_title") or "", 240)
     if search_title:
         result = _search_any_reusable_image(search_title, str(raw.get("original_language") or "en"), str(raw.get("category") or "world"))
-        if result and not _is_image_blocked(str(result.get("image_url") or "")):
+        if result:
             result["image_checked_at"] = datetime.now(timezone.utc)
             return result
 
@@ -1068,8 +1049,8 @@ def _enrich_article_images(raw_articles: list[dict[str, Any]]) -> None:
                 input_checked = None
         if isinstance(input_checked, datetime) and input_checked.tzinfo is None:
             input_checked = input_checked.replace(tzinfo=timezone.utc)
-        if (input_source in TRUSTED_REUSABLE_IMAGE_SOURCES and item.get("image_url")
-                and isinstance(input_checked, datetime)
+        if (input_source in TRUSTED_REUSABLE_IMAGE_SOURCES and _control_enabled(f"image:{input_source}", True)
+                and item.get("image_url") and isinstance(input_checked, datetime)
                 and (now_utc - input_checked.astimezone(timezone.utc)).total_seconds() < IMAGE_CACHE_MAX_AGE_SECONDS):
             continue
 
@@ -1081,6 +1062,7 @@ def _enrich_article_images(raw_articles: list[dict[str, Any]]) -> None:
         cached = known_images.get(source_url)
         cached_source = str((cached or {}).get("image_source") or "")
         if (cached and cached.get("image_url") and cached_source in TRUSTED_REUSABLE_IMAGE_SOURCES
+                and _control_enabled(f"image:{cached_source}", True)
                 and str(cached.get("image_url")) not in LEGACY_IMAGE_URLS):
             checked = cached.get("image_checked_at")
             if isinstance(checked, str):
@@ -1105,7 +1087,7 @@ def _enrich_article_images(raw_articles: list[dict[str, Any]]) -> None:
             if isinstance(checked, datetime):
                 if checked.tzinfo is None:
                     checked = checked.replace(tzinfo=timezone.utc)
-                if (now_utc - checked.astimezone(timezone.utc)).total_seconds() < 30 * 60:
+                if (now_utc - checked.astimezone(timezone.utc)).total_seconds() < 12 * 60 * 60:
                     item["image_checked_at"] = checked
                     skip_image_lookup.add(source_url)
 
@@ -1152,8 +1134,15 @@ def _parse_any_rss(feed_url: str, category: str, lang: str, default_source: str)
             if _publisher_requires_license(publisher, (url, source_href)):
                 logger.debug("Skipping source pending reuse licence: %s", publisher)
                 continue
-            if _is_source_blocked(url, publisher, source_href):
-                logger.info("Skipping source disabled from admin review: %s (%s)", publisher, urlparse(url).hostname)
+            # Apply admin source toggles to broad discovery as well as targeted discovery.
+            publisher_host = (urlparse(source_href or url).hostname or "").casefold().removeprefix("www.")
+            disabled_domain = False
+            for domain in CATEGORY_SOURCE_DOMAINS.get(category, {}).get(lang, []):
+                if publisher_host == domain or publisher_host.endswith("." + domain):
+                    if not _control_enabled(f"news:{category}:{lang}:{domain}", True):
+                        disabled_domain = True
+                        break
+            if disabled_domain:
                 continue
             summary_raw = entry.get("summary", "") or entry.get("description", "")
             if not summary_raw and entry.get("content"):
@@ -1181,7 +1170,8 @@ def _parse_feed_task(category: str, lang: str, source_focus: bool = False) -> tu
     if source_focus:
         domains = CATEGORY_SOURCE_DOMAINS.get(category, {}).get(lang, [])
         domains = [domain for domain in domains
-                   if not any(domain == blocked or domain.endswith("." + blocked)
+                   if _control_enabled(f"news:{category}:{lang}:{domain}", True)
+                   and not any(domain == blocked or domain.endswith("." + blocked)
                               for blocked in LICENSE_REQUIRED_DOMAINS)]
         if domains:
             domain_query = " OR ".join(f"site:{domain}" for domain in domains)
@@ -1371,31 +1361,11 @@ Stories to edit: {json.dumps(payload, ensure_ascii=False)}'''
                     body = re.sub(r" *\n *", "\n", body)
                     body = re.sub(r"\n{3,}", "\n\n", body).strip()
                     fields[key] = body[:12000]
-                # Executive summaries must add information, not simply repeat the headline.
-                for suffix in ("ar", "en"):
-                    title_value = fields.get(f"title_{suffix}", "").strip()
-                    summary_value = fields.get(f"summary_{suffix}", "").strip()
-                    content_value = fields.get(f"content_{suffix}", "").strip()
-                    def _norm_editorial(value: str) -> str:
-                        return re.sub(r"[^\w\u0600-\u06ff]+", " ", value.casefold()).strip()
-                    title_norm = _norm_editorial(title_value)
-                    summary_norm = _norm_editorial(summary_value)
-                    similarity = difflib.SequenceMatcher(None, title_norm, summary_norm).ratio() if title_norm and summary_norm else 0
-                    if len(summary_value) < 70 or similarity >= 0.78:
-                        sentences = [part.strip() for part in re.split(r"(?<=[.!?؟])\s+", content_value) if part.strip()]
-                        candidate = " ".join(sentences[:2]).strip()
-                        candidate_norm = _norm_editorial(candidate)
-                        candidate_similarity = difflib.SequenceMatcher(None, title_norm, candidate_norm).ratio() if title_norm and candidate_norm else 1
-                        if len(candidate) >= 70 and candidate_similarity < 0.78:
-                            fields[f"summary_{suffix}"] = candidate[:1000]
-                        else:
-                            fields[f"summary_{suffix}"] = ""
                 required = ("title_ar", "title_en", "summary_ar", "summary_en")
                 if (all(fields.get(key) for key in required)
-                        and len(fields.get("summary_ar", "")) >= 70
-                        and len(fields.get("summary_en", "")) >= 70
                         and len(fields.get("content_ar", "")) >= 220
                         and len(fields.get("content_en", "")) >= 220):
+                    # A failed/empty editorial draft is not turned into boilerplate or shown as news.
                     result[index] = fields
         except Exception as exc:
             logger.warning("Gemini editorial batch %s-%s failed: %s", batch_start, batch_end - 1, exc)
@@ -1622,8 +1592,6 @@ def _normalise_story(row: dict[str, Any], lang: str) -> dict[str, Any]:
     story.setdefault("image_credit_url", "")
     story.setdefault("image_provider_url", "")
     story.setdefault("image_license_url", "")
-    if story.get("image_url") and _is_image_blocked(str(story.get("image_url") or "")):
-        story.update({"image_url": "", "image_source": "none", "image_credit": "", "image_credit_url": "", "image_provider_url": "", "image_license_url": ""})
     if story.get("image_source") in {"", "category", "none"}:
         # Old generic category imagery is not an article-specific photo.
         if story.get("image_url") in set(CATEGORY_IMAGES.values()):
@@ -1672,7 +1640,6 @@ def _get_display_stories(lang: str) -> list[dict[str, Any]]:
         and row.get("source_url")
         and row.get(f"title_{lang}")
         and row.get("category") in CATEGORY_NAMES
-        and not _is_source_blocked(str(row.get("source_url") or ""), str(row.get("source_name") or ""))
     ]
     live.sort(
         key=lambda item: item.get("published_at") or item.get("fetched_at") or datetime(1970, 1, 1, tzinfo=timezone.utc),
@@ -1685,8 +1652,7 @@ def _find_article(slug: str, lang: str) -> dict[str, Any] | None:
     for row in _all_live_articles():
         if row.get("is_demo"):
             continue
-        if (row.get("slug") == slug and row.get("source_url") and row.get(f"title_{lang}")
-                and not _is_source_blocked(str(row.get("source_url") or ""), str(row.get("source_name") or ""))):
+        if row.get("slug") == slug and row.get("source_url") and row.get(f"title_{lang}"):
             return _normalise_story(row, lang)
     return None
 
@@ -1766,22 +1732,14 @@ def index():
     category = request.args.get("category", "all").lower()
     if category not in CATEGORY_NAMES and category != "all":
         category = "all"
-    search_query = _clean_text(request.args.get("q", ""), 160)
     all_stories = _get_display_stories(lang)
     stories = all_stories if category == "all" else [s for s in all_stories if s["category"] == category]
-    if search_query:
-        terms = [term for term in re.split(r"\s+", search_query.casefold()) if term]
-        def _matches_search(story: dict[str, Any]) -> bool:
-            searchable = " ".join(str(story.get(key) or "") for key in ("title", "summary", "content", "source_name", "category_label")).casefold()
-            return all(term in searchable for term in terms)
-        stories = [story for story in stories if _matches_search(story)]
     return render_template(
         "index.html",
         page="home",
         stories=stories,
         all_story_count=len(all_stories),
         active_category=category,
-        search_query=search_query,
         breaking_story=_today_breaking(all_stories, lang),
         related_stories=[],
         article=None,
@@ -1985,97 +1943,6 @@ def robots():
     return app.response_class(body, mimetype="text/plain")
 
 
-ADMIN_TEMPLATE = r"""<!doctype html>
-<html lang="ar" dir="rtl"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>مراجعة المصادر والتراخيص — World Pulse</title>
-<style>body{font-family:system-ui,sans-serif;background:#f4f6fa;color:#172033;margin:0;padding:24px}main{max-width:1100px;margin:auto}.card{background:white;border:1px solid #dbe2ee;border-radius:14px;padding:18px;margin:14px 0;overflow-wrap:anywhere}input,button{padding:10px;border:1px solid #bcc7d7;border-radius:8px;max-width:100%}button{cursor:pointer;background:#172033;color:white}table{width:100%;border-collapse:collapse}td,th{text-align:right;padding:9px;border-bottom:1px solid #e4e9f0;vertical-align:top}small{color:#64748b}.danger{background:#8b1e2d}</style>
-<main><h1>لوحة مراجعة المصادر والتراخيص</h1><p>تعطيل المصدر يمنع إدراج الأخبار الجديدة منه. تعطيل الصورة يمنع عرضها ويزيلها من الأخبار المحفوظة. هذه اللوحة لا تمنح ترخيصاً قانونياً بحد ذاتها.</p>
-{% if not authenticated %}<section class="card"><h2>دخول الإدارة</h2><form method="post"><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="password" name="password" required placeholder="كلمة مرور الإدارة"><button>دخول</button></form></section>{% else %}
-<section class="card"><h2>تعطيل مصدر إخباري</h2><form method="post"><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="action" value="block_source"><input name="domain" required placeholder="example.com"><input name="reason" placeholder="السبب / حالة الترخيص"><button class="danger">تعطيل المصدر</button></form><p><small>أدخل اسم النطاق فقط، مثل example.com، وليس رابط مقال كامل.</small></p></section>
-<section class="card"><h2>حظر صورة</h2><form method="post"><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="action" value="block_image"><input name="image_url" required placeholder="رابط الصورة الكامل" style="width:60%"><input name="reason" placeholder="السبب"><button class="danger">حظر الصورة وإزالتها</button></form></section>
-<section class="card"><h2>كتالوج مصادر الأخبار</h2><p><small>وجود المصدر في القائمة لا يعني أن شروطه تسمح بإعادة النشر التجاري. افحص شروطه الحالية؛ عند الشك عطّله حتى تحصل على إذن مناسب.</small></p><table><tr><th>القسم / اللغة</th><th>النطاق</th><th>الحالة</th><th>إجراء</th></tr>{% for row in source_catalog %}<tr><td>{{ row.category }} / {{ row.lang }}</td><td>{{ row.domain }}</td><td>{{ 'محظور' if row.blocked else 'متاح للاكتشاف — الترخيص غير مثبت' }}</td><td>{% if row.blocked %}<form method="post"><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="action" value="unblock_source"><input type="hidden" name="domain" value="{{ row.domain }}"><button>إعادة التفعيل</button></form>{% else %}<form method="post"><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="action" value="block_source"><input type="hidden" name="domain" value="{{ row.domain }}"><input name="reason" placeholder="سبب / الترخيص" aria-label="سبب الحظر"><button class="danger">تعطيل</button></form>{% endif %}</td></tr>{% endfor %}</table></section>
-<section class="card"><h2>المصادر المحظورة</h2><table><tr><th>النطاق</th><th>السبب</th><th>إجراء</th></tr>{% for row in blocked_sources %}<tr><td>{{ row.domain }}</td><td>{{ row.reason }}</td><td><form method="post"><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="action" value="unblock_source"><input type="hidden" name="domain" value="{{ row.domain }}"><button>إعادة التفعيل</button></form></td></tr>{% else %}<tr><td colspan="3">لا توجد مصادر محظورة يدوياً.</td></tr>{% endfor %}</table></section>
-<section class="card"><h2>الصور المحظورة</h2><table><tr><th>الصورة</th><th>السبب</th><th>إجراء</th></tr>{% for row in blocked_images %}<tr><td><a href="{{ row.image_url }}" target="_blank" rel="noopener">فتح الصورة</a><br><small>{{ row.image_url }}</small></td><td>{{ row.reason }}</td><td><form method="post"><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="action" value="unblock_image"><input type="hidden" name="image_url" value="{{ row.image_url }}"><button>إلغاء الحظر</button></form></td></tr>{% else %}<tr><td colspan="3">لا توجد صور محظورة يدوياً.</td></tr>{% endfor %}</table></section>
-<section class="card"><h2>آخر الأخبار والصور المحفوظة</h2><table><tr><th>العنوان</th><th>المصدر</th><th>الصورة / الترخيص</th></tr>{% for row in articles %}<tr><td>{{ row.title_en or row.title_ar }}<br><small>{{ row.title_ar }}</small></td><td>{{ row.source_name }}<br><small>{{ row.source_url }}</small></td><td>{% if row.image_url %}<a href="{{ row.image_url }}" target="_blank" rel="noopener">الصورة</a><br><small>{{ row.image_source }} · {{ row.image_credit }} · {{ row.image_license_url }}</small><form method="post"><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="action" value="block_image"><input type="hidden" name="image_url" value="{{ row.image_url }}"><input name="reason" placeholder="سبب الحظر"><button class="danger">حظر هذه الصورة</button></form>{% else %}<small>لا توجد صورة (سيظهر البديل التصميمي).</small>{% endif %}</td></tr>{% endfor %}</table></section>
-<form method="post"><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="action" value="logout"><button>تسجيل الخروج</button></form>{% endif %}</main></html>"""
-
-
-@app.route("/admin/review", methods=["GET", "POST"])
-def admin_review():
-    if not ADMIN_PASSWORD:
-        abort(404)
-    if request.method == "POST":
-        supplied_csrf = request.form.get("csrf_token", "")
-        expected_csrf = session.get("admin_csrf", "")
-        if not expected_csrf or not secrets.compare_digest(supplied_csrf, expected_csrf):
-            abort(400, "Invalid CSRF token")
-        action = request.form.get("action", "")
-        if not session.get("world_pulse_admin"):
-            password = request.form.get("password", "")
-            if secrets.compare_digest(password, ADMIN_PASSWORD):
-                session["world_pulse_admin"] = True
-                return redirect(url_for("admin_review"))
-            return render_template_string(ADMIN_TEMPLATE, authenticated=False, csrf=_admin_csrf_token(), blocked_sources=[], blocked_images=[], articles=[], source_catalog=[]) , 401
-        if action == "logout":
-            session.pop("world_pulse_admin", None)
-            return redirect(url_for("admin_review"))
-        _require_admin()
-        domain = request.form.get("domain", "").casefold().strip().rstrip(".")
-        image_url = request.form.get("image_url", "").strip()
-        reason = _clean_text(request.form.get("reason", ""), 300)
-        conn = _connect_db()
-        if conn is None or not _ensure_schema():
-            if conn is not None:
-                conn.close()
-            abort(503, "Database is unavailable; changes were not saved")
-        try:
-            with conn.cursor() as cur:
-                if action in {"block_source", "unblock_source"}:
-                    if not re.fullmatch(r"(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)(?:\.(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?))+", domain):
-                        abort(400, "Enter a valid domain name")
-                    if action == "block_source":
-                        cur.execute("INSERT INTO world_pulse_source_blocks(domain, reason) VALUES (%s,%s) ON CONFLICT(domain) DO UPDATE SET reason=EXCLUDED.reason, updated_at=NOW()", (domain, reason))
-                    else:
-                        cur.execute("DELETE FROM world_pulse_source_blocks WHERE domain=%s", (domain,))
-                elif action in {"block_image", "unblock_image"}:
-                    if not image_url.startswith("https://") or len(image_url) > 2048:
-                        abort(400, "Enter a valid HTTPS image URL")
-                    if action == "block_image":
-                        cur.execute("INSERT INTO world_pulse_image_blocks(image_url, reason) VALUES (%s,%s) ON CONFLICT(image_url) DO UPDATE SET reason=EXCLUDED.reason, updated_at=NOW()", (image_url, reason))
-                        cur.execute("UPDATE world_pulse_articles SET image_url='', image_source='none', image_credit='', image_credit_url='', image_provider_url='', image_license_url='', image_checked_at=NOW() WHERE image_url=%s", (image_url,))
-                    else:
-                        cur.execute("DELETE FROM world_pulse_image_blocks WHERE image_url=%s", (image_url,))
-                else:
-                    abort(400, "Unknown action")
-            conn.commit()
-            _review_control_rows("world_pulse_source_blocks", force_refresh=True)
-        except Exception:
-            conn.rollback()
-            logger.exception("Admin review action failed")
-            raise
-        finally:
-            conn.close()
-        return redirect(url_for("admin_review"))
-    if not session.get("world_pulse_admin"):
-        return render_template_string(ADMIN_TEMPLATE, authenticated=False, csrf=_admin_csrf_token(), blocked_sources=[], blocked_images=[], articles=[], source_catalog=[])
-    _require_admin()
-    blocked_sources = _review_control_rows("world_pulse_source_blocks")
-    blocked_domains = {str(row.get("domain") or "").casefold() for row in blocked_sources}
-    source_catalog = [
-        {"category": CATEGORY_NAMES.get(category, {}).get("en", category), "lang": lang,
-         "domain": domain, "blocked": domain.casefold() in blocked_domains}
-        for category, languages in CATEGORY_SOURCE_DOMAINS.items()
-        for lang, domains in languages.items()
-        for domain in domains
-    ]
-    # Deduplicate domains while retaining category/language references for review.
-    source_catalog.sort(key=lambda row: (row["domain"], row["category"], row["lang"]))
-    return render_template_string(ADMIN_TEMPLATE, authenticated=True, csrf=_admin_csrf_token(),
-                                  blocked_sources=blocked_sources,
-                                  blocked_images=_review_control_rows("world_pulse_image_blocks"),
-                                  articles=_all_live_articles()[:60], source_catalog=source_catalog)
-
-
 @app.get("/healthz")
 def healthz():
     # Liveness remains available so Render does not restart the service for a source outage.
@@ -2087,6 +1954,120 @@ def healthz():
         "news_auto_fetch": NEWS_AUTO_FETCH,
         "setup_issues": _news_setup_issues(),
     }, 200
+
+
+# ---------------------------------------------------------------------------
+# Protected source and image-license review dashboard
+# ---------------------------------------------------------------------------
+
+def _admin_enabled() -> bool:
+    return bool(os.getenv("ADMIN_PANEL_PASSWORD", "").strip())
+
+
+def _require_admin():
+    if not _admin_enabled():
+        abort(404)
+    if not session.get("wp_admin_authenticated"):
+        return redirect(url_for("admin_login", next=request.path))
+    return None
+
+
+@app.route("/admin/login", methods=["GET", "POST"])
+def admin_login():
+    if not _admin_enabled():
+        abort(404)
+    error = ""
+    if request.method == "POST":
+        supplied = request.form.get("password", "")
+        expected = os.getenv("ADMIN_PANEL_PASSWORD", "")
+        if supplied and secrets.compare_digest(supplied, expected):
+            session.clear()
+            session["wp_admin_authenticated"] = True
+            session["wp_admin_csrf"] = secrets.token_urlsafe(32)
+            return redirect(url_for("admin_sources"))
+        error = "كلمة المرور غير صحيحة / Incorrect password"
+    return render_template("admin_login.html", error=error)
+
+
+@app.post("/admin/logout")
+def admin_logout():
+    if not session.get("wp_admin_authenticated"):
+        abort(404)
+    token = session.get("wp_admin_csrf", "")
+    if not token or not secrets.compare_digest(request.form.get("csrf_token", ""), token):
+        abort(400, description="Invalid CSRF token")
+    session.clear()
+    return redirect(url_for("admin_login"))
+
+
+@app.route("/admin/sources", methods=["GET", "POST"])
+def admin_sources():
+    guard = _require_admin()
+    if guard is not None:
+        return guard
+    csrf = session.get("wp_admin_csrf", "")
+    notice = ""
+    if request.method == "POST":
+        if not csrf or not secrets.compare_digest(request.form.get("csrf_token", ""), csrf):
+            abort(400, description="Invalid CSRF token")
+        controls = {row["key"]: row for row in _known_source_controls()}
+        action = request.form.get("action", "")
+        if action == "toggle":
+            key = request.form.get("control_key", "")
+            if key not in controls:
+                abort(400)
+            enabled = request.form.get("enabled") == "true"
+            if _set_control_enabled(key, enabled):
+                if key.startswith("image:") and not enabled:
+                    provider = key.split(":", 1)[1]
+                    for story in _MEMORY_ARTICLES.values():
+                        if story.get("image_source") == provider:
+                            story.update({"image_url": "", "image_source": "none", "image_credit": "", "image_credit_url": "", "image_provider_url": "", "image_license_url": "", "image_checked_at": None})
+                    conn = _connect_db() if _ensure_schema() else None
+                    if conn:
+                        try:
+                            with conn.cursor() as cur:
+                                cur.execute("UPDATE world_pulse_articles SET image_url='', image_source='none', image_credit='', image_credit_url='', image_provider_url='', image_license_url='', image_checked_at=NULL WHERE image_source=%s", (provider,))
+                            conn.commit()
+                        except Exception:
+                            conn.rollback()
+                            logger.exception("Could not purge disabled provider images")
+                        finally:
+                            conn.close()
+                notice = "تم حفظ الإعداد في قاعدة البيانات." if current_language() == "ar" else "Saved to the database."
+            else:
+                notice = "تعذر الحفظ؛ تأكد من اتصال قاعدة البيانات." if current_language() == "ar" else "Save failed; check the database connection."
+        elif action == "hide_image":
+            slug = request.form.get("slug", "")[:200]
+            conn = _connect_db() if _ensure_schema() else None
+            if conn and slug:
+                try:
+                    with conn.cursor() as cur:
+                        cur.execute("UPDATE world_pulse_articles SET image_url='', image_source='none', image_credit='', image_credit_url='', image_provider_url='', image_license_url='', image_checked_at=NULL WHERE slug=%s", (slug,))
+                    conn.commit()
+                    notice = "تمت إزالة الصورة من الخبر." if current_language() == "ar" else "Image removed from story."
+                except Exception:
+                    conn.rollback()
+                    logger.exception("Admin could not remove image")
+                    notice = "تعذر إزالة الصورة." if current_language() == "ar" else "Could not remove image."
+                finally:
+                    conn.close()
+    rows = []
+    for item in _known_source_controls():
+        item["enabled"] = _control_enabled(item["key"], True)
+        rows.append(item)
+    images = []
+    conn = _connect_db() if _ensure_schema() else None
+    if conn:
+        try:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("SELECT slug,title_ar,title_en,source_name,image_url,image_source,image_credit,image_provider_url,image_license_url,image_checked_at FROM world_pulse_articles WHERE image_url <> '' ORDER BY fetched_at DESC LIMIT 80")
+                images = [dict(x) for x in cur.fetchall()]
+        except Exception:
+            logger.exception("Admin image review query failed")
+        finally:
+            conn.close()
+    return render_template("admin_sources.html", controls=rows, images=images, notice=notice, csrf_token=csrf)
 
 
 @app.errorhandler(404)
