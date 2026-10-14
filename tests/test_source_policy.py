@@ -188,11 +188,6 @@ class SourcePolicyTests(unittest.TestCase):
         self.assertEqual(article["original_language"], "ar")
         self.assertEqual(article["content_ar"], "")
 
-
-if __name__ == "__main__":
-    unittest.main()
-
-
     def test_global_publisher_catalog_is_expanded_and_language_scoped(self):
         catalog = world_pulse.CATEGORY_SOURCE_DOMAINS
         entry_count = sum(len(domains) for langs in catalog.values() for domains in langs.values())
@@ -258,3 +253,6 @@ if __name__ == "__main__":
         self.assertEqual(result["image_url"], "https://cdn.loc.gov/images/artemis.jpg")
         self.assertIn("example-open", result["image_license_url"])
 
+
+if __name__ == "__main__":
+    unittest.main()
