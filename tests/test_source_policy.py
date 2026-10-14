@@ -280,5 +280,112 @@ class SourcePolicyTests(unittest.TestCase):
         self.assertIn("example-open", result["image_license_url"])
 
 
+    def test_database_errors_are_classified_without_returning_secret_details(self):
+        self.assertEqual(
+            world_pulse._database_error_code(
+                RuntimeError("FATAL: (EMAXCONNSESSION) max clients are limited to pool_size: 15")
+            ),
+            "max_clients_reached",
+        )
+        self.assertEqual(
+            world_pulse._database_error_code(
+                RuntimeError("password authentication failed for user postgres")
+            ),
+            "authentication_failed",
+        )
+
+    def test_gemini_429_trips_circuit_breaker_and_stops_remaining_batches(self):
+        from unittest.mock import MagicMock, patch
+
+        fake_client = MagicMock()
+        fake_client.models.generate_content.side_effect = RuntimeError("HTTP/1.1 429 Too Many Requests")
+        articles = [
+            {
+                "source_url": f"https://example.test/story-{i}",
+                "source_name": "Example News",
+                "category": "world",
+                "original_title": f"Headline {i}",
+                "original_summary": f"Short source excerpt for story {i}",
+                "original_language": "en",
+            }
+            for i in range(8)
+        ]
+        with patch.object(world_pulse.genai, "Client", return_value=fake_client):
+            with patch.object(world_pulse, "GEMINI_API_KEY", "test-key"):
+                with patch.object(world_pulse, "_GEMINI_RATE_LIMIT_UNTIL", 0.0):
+                    with patch.object(world_pulse, "GEMINI_429_COOLDOWN_MINUTES", 60):
+                        result = world_pulse._translate_batch(articles)
+                        self.assertEqual(result, {})
+                        self.assertEqual(fake_client.models.generate_content.call_count, 1)
+                        self.assertGreater(world_pulse._GEMINI_RATE_LIMIT_UNTIL, world_pulse.time.monotonic())
+
+    def test_database_source_language_brief_remains_displayable_without_bilingual_body(self):
+        from unittest.mock import patch
+
+        article = {
+            "slug": "source-only-brief",
+            "source_url": "https://www.theverge.com/example-story",
+            "category": "technology",
+            "source_name": "The Verge",
+            "source_domain": "theverge.com",
+            "original_language": "en",
+            "title_en": "A verified source headline",
+            "summary_en": "A short source-language excerpt about the reported development.",
+            "content_en": "",
+            "title_ar": "",
+            "summary_ar": "",
+            "content_ar": "",
+            "image_url": "",
+            "image_source": "none",
+        }
+        with patch.object(world_pulse, "_all_live_articles", return_value=[article]):
+            stories = world_pulse._get_display_stories("en")
+        self.assertEqual(len(stories), 1)
+        self.assertEqual(stories[0]["title"], "A verified source headline")
+        self.assertEqual(stories[0]["summary"], article["summary_en"])
+        self.assertEqual(stories[0]["content"], "")
+
+    def test_image_storage_diagnostic_saves_and_reads_without_gemini(self):
+        from unittest.mock import patch
+
+        with patch.object(world_pulse, "_store_gemini_generated_image", return_value="d" * 32) as store:
+            with patch.object(
+                world_pulse,
+                "_read_gemini_generated_image",
+                return_value=(b"diagnostic-jpeg-bytes", "image/jpeg"),
+            ) as read:
+                result = world_pulse._run_image_storage_probe()
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["image_url"], "/media/generated/" + "d" * 32)
+        self.assertEqual(result["mime_type"], "image/jpeg")
+        store.assert_called_once()
+        self.assertEqual(store.call_args.args[1], "diagnostic:world-pulse-image-storage-test")
+        read.assert_called_once_with("d" * 32)
+
+    def test_admin_monitor_login_and_dashboard_render_without_revealing_database_url(self):
+        from unittest.mock import patch
+
+        client = world_pulse.app.test_client()
+        safe_db_state = {
+            "state": "error",
+            "error_code": "max_clients_reached",
+            "checked_at": "2026-10-14T00:00:00+00:00",
+            "checked_monotonic": world_pulse.time.monotonic(),
+        }
+        with patch.object(world_pulse, "_admin_password", return_value="test-admin-password"):
+            with patch.object(world_pulse, "_probe_database", return_value=safe_db_state):
+                with patch.object(world_pulse, "_database_url", return_value="postgresql://secret-user:secret-password@secret-host/db"):
+                    response = client.post(
+                        "/admin/login",
+                        data={"password": "test-admin-password"},
+                        follow_redirects=True,
+                    )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("لوحة المراقبة".encode("utf-8"), response.data)
+        self.assertIn("max_clients_reached".encode("utf-8"), response.data)
+        self.assertNotIn("secret-password".encode("utf-8"), response.data)
+        self.assertNotIn("secret-host".encode("utf-8"), response.data)
+
+
 if __name__ == "__main__":
     unittest.main()
