@@ -22,3 +22,7 @@ services:
         value: "3"
       - key: MAX_GEMINI_IMAGES_PER_24H
         value: "8"
+      - key: MAX_ARTICLES_PER_REFRESH
+        value: "32"
+      - key: MAX_ARTICLES_PER_CATEGORY
+        value: "5"
