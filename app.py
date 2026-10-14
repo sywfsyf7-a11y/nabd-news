@@ -209,7 +209,6 @@ CATEGORY_QUERIES = {
     "world": {"ar": "أخبار العالم الدولية والمجتمعات والكوارث والإنجازات", "en": "world international news society environment humanitarian"},
 }
 
-# Expanded major Arabic and English news source domains per category
 CATEGORY_SOURCE_DOMAINS = {
     "politics": {
         "ar": ["aljazeera.net", "alarabiya.net", "skynewsarabia.com", "aawsat.com", "alquds.co.uk", "arabic.cnn.com"],
@@ -1744,7 +1743,7 @@ def article(slug: str):
     if selected is None:
         abort(404)
     pool = _get_display_stories(lang)
-    related = [story for story in pool if story.get("slug") != slug and story.get("category"] == selected.get("category")][:3]
+    related = [story for story in pool if story.get("slug") != slug and story.get("category") == selected.get("category")][:3]
     if len(related) < 3:
         related_ids = {story.get("slug") for story in related}
         related.extend([story for story in pool if story.get("slug") not in related_ids and story.get("slug") != slug][:3 - len(related)])
@@ -1819,7 +1818,7 @@ def ask_article_ai():
             ),
         )
         answer = html.unescape(str(response.text or "")).strip()
-        answer = re.sub(r"^```(?:text|markdown)?\s*|\s*```$", "", answer, flags=I if False else re.I).strip()
+        answer = re.sub(r"^```(?:text|markdown)?\s*|\s*```$", "", answer, flags=re.I).strip()
         if not answer:
             raise ValueError("Empty response")
         with _AI_ASK_LOCK:
