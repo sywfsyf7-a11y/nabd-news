@@ -4,7 +4,7 @@ on:
   push:
     branches:
       - main
-      - world-pulse/source-image-separation
+      - "world-pulse/**"
   pull_request:
     branches:
       - main
