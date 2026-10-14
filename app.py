@@ -7,10 +7,12 @@ Render start command:
 """
 from __future__ import annotations
 
+import base64
 import calendar
 import difflib
 import hashlib
 import html
+import io
 import json
 import logging
 import os
@@ -34,7 +36,8 @@ from zoneinfo import ZoneInfo
 import feedparser
 import psycopg2
 from psycopg2.extras import RealDictCursor
-from flask import Flask, abort, jsonify, redirect, render_template, request, session, url_for
+from flask import Flask, Response, abort, jsonify, redirect, render_template, request, session, url_for
+from PIL import Image
 
 try:
     from google import genai
@@ -80,6 +83,11 @@ NEWS_RETRY_MINUTES = max(1, int(os.getenv("NEWS_RETRY_MINUTES", "3")))
 NEWS_AUTO_FETCH = os.getenv("NEWS_AUTO_FETCH", "true").lower() not in {"0", "false", "no"}
 RSS_TIMEOUT_SECONDS = max(2, int(os.getenv("RSS_TIMEOUT_SECONDS", "6")))
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
+GEMINI_IMAGE_MODEL = os.getenv("GEMINI_IMAGE_MODEL", "gemini-nano-banana-2.1").strip()
+GEMINI_IMAGE_GENERATION_ENABLED = os.getenv("GEMINI_IMAGE_GENERATION_ENABLED", "true").lower() not in {"0", "false", "no"}
+MAX_GEMINI_IMAGES_PER_REFRESH = max(0, min(8, int(os.getenv("MAX_GEMINI_IMAGES_PER_REFRESH", "3"))))
+MAX_GEMINI_IMAGES_PER_24H = max(0, min(100, int(os.getenv("MAX_GEMINI_IMAGES_PER_24H", "8"))))
+GEMINI_IMAGE_TIMEOUT_SECONDS = max(15, min(120, int(os.getenv("GEMINI_IMAGE_TIMEOUT_SECONDS", "75"))))
 GEMINI_TIMEOUT_SECONDS = max(8, min(45, int(os.getenv("GEMINI_TIMEOUT_SECONDS", "20"))))
 AI_QUESTIONS_ENABLED = os.getenv("AI_QUESTIONS_ENABLED", "true").lower() not in {"0", "false", "no"}
 AI_QUESTIONS_PER_HOUR = max(1, min(20, int(os.getenv("AI_QUESTIONS_PER_HOUR", "5"))))
@@ -94,7 +102,7 @@ UNSPLASH_ACCESS_KEY = os.getenv("UNSPLASH_ACCESS_KEY", "").strip()
 PEXELS_API_KEY = os.getenv("PEXELS_API_KEY", "").strip()
 IMAGE_CACHE_MAX_AGE_SECONDS = max(3600, int(os.getenv("IMAGE_CACHE_MAX_AGE_HOURS", "168")) * 3600)
 TRUSTED_REUSABLE_IMAGE_SOURCES = {
-    "wikimedia_relevant", "unsplash_api", "pexels_api", "presskit_approved"
+    "wikimedia_relevant", "unsplash_api", "pexels_api", "presskit_approved", "gemini_generated"
 }
 
 CATEGORY_NAMES = {
@@ -480,6 +488,15 @@ CREATE TABLE IF NOT EXISTS world_pulse_controls (
     enabled BOOLEAN NOT NULL DEFAULT TRUE,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+CREATE TABLE IF NOT EXISTS world_pulse_generated_images (
+    image_id TEXT PRIMARY KEY,
+    mime_type TEXT NOT NULL DEFAULT 'image/jpeg',
+    image_data BYTEA NOT NULL,
+    prompt TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_wp_generated_images_created
+    ON world_pulse_generated_images (created_at DESC);
 ALTER TABLE world_pulse_articles ADD COLUMN IF NOT EXISTS source_domain TEXT NOT NULL DEFAULT '';
 """
 
@@ -883,27 +900,27 @@ def _db_upsert_many(articles: list[dict[str, Any]]) -> bool:
             source_name = EXCLUDED.source_name,
             source_domain = CASE WHEN EXCLUDED.source_domain <> '' THEN EXCLUDED.source_domain ELSE world_pulse_articles.source_domain END,
             image_url = CASE
-                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'unsplash_api', 'pexels_api', 'presskit_approved') AND world_pulse_articles.image_url <> ''
+                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'unsplash_api', 'pexels_api', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
                     THEN world_pulse_articles.image_url
                 ELSE EXCLUDED.image_url END,
             image_source = CASE
-                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'unsplash_api', 'pexels_api', 'presskit_approved') AND world_pulse_articles.image_url <> ''
+                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'unsplash_api', 'pexels_api', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
                     THEN world_pulse_articles.image_source
                 ELSE EXCLUDED.image_source END,
             image_credit = CASE
-                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'unsplash_api', 'pexels_api', 'presskit_approved') AND world_pulse_articles.image_url <> ''
+                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'unsplash_api', 'pexels_api', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
                     THEN world_pulse_articles.image_credit
                 ELSE EXCLUDED.image_credit END,
             image_credit_url = CASE
-                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'unsplash_api', 'pexels_api', 'presskit_approved') AND world_pulse_articles.image_url <> ''
+                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'unsplash_api', 'pexels_api', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
                     THEN world_pulse_articles.image_credit_url
                 ELSE EXCLUDED.image_credit_url END,
             image_provider_url = CASE
-                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'unsplash_api', 'pexels_api', 'presskit_approved') AND world_pulse_articles.image_url <> ''
+                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'unsplash_api', 'pexels_api', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
                     THEN world_pulse_articles.image_provider_url
                 ELSE EXCLUDED.image_provider_url END,
             image_license_url = CASE
-                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'unsplash_api', 'pexels_api', 'presskit_approved') AND world_pulse_articles.image_url <> ''
+                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'unsplash_api', 'pexels_api', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
                     THEN world_pulse_articles.image_license_url
                 ELSE EXCLUDED.image_license_url END,
             image_checked_at = COALESCE(EXCLUDED.image_checked_at, world_pulse_articles.image_checked_at),
