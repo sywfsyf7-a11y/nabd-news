@@ -2138,8 +2138,6 @@ def _normalise_story(row: dict[str, Any], lang: str) -> dict[str, Any]:
     if story.get("image_url") and story.get("image_source") not in TRUSTED_REUSABLE_IMAGE_SOURCES:
         # Do not display unverified publisher thumbnails or URLs with no recorded reuse source.
         story.update({"image_url": "", "image_source": "none", "image_credit": "", "image_credit_url": "", "image_provider_url": "", "image_license_url": ""})
-    if story.get("image_url") and _is_image_blocked(str(story.get("image_url") or "")):
-        story.update({"image_url": "", "image_source": "none", "image_credit": "", "image_credit_url": "", "image_provider_url": "", "image_license_url": ""})
     if not story.get("image_url"):
         story["image_url"] = "/static/A.jpg" if story["original_language"] == "ar" else "/static/E.jpg"
         story["image_source"] = "language_fallback"
