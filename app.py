@@ -10,6 +10,7 @@ from __future__ import annotations
 import base64
 import calendar
 import difflib
+import fcntl
 import hashlib
 import html
 import io
@@ -21,7 +22,7 @@ import secrets
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timezone, timedelta
 from email.utils import parsedate_to_datetime
 from email.message import EmailMessage
 import smtplib
@@ -37,7 +38,7 @@ import feedparser
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from flask import Flask, Response, abort, jsonify, redirect, render_template, request, session, url_for
-from PIL import Image
+from PIL import Image, ImageDraw
 
 try:
     from google import genai
@@ -78,23 +79,24 @@ def add_security_headers(response):
 SITE_NAME_AR = "نبض العالم"
 SITE_NAME_EN = "World Pulse"
 TIMEZONE = ZoneInfo(os.getenv("SITE_TIMEZONE", "Asia/Amman"))
-NEWS_REFRESH_MINUTES = max(5, int(os.getenv("NEWS_REFRESH_MINUTES", "15")))
-NEWS_RETRY_MINUTES = max(1, int(os.getenv("NEWS_RETRY_MINUTES", "3")))
+NEWS_REFRESH_MINUTES = max(15, int(os.getenv("NEWS_REFRESH_MINUTES", "30")))
+NEWS_RETRY_MINUTES = max(5, int(os.getenv("NEWS_RETRY_MINUTES", "10")))
 NEWS_AUTO_FETCH = os.getenv("NEWS_AUTO_FETCH", "true").lower() not in {"0", "false", "no"}
 RSS_TIMEOUT_SECONDS = max(2, int(os.getenv("RSS_TIMEOUT_SECONDS", "6")))
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
 GEMINI_IMAGE_MODEL = os.getenv("GEMINI_IMAGE_MODEL", "gemini-nano-banana-2.1").strip()
 GEMINI_IMAGE_GENERATION_ENABLED = os.getenv("GEMINI_IMAGE_GENERATION_ENABLED", "true").lower() not in {"0", "false", "no"}
-MAX_GEMINI_IMAGES_PER_REFRESH = max(0, min(8, int(os.getenv("MAX_GEMINI_IMAGES_PER_REFRESH", "3"))))
-MAX_GEMINI_IMAGES_PER_24H = max(0, min(100, int(os.getenv("MAX_GEMINI_IMAGES_PER_24H", "8"))))
+MAX_GEMINI_IMAGES_PER_REFRESH = max(0, min(4, int(os.getenv("MAX_GEMINI_IMAGES_PER_REFRESH", "1"))))
+MAX_GEMINI_IMAGES_PER_24H = max(0, min(100, int(os.getenv("MAX_GEMINI_IMAGES_PER_24H", "4"))))
+GEMINI_429_COOLDOWN_MINUTES = max(5, min(1440, int(os.getenv("GEMINI_429_COOLDOWN_MINUTES", "60"))))
 GEMINI_IMAGE_TIMEOUT_SECONDS = max(15, min(120, int(os.getenv("GEMINI_IMAGE_TIMEOUT_SECONDS", "75"))))
 GEMINI_TIMEOUT_SECONDS = max(8, min(45, int(os.getenv("GEMINI_TIMEOUT_SECONDS", "20"))))
 CONTACT_EMAIL = os.getenv("CONTACT_EMAIL", "syfsywf86@gmail.com").strip() or "syfsywf86@gmail.com"
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
-MAX_ARTICLES_PER_REFRESH = max(8, min(40, int(os.getenv("MAX_ARTICLES_PER_REFRESH", "32"))))
-MAX_ARTICLES_PER_CATEGORY = max(1, min(8, int(os.getenv("MAX_ARTICLES_PER_CATEGORY", "5"))))
+MAX_ARTICLES_PER_REFRESH = max(8, min(32, int(os.getenv("MAX_ARTICLES_PER_REFRESH", "24"))))
+MAX_ARTICLES_PER_CATEGORY = max(1, min(5, int(os.getenv("MAX_ARTICLES_PER_CATEGORY", "3"))))
 IMAGE_SEARCH_TIMEOUT_SECONDS = max(3, min(12, int(os.getenv("IMAGE_SEARCH_TIMEOUT_SECONDS", "5"))))
-MAX_IMAGE_LOOKUPS_PER_REFRESH = max(0, min(40, int(os.getenv("MAX_IMAGE_LOOKUPS_PER_REFRESH", "24"))))
+MAX_IMAGE_LOOKUPS_PER_REFRESH = max(0, min(12, int(os.getenv("MAX_IMAGE_LOOKUPS_PER_REFRESH", "8"))))
 UNSPLASH_ACCESS_KEY = os.getenv("UNSPLASH_ACCESS_KEY", "").strip()
 PEXELS_API_KEY = os.getenv("PEXELS_API_KEY", "").strip()
 IMAGE_CACHE_MAX_AGE_SECONDS = max(3600, int(os.getenv("IMAGE_CACHE_MAX_AGE_HOURS", "168")) * 3600)
@@ -424,6 +426,10 @@ _DB_RETRY_AFTER = 0.0
 _DB_LOCK = threading.Lock()
 _CONTROL_CACHE: dict[str, tuple[bool, float]] = {}
 _CONTROL_CACHE_LOCK = threading.Lock()
+_LAST_DB_STATUS: dict[str, Any] = {"state": "unknown", "error_code": "", "checked_at": None, "checked_monotonic": 0.0}
+_DB_LAST_FETCHED_VALUE: datetime | None = None
+_DB_LAST_FETCHED_CHECKED = 0.0
+_DB_LAST_FETCHED_LOCK = threading.Lock()
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS world_pulse_articles (
@@ -476,6 +482,61 @@ ALTER TABLE world_pulse_articles ADD COLUMN IF NOT EXISTS source_domain TEXT NOT
 def _database_url() -> str:
     return (os.getenv("SUPABASE_POOLER_URL") or os.getenv("DATABASE_URL") or "").strip()
 
+def _database_error_code(exc: Exception) -> str:
+    """Return a safe diagnostic category without storing a DSN or raw error text."""
+    detail = str(exc or "").casefold()
+    code = str(getattr(exc, "pgcode", "") or getattr(exc, "code", "") or "")
+    if "emaxconnsession" in detail or "max clients reached" in detail or "pool_size" in detail:
+        return "max_clients_reached"
+    if code == "28P01" or "password authentication failed" in detail or "authentication failed" in detail:
+        return "authentication_failed"
+    if "timeout" in detail or "timed out" in detail:
+        return "connection_timeout"
+    if "could not translate host" in detail or "name or service not known" in detail:
+        return "host_resolution_failed"
+    if "connection refused" in detail or "could not connect" in detail:
+        return "connection_refused"
+    return type(exc).__name__
+
+def _probe_database() -> dict[str, Any]:
+    """Use a short cached SELECT 1 probe for the protected monitoring panel."""
+    if not _database_url():
+        _LAST_DB_STATUS.update({
+            "state": "not_configured", "error_code": "missing_url",
+            "checked_at": datetime.now(timezone.utc).isoformat(),
+            "checked_monotonic": time.monotonic(),
+        })
+        return dict(_LAST_DB_STATUS)
+    now = time.monotonic()
+    last_check = float(_LAST_DB_STATUS.get("checked_monotonic") or 0.0)
+    if now - last_check < 20 or now < _DB_RETRY_AFTER:
+        return dict(_LAST_DB_STATUS)
+    conn = _connect_db()
+    if conn is None:
+        return dict(_LAST_DB_STATUS)
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1")
+            cur.fetchone()
+        _LAST_DB_STATUS.update({
+            "state": "connected", "error_code": "",
+            "checked_at": datetime.now(timezone.utc).isoformat(),
+            "checked_monotonic": time.monotonic(),
+        })
+    except Exception as exc:
+        code = _database_error_code(exc)
+        _LAST_DB_STATUS.update({
+            "state": "error", "error_code": code,
+            "checked_at": datetime.now(timezone.utc).isoformat(),
+            "checked_monotonic": time.monotonic(),
+        })
+        with _DB_LOCK:
+            _DB_RETRY_AFTER = time.monotonic() + (30 if code == "max_clients_reached" else 60)
+        logger.warning("Database health probe failed (reason=%s)", code)
+    finally:
+        conn.close()
+    return dict(_LAST_DB_STATUS)
+
 def _news_setup_issues() -> list[str]:
     issues: list[str] = []
     if not GEMINI_API_KEY:
@@ -490,6 +551,11 @@ def _connect_db():
     global _DB_RETRY_AFTER
     dsn = _database_url()
     if not dsn:
+        _LAST_DB_STATUS.update({
+            "state": "not_configured", "error_code": "missing_url",
+            "checked_at": datetime.now(timezone.utc).isoformat(),
+            "checked_monotonic": time.monotonic(),
+        })
         return None
     if time.monotonic() < _DB_RETRY_AFTER:
         return None
@@ -502,11 +568,22 @@ def _connect_db():
         )
         with _DB_LOCK:
             _DB_RETRY_AFTER = 0.0
+        _LAST_DB_STATUS.update({
+            "state": "connected", "error_code": "",
+            "checked_at": datetime.now(timezone.utc).isoformat(),
+            "checked_monotonic": time.monotonic(),
+        })
         return connection
     except Exception as exc:
+        code = _database_error_code(exc)
         with _DB_LOCK:
-            _DB_RETRY_AFTER = time.monotonic() + 60
-        logger.warning("Database connection unavailable: %s", exc)
+            _DB_RETRY_AFTER = time.monotonic() + (30 if code == "max_clients_reached" else 60)
+        _LAST_DB_STATUS.update({
+            "state": "error", "error_code": code,
+            "checked_at": datetime.now(timezone.utc).isoformat(),
+            "checked_monotonic": time.monotonic(),
+        })
+        logger.warning("Database connection unavailable (reason=%s)", code)
         return None
 
 def _ensure_schema() -> bool:
@@ -549,7 +626,7 @@ def _control_enabled(control_key: str, default: bool = True) -> bool:
             row = cur.fetchone()
             value = bool(row[0]) if row else default
             with _CONTROL_CACHE_LOCK:
-                _CONTROL_CACHE[control_key] = (value, time.monotonic() + 20)
+                _CONTROL_CACHE[control_key] = (value, time.monotonic() + 120)
             return value
     except Exception:
         return default
@@ -569,7 +646,7 @@ def _set_control_enabled(control_key: str, enabled: bool) -> bool:
                 SET enabled = EXCLUDED.enabled, updated_at = NOW()""", (control_key, enabled))
         conn.commit()
         with _CONTROL_CACHE_LOCK:
-            _CONTROL_CACHE[control_key] = (enabled, time.monotonic() + 20)
+            _CONTROL_CACHE[control_key] = (enabled, time.monotonic() + 120)
         return True
     except Exception:
         conn.rollback()
@@ -640,8 +717,8 @@ def _db_fetch_all() -> list[dict[str, Any]]:
                        read_minutes, original_language, is_demo
                 FROM world_pulse_articles
                 WHERE is_demo = FALSE
-                  AND LENGTH(TRIM(COALESCE(content_ar, ''))) >= 100
-                  AND LENGTH(TRIM(COALESCE(content_en, ''))) >= 100
+                  AND ((original_language = 'ar' AND LENGTH(TRIM(COALESCE(title_ar, ''))) > 0 AND LENGTH(TRIM(COALESCE(summary_ar, ''))) > 0)
+                       OR (original_language = 'en' AND LENGTH(TRIM(COALESCE(title_en, ''))) > 0 AND LENGTH(TRIM(COALESCE(summary_en, ''))) > 0))
                 ORDER BY published_at DESC NULLS LAST, fetched_at DESC
                 LIMIT 120
             """)
@@ -675,8 +752,8 @@ def _db_search_articles(query: str, limit: int = 60) -> list[dict[str, Any]] | N
                published_at, fetched_at, read_minutes, original_language, is_demo
         FROM world_pulse_articles
         WHERE is_demo = FALSE
-          AND LENGTH(TRIM(COALESCE(content_ar, ''))) >= 100
-          AND LENGTH(TRIM(COALESCE(content_en, ''))) >= 100
+          AND ((original_language = 'ar' AND LENGTH(TRIM(COALESCE(title_ar, ''))) > 0 AND LENGTH(TRIM(COALESCE(summary_ar, ''))) > 0)
+               OR (original_language = 'en' AND LENGTH(TRIM(COALESCE(title_en, ''))) > 0 AND LENGTH(TRIM(COALESCE(summary_en, ''))) > 0))
           AND """ + " AND ".join(conditions) + " ORDER BY published_at DESC NULLS LAST, fetched_at DESC LIMIT %s"
     params.append(max(1, min(100, int(limit))))
     try:
@@ -833,21 +910,34 @@ def _raw_from_stored_article(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 def _db_last_fetched_at() -> datetime | None:
+    global _DB_LAST_FETCHED_CHECKED, _DB_LAST_FETCHED_VALUE
+    now = time.monotonic()
+    with _DB_LAST_FETCHED_LOCK:
+        if now - _DB_LAST_FETCHED_CHECKED < 60:
+            return _DB_LAST_FETCHED_VALUE
+        _DB_LAST_FETCHED_CHECKED = now
+        cached_value = _DB_LAST_FETCHED_VALUE
     if not _ensure_schema():
-        return None
+        return cached_value
     conn = _connect_db()
     if conn is None:
-        return None
+        return cached_value
     try:
         with conn.cursor() as cur:
             cur.execute("SELECT MAX(fetched_at) FROM world_pulse_articles WHERE is_demo = FALSE")
             row = cur.fetchone()
             value = row[0] if row else None
             if isinstance(value, datetime):
-                return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
-            return None
-    except Exception:
-        return None
+                value = value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+            else:
+                value = None
+        with _DB_LAST_FETCHED_LOCK:
+            _DB_LAST_FETCHED_VALUE = value
+            _DB_LAST_FETCHED_CHECKED = time.monotonic()
+        return value
+    except Exception as exc:
+        logger.debug("Could not read latest persisted news timestamp (%s)", type(exc).__name__)
+        return cached_value
     finally:
         conn.close()
 
@@ -936,7 +1026,8 @@ _AI_IMAGE_REFRESH_MARKER = 0.0
 _AI_IMAGE_CALLS_THIS_REFRESH = 0
 _LAST_IMAGE_STATUS: dict[str, Any] = {"attempted": 0, "found": 0, "errors": 0, "providers": {}, "updated_at": None}
 _GEMINI_STATUS_LOCK = threading.Lock()
-_LAST_GEMINI_ERROR = {"stage": "", "type": "", "at": None}
+_LAST_GEMINI_ERROR = {"stage": "", "type": "", "at": None, "cooldown_until": None}
+_GEMINI_RATE_LIMIT_UNTIL = 0.0
 _LAST_REFRESH_AT: datetime | None = None
 _LAST_REFRESH_STATE = "idle"
 _LAST_REFRESH_ERROR = ""
@@ -1336,6 +1427,7 @@ def _db_count_gemini_images_last_24h() -> int | None:
             cur.execute("""
                 SELECT COUNT(*) FROM world_pulse_generated_images
                 WHERE created_at >= NOW() - INTERVAL '24 hours'
+                  AND prompt NOT LIKE 'diagnostic:%'
             """)
             row = cur.fetchone()
             return int(row[0]) if row else 0
@@ -1694,7 +1786,7 @@ def _enrich_article_images(raw_articles: list[dict[str, Any]]) -> None:
     found = 0
     providers: dict[str, int] = {}
     errors = 0
-    with ThreadPoolExecutor(max_workers=4) as pool:
+    with ThreadPoolExecutor(max_workers=2) as pool:
         futures = {pool.submit(_resolve_article_image, item): item for item in pending}
         for future in as_completed(futures):
             item = futures[future]
@@ -1909,9 +2001,26 @@ Strict editorial rules:
 Stories to edit: {json.dumps(payload, ensure_ascii=False)}'''
 
 
+def _is_gemini_rate_limit_error(exc: Exception) -> bool:
+    detail = str(exc or "").casefold()
+    status = getattr(exc, "status_code", None)
+    code = getattr(exc, "code", None)
+    return (
+        status == 429 or code == 429
+        or "429" in detail
+        or "resource_exhausted" in detail
+        or "too many requests" in detail
+        or "rate limit" in detail
+        or "quota exceeded" in detail
+    )
+
 def _translate_batch(raw_articles: list[dict[str, Any]]) -> dict[int, dict[str, str]]:
+    global _GEMINI_RATE_LIMIT_UNTIL
     if not raw_articles or not GEMINI_API_KEY or genai is None or types is None:
         return {}
+    with _GEMINI_STATUS_LOCK:
+        if time.monotonic() < _GEMINI_RATE_LIMIT_UNTIL:
+            return {}
 
     result: dict[int, dict[str, str]] = {}
     batch_size = 4
@@ -1976,11 +2085,31 @@ def _translate_batch(raw_articles: list[dict[str, Any]]) -> dict[int, dict[str, 
                         and len(fields.get("content_en", "")) >= 100):
                     result[index] = fields
         except Exception as exc:
-            logger.warning("Gemini editorial enrichment failed (model=%s batch=%d-%d error=%s)",
-                           GEMINI_MODEL, batch_start, batch_end - 1, type(exc).__name__)
+            rate_limited = _is_gemini_rate_limit_error(exc)
+            cooldown_until = None
+            if rate_limited:
+                _GEMINI_RATE_LIMIT_UNTIL = max(
+                    _GEMINI_RATE_LIMIT_UNTIL,
+                    time.monotonic() + GEMINI_429_COOLDOWN_MINUTES * 60,
+                )
+                cooldown_until = (datetime.now(timezone.utc) + timedelta(minutes=GEMINI_429_COOLDOWN_MINUTES)).isoformat()
+            logger.warning(
+                "Gemini editorial enrichment failed (model=%s batch=%d-%d error=%s rate_limited=%s)",
+                GEMINI_MODEL, batch_start, batch_end - 1, type(exc).__name__, rate_limited,
+            )
             with _GEMINI_STATUS_LOCK:
-                _LAST_GEMINI_ERROR.update({"stage": "editorial", "type": type(exc).__name__,
-                                           "at": datetime.now(timezone.utc).isoformat()})
+                _LAST_GEMINI_ERROR.update({
+                    "stage": "editorial",
+                    "type": "rate_limited_429" if rate_limited else type(exc).__name__,
+                    "at": datetime.now(timezone.utc).isoformat(),
+                    "cooldown_until": cooldown_until if rate_limited else _LAST_GEMINI_ERROR.get("cooldown_until"),
+                })
+            if rate_limited:
+                logger.warning(
+                    "Gemini 429 circuit breaker enabled for %d minutes; remaining news will be retained as source-language briefs",
+                    GEMINI_429_COOLDOWN_MINUTES,
+                )
+                break
     return result
 
 def _reading_minutes(article: dict[str, Any]) -> int:
@@ -2033,7 +2162,20 @@ def _avoid_repeated_news_photos(raw_articles: list[dict[str, Any]]) -> None:
 
 def _refresh_news_job() -> None:
     global _REFRESHING, _LAST_REFRESH_SUCCESS, _LAST_REFRESH_AT, _LAST_REFRESH_STATE, _LAST_REFRESH_ERROR
+    refresh_lock_file = None
+    refresh_lock_acquired = False
     try:
+        # Gunicorn worker processes do not share Python locks. This lock coordinates refreshes
+        # across workers on the same Render instance without consuming a Supabase connection.
+        refresh_lock_path = os.getenv("REFRESH_LOCK_FILE", "/tmp/world-pulse-refresh.lock")
+        refresh_lock_file = open(refresh_lock_path, "a+", encoding="utf-8")
+        try:
+            fcntl.flock(refresh_lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            refresh_lock_acquired = True
+        except BlockingIOError:
+            logger.info("News refresh skipped: another worker holds the process-wide refresh lock")
+            return
+
         with _STATE_LOCK:
             _LAST_REFRESH_STATE = "running"
             _LAST_REFRESH_ERROR = ""
@@ -2109,6 +2251,16 @@ def _refresh_news_job() -> None:
     finally:
         with _STATE_LOCK:
             _REFRESHING = False
+        if refresh_lock_file is not None:
+            try:
+                if refresh_lock_acquired:
+                    fcntl.flock(refresh_lock_file.fileno(), fcntl.LOCK_UN)
+            except OSError:
+                pass
+            try:
+                refresh_lock_file.close()
+            except OSError:
+                pass
 
 def _maybe_start_refresh() -> None:
     global _REFRESHING, _LAST_REFRESH_ATTEMPT
@@ -2421,6 +2573,7 @@ def article(slug: str):
 @app.get("/api/news-status")
 def news_status():
     persisted_at = _db_last_fetched_at()
+    db_status = _probe_database()
     timestamps = [value for value in (persisted_at, _LAST_REFRESH_AT) if isinstance(value, datetime)]
     normalised = [value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value for value in timestamps]
     last_refresh_at = max(normalised) if normalised else None
@@ -2431,6 +2584,16 @@ def news_status():
         "interval_minutes": NEWS_REFRESH_MINUTES,
         "error": _LAST_REFRESH_ERROR,
         "database_url_configured": bool(_database_url()),
+        "database": {
+            "state": db_status.get("state", "unknown"),
+            "error_code": db_status.get("error_code", ""),
+            "checked_at": db_status.get("checked_at"),
+        },
+        "gemini_rate_limit": {
+            "paused": time.monotonic() < _GEMINI_RATE_LIMIT_UNTIL,
+            "remaining_minutes": max(0, int((_GEMINI_RATE_LIMIT_UNTIL - time.monotonic() + 59) // 60)),
+            "cooldown_minutes": GEMINI_429_COOLDOWN_MINUTES,
+        },
         "gemini_api_key_configured": bool(GEMINI_API_KEY),
         "gemini_sdk_loaded": genai is not None and types is not None,
         "gemini_model": GEMINI_MODEL,
@@ -2783,6 +2946,30 @@ def _remove_article_image(slug: str) -> bool:
     finally:
         conn.close()
 
+def _run_image_storage_probe() -> dict[str, Any]:
+    """Persist and reload a tiny diagnostic JPEG without using the Gemini API."""
+    buffer = io.BytesIO()
+    with Image.new("RGB", (320, 180), "#f3f6fb") as preview:
+        draw = ImageDraw.Draw(preview)
+        draw.rounded_rectangle((10, 10, 310, 170), radius=14, fill="#172033")
+        draw.text((28, 72), "WORLD PULSE", fill="#ffffff")
+        draw.text((28, 98), "image storage check", fill="#dbeafe")
+        preview.save(buffer, format="JPEG", quality=82, optimize=True)
+    image_bytes = buffer.getvalue()
+    image_id = _store_gemini_generated_image(image_bytes, "diagnostic:world-pulse-image-storage-test")
+    if not image_id:
+        return {"ok": False, "error": "database_write_failed"}
+    stored = _read_gemini_generated_image(image_id)
+    if not stored or stored[1] != "image/jpeg" or not stored[0]:
+        return {"ok": False, "error": "database_read_failed"}
+    return {
+        "ok": True,
+        "image_id": image_id,
+        "image_url": "/media/generated/" + image_id,
+        "mime_type": stored[1],
+        "bytes": len(stored[0]),
+    }
+
 @app.route("/admin/login", methods=["GET", "POST"])
 def admin_login():
     if not _admin_enabled():
@@ -2795,7 +2982,7 @@ def admin_login():
             session.clear()
             session["wp_admin_authenticated"] = True
             session["wp_admin_csrf"] = secrets.token_urlsafe(32)
-            return redirect(url_for("admin_sources"))
+            return redirect(url_for("admin_monitor"))
         error = "كلمة المرور غير صحيحة"
     return render_template("admin_login.html", error=error)
 
@@ -2808,6 +2995,82 @@ def admin_logout():
         abort(400)
     session.clear()
     return redirect(url_for("admin_login"))
+
+@app.route("/admin/monitor", methods=["GET", "POST"])
+def admin_monitor():
+    guard = _require_admin()
+    if guard is not None:
+        return guard
+    notice = ""
+    image_test = None
+    storage_test = None
+    if request.method == "POST":
+        if not _admin_csrf_valid():
+            abort(400)
+        action = str(request.form.get("action") or "")
+        if action == "test_image_search":
+            query = _clean_text(request.form.get("image_query") or "NASA Artemis lunar mission", 180)
+            result = _search_any_reusable_image(query, "en", "science")
+            image_test = {
+                "query": query,
+                "found": bool(result.get("image_url")),
+                "image_url": result.get("image_url", ""),
+                "provider": _image_provider_label(str(result.get("image_source") or "")),
+                "source": str(result.get("image_source") or ""),
+                "credit": str(result.get("image_credit") or ""),
+                "provider_url": str(result.get("image_provider_url") or ""),
+                "license_url": str(result.get("image_license_url") or ""),
+            }
+            if image_test["found"]:
+                notice = "نجح البحث: عُثر على صورة مرشحة وبيانات مصدرها."
+            else:
+                notice = "لم يُعثر على صورة مناسبة لهذه العبارة من مزودي الصور المفعّلين."
+        elif action == "test_image_storage":
+            storage_test = _run_image_storage_probe()
+            notice = (
+                "نجح اختبار الحفظ والقراءة؛ افتح المعاينة للتأكد من عرض الصورة."
+                if storage_test.get("ok")
+                else "فشل اختبار حفظ/قراءة الصورة. راجع حالة قاعدة البيانات في هذه الصفحة."
+            )
+        else:
+            abort(400)
+    db_status = _probe_database()
+    db_status = {
+        "state": db_status.get("state", "unknown"),
+        "error_code": db_status.get("error_code", ""),
+        "checked_at": db_status.get("checked_at"),
+        "configured": bool(_database_url()),
+    }
+    gemini_remaining = max(0, int((_GEMINI_RATE_LIMIT_UNTIL - time.monotonic() + 59) // 60))
+    return render_template(
+        "admin_monitor.html",
+        csrf_token=session.get("wp_admin_csrf", ""),
+        notice=notice,
+        database=db_status,
+        refresh={
+            "state": _LAST_REFRESH_STATE,
+            "running": bool(_REFRESHING),
+            "at": _LAST_REFRESH_AT.isoformat() if _LAST_REFRESH_AT else None,
+            "interval": NEWS_REFRESH_MINUTES,
+            "error": _LAST_REFRESH_ERROR,
+        },
+        gemini={
+            "model": GEMINI_MODEL,
+            "configured": bool(GEMINI_API_KEY),
+            "sdk": genai is not None and types is not None,
+            "cooldown_minutes": gemini_remaining,
+            "configured_cooldown": GEMINI_429_COOLDOWN_MINUTES,
+            "last_error": dict(_LAST_GEMINI_ERROR),
+        },
+        images={
+            "status": dict(_LAST_IMAGE_STATUS),
+            "limits_per_refresh": MAX_IMAGE_LOOKUPS_PER_REFRESH,
+            "generation_per_refresh": MAX_GEMINI_IMAGES_PER_REFRESH,
+            "generation_per_day": MAX_GEMINI_IMAGES_PER_24H,
+        },
+        image_test=image_test,
+        storage_test=storage_test,
+    )
 
 @app.route("/admin/sources", methods=["GET", "POST"])
 def admin_sources():
