@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow,noarchive">
+  <title>إدارة المصادر والتراخيص — World Pulse</title>
+  <style>
+    :root{color-scheme:light;--ink:#132033;--muted:#596579;--line:#dfe5ed;--paper:#f5f7fa;--red:#d93b49;--green:#12664d;--amber:#8b5a11}
+    *{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font-family:system-ui,-apple-system,"Segoe UI",sans-serif;line-height:1.65}
+    a{color:#9e2635}header{background:#111827;color:white;padding:22px 18px}header .wrap,main{max-width:1250px;margin:auto}
+    h1{margin:0;font-size:clamp(1.35rem,3vw,2rem)}header p{margin:5px 0 0;color:#d1d5db;font-size:.92rem}
+    main{padding:24px 16px 48px}.notice{background:#fff7df;border:1px solid #f1d58c;border-radius:14px;padding:14px 16px;margin-bottom:18px;color:#6c4c11}
+    .message{background:#e8f6ef;border:1px solid #b6e0ca;border-radius:12px;padding:12px 15px;margin-bottom:16px;color:#135a3f;white-space:pre-wrap}
+    .section{background:white;border:1px solid var(--line);border-radius:18px;padding:18px;margin-bottom:20px;box-shadow:0 8px 24px #14203808}
+    .section h2{font-size:1.18rem;margin:0 0 7px}.section>p{color:var(--muted);margin:0 0 15px;font-size:.92rem}
+    .table-wrap{overflow-x:auto}table{width:100%;border-collapse:collapse;min-width:860px}th,td{padding:12px 10px;border-bottom:1px solid #edf0f5;text-align:right;vertical-align:top;font-size:.9rem}th{background:#f8fafc;color:#536072;font-weight:750}tr:last-child td{border-bottom:0}
+    .pill{display:inline-block;border-radius:999px;padding:3px 9px;font-size:.76rem;font-weight:750;white-space:nowrap}.on{background:#e3f5eb;color:#12664d}.off{background:#fce8e9;color:#a32b36}.needs{background:#fff0d2;color:#8b5a11}
+    .controls{display:flex;flex-wrap:wrap;gap:10px;align-items:center}.controls label{display:inline-flex;align-items:center;gap:6px;font-size:.84rem;font-weight:650}
+    input[type=text],input[type=url],textarea{border:1px solid #cfd7e2;border-radius:9px;padding:8px 10px;width:100%;font:inherit;font-size:.85rem;background:white;color:#111827}
+    input[type=checkbox]{width:17px;height:17px;accent-color:#d93b49}textarea{min-height:55px;resize:vertical}
+    button{border:0;border-radius:9px;background:var(--red);color:white;padding:8px 13px;font:inherit;font-size:.85rem;font-weight:750;cursor:pointer}button:hover{filter:brightness(.95)}button.secondary{background:#e8edf4;color:#243247}button.danger{background:#9f2734}
+    .small{font-size:.78rem;color:var(--muted);overflow-wrap:anywhere}.provider{display:grid;grid-template-columns:1fr auto;gap:12px;align-items:center;border-bottom:1px solid #edf0f5;padding:12px 0}.provider:last-child{border:0;padding-bottom:0}.provider p{margin:2px 0 0;color:var(--muted);font-size:.86rem}
+    .asset{display:flex;gap:12px;align-items:flex-start;min-width:320px}.asset img{height:76px;width:112px;object-fit:cover;border-radius:9px;background:#e5e7eb}.asset-title{font-weight:750;max-width:380px}.btn-row{display:flex;gap:7px;flex-wrap:wrap;margin-top:8px}.muted{color:var(--muted)}footer{text-align:center;color:var(--muted);font-size:.8rem;padding:18px}
+    @media(max-width:650px){main{padding:12px 9px 30px}.section{padding:13px}.controls{align-items:flex-start}.notice{font-size:.9rem}}
+  </style>
+</head>
+<body>
+<header><div class="wrap"><h1>لوحة مراجعة المصادر والتراخيص</h1><p>World Pulse · مصادر الأخبار والصور · لوحة محمية بتسجيل دخول HTTP Basic</p></div></header>
+<main>
+  <div class="notice"><strong>قاعدة الحقوق:</strong> تعطيل المصدر هو الخيار الافتراضي للمصادر التي تتطلب مراجعة أو ترخيصًا. لا تفعّل ناشرًا مقيّدًا إلا بعد التأكد من شروط الاستخدام التجاري والمعالجة بالذكاء الاصطناعي أو وجود إذن مناسب. ذكر المصدر أو وضع رابط له لا يعادل الترخيص.</div>
+  {% if message %}<div class="message">{{ message }}</div>{% endif %}
+
+  <section class="section">
+    <h2>1. مصادر الأخبار حسب القسم واللغة</h2>
+    <p>إيقاف أي نطاق يمنع جلب الأخبار الجديدة منه ويخفي قصصه المحفوظة ما دام معطّلًا. المصادر المقيّدة تحتاج تأكيد مراجعة الترخيص لتفعيلها.</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th>النطاق</th><th>الأقسام</th><th>اللغة</th><th>الحالة الحالية</th><th>تعديل المصدر</th></tr></thead>
+      <tbody>{% for source in sources %}
+        <tr>
+          <td><strong dir="ltr">{{ source.domain }}</strong><br>{% if source.restricted %}<span class="pill needs">يتطلب مراجعة/ترخيص</span>{% else %}<span class="pill on">ضمن القائمة</span>{% endif %}</td>
+          <td>{{ source.categories }}</td><td>{{ source.languages }}</td>
+          <td>{% if source.enabled %}<span class="pill on">مفعّل</span>{% else %}<span class="pill off">متوقف</span>{% endif %}<br>{% if source.license_verified %}<span class="pill on">مراجعة الترخيص مؤكدة</span>{% elif source.restricted %}<span class="pill needs">الترخيص غير مؤكّد</span>{% endif %}</td>
+          <td><form method="post" class="controls">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="action" value="save_source"><input type="hidden" name="domain" value="{{ source.domain }}">
+            <label><input type="checkbox" name="enabled" {% if source.enabled %}checked{% endif %}> تفعيل</label>
+            <label title="أكّد ذلك فقط بعد مراجعة الشروط أو الحصول على إذن مناسب"><input type="checkbox" name="license_verified" {% if source.license_verified %}checked{% endif %}> راجعت الترخيص</label>
+            <input type="text" name="notes" value="{{ source.notes }}" placeholder="ملاحظات الترخيص/الرابط المرجعي" aria-label="ملاحظات الترخيص" style="min-width:180px;max-width:290px">
+            <button type="submit">حفظ</button>
+          </form></td>
+        </tr>
+      {% endfor %}</tbody>
+    </table></div>
+  </section>
+
+  <section class="section">
+    <h2>2. مزوّدو الصور</h2>
+    <p>يمكنك إيقاف مزوّد كامل. عند تعطيله تُزال صوره المحفوظة من المقالات ويعود النظام للبحث في المزوّد التالي المفعّل أو البطاقة البديلة.</p>
+    {% for provider in providers %}
+      <div class="provider"><div><strong>{{ provider.label }}</strong> {% if provider.configured %}<span class="pill on">الإعداد متوفر</span>{% else %}<span class="pill needs">المفتاح غير مضبوط / قائمة محلية</span>{% endif %}<p>{{ provider.note }}</p></div>
+      <form method="post" class="controls"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="action" value="save_provider"><input type="hidden" name="provider" value="{{ provider.provider }}"><label><input type="checkbox" name="enabled" {% if provider.enabled %}checked{% endif %} {% if not provider.configured and provider.provider in ['pexels','unsplash'] %}disabled{% endif %}> مفعّل</label><button type="submit">حفظ</button></form></div>
+    {% endfor %}
+  </section>
+
+  <section class="section">
+    <h2>3. إيقاف صورة بواسطة رابطها</h2>
+    <p>إذا وصلتك ملاحظة حقوق أو وجدت صورة غير مناسبة، ألصق رابط الصورة المباشر هنا حتى لو لم تظهر ضمن قائمة آخر الصور.</p>
+    <form method="post" class="controls" style="align-items:flex-start">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="action" value="block_image">
+      <label class="small" for="manualImageUrl" style="display:block;min-width:100%">رابط HTTPS للصورة</label>
+      <input id="manualImageUrl" type="url" name="image_url" placeholder="https://…" required style="max-width:680px;flex:1;min-width:240px" dir="ltr">
+      <input type="text" name="reason" placeholder="سبب الإيقاف" style="max-width:300px;min-width:200px">
+      <button type="submit" class="danger">حظر الصورة</button>
+    </form>
+  </section>
+
+  <section class="section">
+    <h2>4. الصور المستخدمة في المقالات</h2>
+    <p>تعرض القائمة الصور التي اجتازت فحص المصدر والترخيص في قاعدة البيانات. أوقف صورة محددة إذا اكتشفت مشكلة في ترخيصها أو صلتها بالخبر.</p>
+    {% if images %}<div class="table-wrap"><table><thead><tr><th>الصورة والمقال</th><th>المصدر والإسناد</th><th>الترخيص</th><th>الإجراء</th></tr></thead><tbody>
+      {% for image in images %}<tr><td><div class="asset"><img src="{{ image.image_url }}" alt="" loading="lazy" onerror="this.style.display='none'"><div><div class="asset-title">{{ image.title }}</div><div class="small">{{ image.category }} · {{ image.source_name }}</div><a href="{{ image.source_url }}" target="_blank" rel="noopener noreferrer" class="small">فتح الخبر الأصلي</a></div></div></td>
+      <td>{% if image.image_credit_url %}<a href="{{ image.image_credit_url }}" target="_blank" rel="noopener noreferrer">{{ image.image_credit or image.image_source }}</a>{% else %}{{ image.image_credit or image.image_source }}{% endif %}<br><span class="small">{{ image.image_source }}</span></td>
+      <td>{% if image.image_license_url %}<a href="{{ image.image_license_url }}" target="_blank" rel="noopener noreferrer">فتح الترخيص</a>{% else %}<span class="pill needs">راجع الترخيص</span>{% endif %}</td>
+      <td>{% if image.blocked %}<span class="pill off">محظورة</span>{% else %}<form method="post"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="action" value="block_image"><input type="hidden" name="image_url" value="{{ image.image_url }}"><input type="text" name="reason" placeholder="سبب الإيقاف (اختياري)" aria-label="سبب الإيقاف"><div class="btn-row"><button class="danger" type="submit">إيقاف هذه الصورة</button></div></form>{% endif %}</td></tr>{% endfor %}
+    </tbody></table></div>{% else %}<p class="muted">لا توجد حاليًا صور موثّقة محفوظة. النظام سيحاول إعادة فحص الأخبار القديمة تدريجيًا أثناء التحديثات.</p>{% endif %}
+  </section>
+
+  <section class="section">
+    <h2>5. قائمة الصور المحظورة</h2>
+    <p>الصورة المحظورة لن تُعرض ولن يعيدها البحث التلقائي طالما بقيت في هذه القائمة.</p>
+    {% if blocked_images %}<div class="table-wrap"><table><thead><tr><th>رابط الصورة</th><th>سبب الإيقاف</th><th>الإجراء</th></tr></thead><tbody>
+      {% for image in blocked_images %}<tr><td dir="ltr" class="small">{{ image.image_url }}</td><td>{{ image.reason or '—' }}</td><td><form method="post"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="action" value="unblock_image"><input type="hidden" name="image_url" value="{{ image.image_url }}"><button class="secondary" type="submit">رفع الحظر</button></form></td></tr>{% endfor %}
+    </tbody></table></div>{% else %}<p class="muted">لا توجد صور محظورة يدويًا.</p>{% endif %}
+  </section>
+
+  <p class="small">لإدارة اللوحة: اضبط <code>ADMIN_USERNAME</code> و<code>ADMIN_PASSWORD</code> في إعدادات Render. لا تضعهما في GitHub. تحتاج هذه اللوحة إلى اتصال Supabase/PostgreSQL حتى تحفظ القرارات بين عمليات النشر.</p>
+</main>
+<footer>World Pulse · Source and image rights review</footer>
+</body>
+</html>
