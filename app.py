@@ -637,6 +637,7 @@ def _known_source_controls() -> list[dict[str, Any]]:
         ("presskit_approved", "صور صحفية معتمدة", _presskit_provider_configured()),
         ("pexels_api", "Pexels API", bool(PEXELS_API_KEY)),
         ("unsplash_api", "Unsplash API", bool(UNSPLASH_ACCESS_KEY)),
+        ("gemini_generated", "توليد صور تحريرية باستخدام Gemini", bool(GEMINI_API_KEY) and genai is not None and types is not None),
     ]
     for provider, title, configured in image_providers:
         key = f"image:{provider}"
@@ -1519,6 +1520,16 @@ def _resolve_article_image(raw: dict[str, Any]) -> dict[str, Any]:
             result["image_checked_at"] = datetime.now(timezone.utc)
             return result
 
+    fallback = raw.get("_fallback_cached_image")
+    if isinstance(fallback, dict):
+        fallback_source = str(fallback.get("image_source") or "")
+        fallback_url = str(fallback.get("image_url") or "")
+        if (
+            fallback_url and fallback_source in TRUSTED_REUSABLE_IMAGE_SOURCES
+            and _control_enabled(f"image:{fallback_source}", True)
+        ):
+            return fallback
+
     return {
         "image_url": "",
         "image_source": "none",
@@ -2085,6 +2096,8 @@ def _image_license_label(license_url: str, source: str = "") -> str:
         return "Unsplash License"
     if source == "presskit_approved":
         return "Approved press-kit licence"
+    if source == "gemini_generated":
+        return "AI-generated illustration (not a stock-photo licence)"
     return ""
 
 def _image_provider_label(source: str) -> str:
@@ -2093,6 +2106,7 @@ def _image_provider_label(source: str) -> str:
         "unsplash_api": "Unsplash",
         "pexels_api": "Pexels",
         "presskit_approved": "Approved press kit",
+        "gemini_generated": "Gemini AI illustration",
     }.get(source or "", "")
 
 def _normalise_story(row: dict[str, Any], lang: str) -> dict[str, Any]:
@@ -2402,7 +2416,14 @@ def news_status():
         "gemini_api_key_configured": bool(GEMINI_API_KEY),
         "gemini_sdk_loaded": genai is not None and types is not None,
         "gemini_model": GEMINI_MODEL,
+        "gemini_image_model": GEMINI_IMAGE_MODEL,
+        "gemini_image_generation_configured": bool(GEMINI_IMAGE_GENERATION_ENABLED and GEMINI_API_KEY and genai is not None),
+        "image_generation_limits": {
+            "per_refresh": MAX_GEMINI_IMAGES_PER_REFRESH,
+            "per_24_hours": MAX_GEMINI_IMAGES_PER_24H,
+        },
         "image_providers": {
+            "gemini_image_generation": _control_enabled("image:gemini_generated", True),
             "wikimedia_commons": _control_enabled("image:wikimedia_relevant", True),
             "presskit_manifest_configured": _presskit_provider_configured(),
             "pexels_configured": bool(PEXELS_API_KEY),
@@ -2657,6 +2678,17 @@ def robots():
     origin = _site_origin()
     body = f"User-agent: *\nAllow: /\nDisallow: /api/\nSitemap: {origin}/sitemap.xml\nSitemap: {origin}/news-sitemap.xml\n"
     return app.response_class(body, mimetype="text/plain")
+
+@app.get("/media/generated/<image_id>")
+def generated_image(image_id: str):
+    stored = _read_gemini_generated_image(image_id)
+    if not stored:
+        abort(404)
+    image_bytes, mime_type = stored
+    response = Response(image_bytes, mimetype=mime_type)
+    response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    return response
 
 @app.get("/healthz")
 def healthz():
