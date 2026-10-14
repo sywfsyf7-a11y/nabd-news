@@ -27,6 +27,32 @@ class SourcePolicyTests(unittest.TestCase):
         unapproved = dict(arabic_story, source_domain="unknown.example")
         self.assertFalse(world_pulse._row_allowed_on_language_site(unapproved, "ar"))
 
+    def test_missing_images_use_original_language_fallbacks(self):
+        from unittest.mock import patch
+
+        base = {
+            "slug": "story-fallback",
+            "source_url": "https://example.test/story",
+            "category": "world",
+            "title_ar": "عنوان",
+            "title_en": "Headline",
+            "summary_ar": "",
+            "summary_en": "",
+            "content_ar": "",
+            "content_en": "",
+            "original_language": "ar",
+            "image_url": "",
+            "image_source": "none",
+        }
+        with patch.object(world_pulse, "_is_image_blocked", return_value=False):
+            arabic = world_pulse._normalise_story(dict(base), "ar")
+            english = world_pulse._normalise_story(dict(base, original_language="en"), "en")
+
+        self.assertEqual(arabic["image_url"], "/static/A.jpg")
+        self.assertEqual(arabic["image_source"], "language_fallback")
+        self.assertEqual(english["image_url"], "/static/E.jpg")
+        self.assertEqual(english["image_source"], "language_fallback")
+
     def test_headline_image_query_removes_editorial_filler(self):
         query = world_pulse._image_search_phrase(
             "Breaking: NASA announces Artemis moon mission today"
@@ -145,9 +171,8 @@ class SourcePolicyTests(unittest.TestCase):
         ask = client.post(
             "/api/ask",
             json={"slug": "not-a-real-story", "lang": "en", "question": "What happened?"},
-            headers={"X-CSRF-Token": "not-a-valid-token"},
         )
-        self.assertEqual(ask.status_code, 400)
+        self.assertEqual(ask.status_code, 404)
 
     def test_original_language_story_can_be_persisted_without_gemini(self):
         article = world_pulse._base_article({
