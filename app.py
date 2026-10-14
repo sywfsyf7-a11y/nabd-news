@@ -499,6 +499,7 @@ def _database_error_code(exc: Exception) -> str:
     return type(exc).__name__
 
 def _probe_database() -> dict[str, Any]:
+    global _DB_RETRY_AFTER
     """Use a short cached SELECT 1 probe for the protected monitoring panel."""
     if not _database_url():
         _LAST_DB_STATUS.update({
