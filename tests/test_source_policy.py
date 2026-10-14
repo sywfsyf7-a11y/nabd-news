@@ -121,7 +121,7 @@ class SourcePolicyTests(unittest.TestCase):
         self.assertEqual(call["response_format"]["aspect_ratio"], "16:9")
         self.assertEqual(call["response_format"]["image_size"], "1K")
 
-    def test_gemini_failure_falls_back_to_existing_image_providers(self):
+    def test_reusable_images_are_tried_before_gemini_generation(self):
         fallback = {
             "image_url": "https://images.pexels.com/test.jpeg",
             "image_source": "pexels_api",
@@ -140,12 +140,38 @@ class SourcePolicyTests(unittest.TestCase):
         }
         from unittest.mock import patch
         with patch.object(world_pulse, "_generate_gemini_article_image", return_value={}) as generator:
-            with patch.object(world_pulse, "_search_any_reusable_image", return_value=fallback) as old_sources:
+            with patch.object(world_pulse, "_search_any_reusable_image", return_value=fallback) as reusable:
                 result = world_pulse._resolve_article_image(article)
-        generator.assert_called_once_with(article)
-        old_sources.assert_called_once()
+        generator.assert_not_called()
+        reusable.assert_called_once_with("Generic technology story", "en", "technology")
         self.assertEqual(result["image_source"], "pexels_api")
         self.assertEqual(result["image_url"], fallback["image_url"])
+
+    def test_gemini_illustration_is_used_only_after_reusable_image_search_fails(self):
+        generated = {
+            "image_url": "/media/generated/" + "c" * 32,
+            "image_source": "gemini_generated",
+            "image_credit": "AI-generated illustration with Google Gemini",
+            "image_credit_url": "",
+            "image_provider_url": "https://ai.google.dev/gemini-api/docs/image-generation",
+            "image_license_url": "",
+            "image_checked_at": None,
+        }
+        article = {
+            "original_title": "Generic technology story",
+            "image_search_title": "Generic technology story",
+            "original_language": "en",
+            "category": "technology",
+            "_allow_ai_image_generation": True,
+        }
+        from unittest.mock import patch
+        with patch.object(world_pulse, "_search_any_reusable_image", return_value={}) as reusable:
+            with patch.object(world_pulse, "_generate_gemini_article_image", return_value=generated) as generator:
+                result = world_pulse._resolve_article_image(article)
+        reusable.assert_called_once()
+        generator.assert_called_once_with(article)
+        self.assertEqual(result["image_source"], "gemini_generated")
+        self.assertEqual(result["image_url"], generated["image_url"])
 
     def test_all_jinja_templates_compile(self):
         for template_name in world_pulse.app.jinja_env.list_templates():
