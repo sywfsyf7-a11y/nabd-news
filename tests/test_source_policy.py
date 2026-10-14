@@ -88,6 +88,11 @@ class SourcePolicyTests(unittest.TestCase):
         self.assertEqual(result["image_source"], "pexels_api")
         self.assertEqual(result["image_url"], fallback["image_url"])
 
+    def test_all_jinja_templates_compile(self):
+        for template_name in world_pulse.app.jinja_env.list_templates():
+            with self.subTest(template=template_name):
+                world_pulse.app.jinja_env.get_template(template_name)
+
     def test_generated_image_route_serves_persistent_asset_bytes(self):
         from unittest.mock import patch
         with patch.object(world_pulse, "_read_gemini_generated_image", return_value=(b"fake-jpeg-bytes", "image/jpeg")):
