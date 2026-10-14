@@ -1554,9 +1554,12 @@ def _enrich_article_images(raw_articles: list[dict[str, Any]]) -> None:
                 input_checked = None
         if isinstance(input_checked, datetime) and input_checked.tzinfo is None:
             input_checked = input_checked.replace(tzinfo=timezone.utc)
-        if (input_source in TRUSTED_REUSABLE_IMAGE_SOURCES and _control_enabled(f"image:{input_source}", True)
-                and item.get("image_url") and isinstance(input_checked, datetime)
-                and (now_utc - input_checked.astimezone(timezone.utc)).total_seconds() < IMAGE_CACHE_MAX_AGE_SECONDS):
+        if (
+            input_source in TRUSTED_REUSABLE_IMAGE_SOURCES
+            and _control_enabled(f"image:{input_source}", True)
+            and item.get("image_url") and isinstance(input_checked, datetime)
+            and (now_utc - input_checked.astimezone(timezone.utc)).total_seconds() < IMAGE_CACHE_MAX_AGE_SECONDS
+        ):
             continue
 
         item.update({
@@ -1565,8 +1568,10 @@ def _enrich_article_images(raw_articles: list[dict[str, Any]]) -> None:
         })
         cached = known_images.get(source_url)
         cached_source = str((cached or {}).get("image_source") or "")
-        if (cached and cached.get("image_url") and cached_source in TRUSTED_REUSABLE_IMAGE_SOURCES
-                and _control_enabled(f"image:{cached_source}", True)):
+        if (
+            cached and cached.get("image_url") and cached_source in TRUSTED_REUSABLE_IMAGE_SOURCES
+            and _control_enabled(f"image:{cached_source}", True)
+        ):
             checked = cached.get("image_checked_at")
             if isinstance(checked, str):
                 try:
@@ -1575,11 +1580,25 @@ def _enrich_article_images(raw_articles: list[dict[str, Any]]) -> None:
                     checked = None
             if isinstance(checked, datetime) and checked.tzinfo is None:
                 checked = checked.replace(tzinfo=timezone.utc)
-            if isinstance(checked, datetime) and (now_utc - checked.astimezone(timezone.utc)).total_seconds() < IMAGE_CACHE_MAX_AGE_SECONDS:
-                for key in ("image_url", "image_source", "image_credit", "image_credit_url", "image_provider_url", "image_license_url", "image_checked_at"):
+            if (
+                isinstance(checked, datetime)
+                and (now_utc - checked.astimezone(timezone.utc)).total_seconds() < IMAGE_CACHE_MAX_AGE_SECONDS
+            ):
+                for key in (
+                    "image_url", "image_source", "image_credit", "image_credit_url",
+                    "image_provider_url", "image_license_url", "image_checked_at",
+                ):
                     if cached.get(key) not in (None, ""):
                         item[key] = cached[key]
                 continue
+            if cached_source != "gemini_generated":
+                item["_fallback_cached_image"] = {
+                    key: cached.get(key)
+                    for key in (
+                        "image_url", "image_source", "image_credit", "image_credit_url",
+                        "image_provider_url", "image_license_url", "image_checked_at",
+                    )
+                }
 
     pending = [
         item for item in raw_articles
@@ -1587,6 +1606,11 @@ def _enrich_article_images(raw_articles: list[dict[str, Any]]) -> None:
     ][:MAX_IMAGE_LOOKUPS_PER_REFRESH]
     if not pending:
         return
+
+    ai_slots = _reserve_gemini_image_slots(len(pending))
+    for index, item in enumerate(pending):
+        item["_allow_ai_image_generation"] = index < ai_slots
+
     found = 0
     providers: dict[str, int] = {}
     errors = 0
@@ -1608,22 +1632,16 @@ def _enrich_article_images(raw_articles: list[dict[str, Any]]) -> None:
                     "image_credit_url": "", "image_provider_url": "", "image_license_url": "",
                     "image_checked_at": datetime.now(timezone.utc),
                 })
-    ai_slots = _reserve_gemini_image_slots(len(pending))
-    for index, item in enumerate(pending):
-        item["_allow_ai_image_generation"] = index < ai_slots
-    with ThreadPoolExecutor(max_workers=4) as pool:
-        futures = {pool.submit(_resolve_article_image, item): item for item in pending}
-        for future in as_completed(futures):
-            item = futures[future]
-            # Existing future loop replaced below if this anchor unexpectedly matches a different block.
     with _IMAGE_STATUS_LOCK:
         _LAST_IMAGE_STATUS.update({
             "attempted": len(pending), "found": found, "errors": errors,
-            "ai_generation_attempted": ai_slots,
+            "ai_generation_reserved": ai_slots,
             "providers": dict(providers), "updated_at": datetime.now(timezone.utc).isoformat(),
         })
-    logger.info("Image lookup finished: attempted=%d found=%d errors=%d providers=%s",
-                len(pending), found, errors, providers)
+    logger.info(
+        "Image lookup finished: attempted=%d found=%d ai_slots=%d errors=%d providers=%s",
+        len(pending), found, ai_slots, errors, providers,
+    )
 
 def _parse_any_rss(feed_url: str, category: str, lang: str, default_source: str) -> tuple[str, str, list[dict[str, Any]]]:
     request_obj = Request(feed_url, headers={"User-Agent": "WorldPulseNews/1.3 (+Google News RSS discovery)"})
