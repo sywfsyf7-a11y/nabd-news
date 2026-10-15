@@ -457,6 +457,7 @@ _DB_RETRY_AFTER = 0.0
 _DB_LOCK = threading.Lock()
 _CONTROL_CACHE: dict[str, tuple[bool, float]] = {}
 _CONTROL_CACHE_LOCK = threading.Lock()
+_CONTROL_CACHE_PRIME_LOCK = threading.Lock()
 _LAST_DB_STATUS: dict[str, Any] = {"state": "unknown", "error_code": "", "checked_at": None, "checked_monotonic": 0.0}
 _DB_LAST_FETCHED_VALUE: datetime | None = None
 _DB_LAST_FETCHED_CHECKED = 0.0
@@ -691,12 +692,97 @@ def _ensure_schema() -> bool:
         finally:
             conn.close()
 
+def _known_control_cache_keys() -> set[str]:
+    keys = {
+        f"news:{category}:{lang}:{domain}"
+        for category, languages in CATEGORY_SOURCE_DOMAINS.items()
+        for lang, domains in languages.items()
+        for domain in domains
+    }
+    keys.update({
+        "image:wikimedia_relevant",
+        "image:openverse_licensed",
+        "image:loc_open_access",
+        "image:nasa_images",
+        "image:presskit_approved",
+        "image:pexels_api",
+        "image:unsplash_api",
+        "image:gemini_generated",
+    })
+    return keys
+
+
+def _prime_source_control_cache() -> bool:
+    """Load every configured source toggle in one DB query before parallel RSS work."""
+    keys = _known_control_cache_keys()
+    now = time.monotonic()
+    with _CONTROL_CACHE_LOCK:
+        if keys and all(
+            key in _CONTROL_CACHE and _CONTROL_CACHE[key][1] > now
+            for key in keys
+        ):
+            return True
+
+    # Multiple feed threads must not open hundreds of individual DB connections
+    # while they discover which sources are enabled.
+    with _CONTROL_CACHE_PRIME_LOCK:
+        now = time.monotonic()
+        with _CONTROL_CACHE_LOCK:
+            if keys and all(
+                key in _CONTROL_CACHE and _CONTROL_CACHE[key][1] > now
+                for key in keys
+            ):
+                return True
+
+        if not _ensure_schema():
+            return _prime_default_source_controls(keys, ttl_seconds=15)
+        conn = _connect_db()
+        if conn is None:
+            return _prime_default_source_controls(keys, ttl_seconds=15)
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT control_key, enabled FROM world_pulse_controls")
+                stored = {str(row[0]): bool(row[1]) for row in cur.fetchall()}
+            expires = time.monotonic() + 120
+            with _CONTROL_CACHE_LOCK:
+                for key in keys:
+                    # Missing DB rows mean "enabled" by the app's existing default.
+                    _CONTROL_CACHE[key] = (stored.get(key, True), expires)
+                for key, value in stored.items():
+                    _CONTROL_CACHE[key] = (value, expires)
+            logger.debug("Primed source-control cache with %d persisted toggles", len(stored))
+            return True
+        except Exception as exc:
+            logger.warning("Bulk source-control cache load failed (%s)", type(exc).__name__)
+            return _prime_default_source_controls(keys, ttl_seconds=15)
+        finally:
+            conn.close()
+
+
+def _prime_default_source_controls(keys: set[str], *, ttl_seconds: int) -> bool:
+    """Cache existing default-on behavior briefly during a database outage."""
+    expires = time.monotonic() + max(1, ttl_seconds)
+    with _CONTROL_CACHE_LOCK:
+        for key in keys:
+            current = _CONTROL_CACHE.get(key)
+            if not current or current[1] <= time.monotonic():
+                _CONTROL_CACHE[key] = (True, expires)
+    return False
+
+
 def _control_enabled(control_key: str, default: bool = True) -> bool:
     now = time.monotonic()
     with _CONTROL_CACHE_LOCK:
         cached = _CONTROL_CACHE.get(control_key)
         if cached and cached[1] > now:
             return cached[0]
+    _prime_source_control_cache()
+    now = time.monotonic()
+    with _CONTROL_CACHE_LOCK:
+        cached = _CONTROL_CACHE.get(control_key)
+        if cached and cached[1] > now:
+            return cached[0]
+    # Non-catalogue toggles retain the original per-key fallback.
     if not _ensure_schema():
         return default
     conn = _connect_db()
@@ -2270,6 +2356,8 @@ def _log_rss_selection(stories: list[dict[str, Any]], candidates_before_selectio
 
 
 def _collect_rss_articles() -> list[dict[str, Any]]:
+    # Warm source enable/disable state before fan-out to the parallel RSS workers.
+    _prime_source_control_cache()
     tasks = [
         (category, lang)
         for category in CATEGORY_NAMES
