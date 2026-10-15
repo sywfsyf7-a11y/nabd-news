@@ -547,6 +547,11 @@ class SourcePolicyTests(unittest.TestCase):
             world_pulse._image_license_label("https://creativecommons.org/licenses/by-sa/4.0/"),
             "CC BY-SA 4.0",
         )
+    def test_news_template_parses_after_visual_fallback_changes(self):
+        template = world_pulse.app.jinja_env.get_template("index.html")
+        self.assertIsNotNone(template)
+
+
 
 if __name__ == "__main__":
     unittest.main()
