@@ -86,6 +86,7 @@ NEWS_RETRY_MINUTES = max(5, int(os.getenv("NEWS_RETRY_MINUTES", "10")))
 NEWS_AUTO_FETCH = os.getenv("NEWS_AUTO_FETCH", "true").lower() not in {"0", "false", "no"}
 RSS_TIMEOUT_SECONDS = max(2, int(os.getenv("RSS_TIMEOUT_SECONDS", "6")))
 RSS_BATCH_TIMEOUT_SECONDS = max(8, min(60, int(os.getenv("RSS_BATCH_TIMEOUT_SECONDS", "20"))))
+IMAGE_ENRICHMENT_BATCH_TIMEOUT_SECONDS = max(5, min(120, int(os.getenv("IMAGE_ENRICHMENT_BATCH_TIMEOUT_SECONDS", "35"))))
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
 GEMINI_IMAGE_MODEL = os.getenv("GEMINI_IMAGE_MODEL", "gemini-nano-banana-2.1").strip()
 GEMINI_IMAGE_GENERATION_ENABLED = os.getenv("GEMINI_IMAGE_GENERATION_ENABLED", "true").lower() not in {"0", "false", "no"}
@@ -2163,9 +2164,14 @@ def _enrich_article_images(raw_articles: list[dict[str, Any]], *, force_refresh:
     found = 0
     providers: dict[str, int] = {}
     errors = 0
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        futures = {pool.submit(_resolve_article_image, item): item for item in pending}
-        for future in as_completed(futures):
+    batch_started = time.monotonic()
+    pool = ThreadPoolExecutor(max_workers=3)
+    futures = {pool.submit(_resolve_article_image, item): item for item in pending}
+    completed: set[Any] = set()
+    timed_out = False
+    try:
+        for future in as_completed(futures, timeout=IMAGE_ENRICHMENT_BATCH_TIMEOUT_SECONDS):
+            completed.add(future)
             item = futures[future]
             try:
                 resolved = future.result()
@@ -2191,6 +2197,37 @@ def _enrich_article_images(raw_articles: list[dict[str, Any]], *, force_refresh:
                     "image_credit_url": "", "image_provider_url": "", "image_license_url": "",
                     "image_checked_at": datetime.now(timezone.utc),
                 })
+    except FuturesTimeoutError:
+        timed_out = True
+    finally:
+        not_completed = [future for future in futures if future not in completed]
+        for future in not_completed:
+            future.cancel()
+        # Do not hold the overall news-refresh lock while a provider hangs. Already-running
+        # calls can finish in their worker threads; unfinished items keep a safe cached image.
+        pool.shutdown(wait=False, cancel_futures=True)
+
+    if timed_out:
+        for future in not_completed:
+            item = futures[future]
+            fallback = item.get("_fallback_cached_image")
+            if isinstance(fallback, dict):
+                fallback_url = str(fallback.get("image_url") or "")
+                fallback_source = str(fallback.get("image_source") or "")
+                if fallback_url and fallback_source in TRUSTED_REUSABLE_IMAGE_SOURCES:
+                    item.update(fallback)
+                    item["image_checked_at"] = datetime.now(timezone.utc)
+                    continue
+            item.update({
+                "image_url": "", "image_source": "none", "image_credit": "",
+                "image_credit_url": "", "image_provider_url": "", "image_license_url": "",
+                "image_checked_at": datetime.now(timezone.utc),
+            })
+            errors += 1
+        logger.warning(
+            "Image enrichment deadline reached after %.1fs: completed=%d/%d timed_out=%d; retaining prior safe images where available",
+            time.monotonic() - batch_started, len(completed), len(futures), len(not_completed),
+        )
     with _IMAGE_STATUS_LOCK:
         _LAST_IMAGE_STATUS.update({
             "attempted": len(pending), "found": found, "errors": errors,
