@@ -448,5 +448,23 @@ class SourcePolicyTests(unittest.TestCase):
         self.assertIn("sslmode=require", result)
 
 
+    def test_database_url_trims_encoded_whitespace_after_database_name(self):
+        from unittest.mock import patch
+
+        dsn = (
+            "postgresql://postgres.projectref@aws-0-ap-northeast-1.pooler.supabase.com:5432/postgres%20"
+            "?sslmode=require&pgbouncer=true"
+        )
+        with patch.dict(
+            world_pulse.os.environ,
+            {"SUPABASE_POOLER_URL": dsn, "DATABASE_URL": ""},
+            clear=False,
+        ):
+            result = world_pulse._database_url()
+        self.assertIn(":6543/postgres?sslmode=require", result)
+        self.assertNotIn("postgres%20", result)
+        self.assertNotIn("pgbouncer", result.casefold())
+
+
 if __name__ == "__main__":
     unittest.main()
