@@ -107,7 +107,7 @@ UNSPLASH_ACCESS_KEY = os.getenv("UNSPLASH_ACCESS_KEY", "").strip()
 PEXELS_API_KEY = os.getenv("PEXELS_API_KEY", "").strip()
 IMAGE_CACHE_MAX_AGE_SECONDS = max(3600, int(os.getenv("IMAGE_CACHE_MAX_AGE_HOURS", "24")) * 3600)
 TRUSTED_REUSABLE_IMAGE_SOURCES = {
-    "wikimedia_relevant", "openverse_licensed", "loc_open_access", "nasa_images", "presskit_approved", "unsplash_api", "pexels_api", "gemini_generated"
+    "wikimedia_relevant", "openverse_licensed", "loc_open_access", "nasa_images", "presskit_approved", "unsplash_api", "pexels_api", "publisher_rss"
 }
 
 CATEGORY_NAMES = {
@@ -211,11 +211,11 @@ CATEGORY_QUERIES = {
 
 CATEGORY_SOURCE_DOMAINS = {
     "politics": {
-        "ar": ["aljazeera.net","bbc.com","alarabiya.net","skynewsarabia.com","aawsat.com","alquds.co.uk","alghad.com","almamlakatv.com","roya.tv","arabic.rt.com","cnn.com","france24.com","dw.com","euronews.com","aa.com.tr","alhurra.com","independentarabia.com","wam.ae","petra.gov.jo"],
-        "en": ["bbc.com","bbc.co.uk","aljazeera.com","cnn.com","reuters.com","apnews.com","politico.com","thehill.com","axios.com","voanews.com","rferl.org","dw.com","france24.com","euronews.com","abc.net.au","cbc.ca","npr.org","theconversation.com","almonitor.com","foreignpolicy.com","defensenews.com","opendemocracy.net","chinadaily.com.cn"],
+        "ar": ["aljazeera.net","bbc.com","alarabiya.net","skynewsarabia.com","aawsat.com","alquds.co.uk","alghad.com","almamlakatv.com","roya.tv","arabic.rt.com","cnn.com","france24.com","dw.com","euronews.com","aa.com.tr","alhurra.com","independentarabia.com","wam.ae","petra.gov.jo","asharq.com","saudipressagency.com","spa.gov.sa"],
+        "en": ["bbc.com","bbc.co.uk","aljazeera.com","cnn.com","reuters.com","apnews.com","politico.com","thehill.com","axios.com","voanews.com","rferl.org","dw.com","france24.com","euronews.com","abc.net.au","cbc.ca","npr.org","theconversation.com","almonitor.com","foreignpolicy.com","defensenews.com","opendemocracy.net","chinadaily.com.cn","theguardian.com"],
     },
     "economy": {
-        "ar": ["asharqbusiness.com","cnbcarabia.com","mubasher.info","alarabiya.net","argaam.com","aleqt.com","zawya.com","almalnews.com","amwalalghad.com","almamlakatv.com","alghad.com","albayan.ae","alittihad.ae","wam.ae","petra.gov.jo"],
+        "ar": ["asharqbusiness.com","cnbcarabia.com","mubasher.info","alarabiya.net","argaam.com","aleqt.com","zawya.com","almalnews.com","amwalalghad.com","almamlakatv.com","alghad.com","albayan.ae","alittihad.ae","wam.ae","petra.gov.jo","asharq.com"],
         "en": ["bloomberg.com","ft.com","wsj.com","cnbc.com","marketwatch.com","fortune.com","businessinsider.com","investopedia.com","finance.yahoo.com","economist.com","economictimes.indiatimes.com","forbes.com","theinformation.com","techcrunch.com","axios.com","cnn.com","dw.com","reuters.com","apnews.com"],
     },
     "technology": {
@@ -228,15 +228,15 @@ CATEGORY_SOURCE_DOMAINS = {
     },
     "sports": {
         "ar": ["filgoal.com","kooora.com","beinsports.com","yallakora.com","goal.com","arriyadiyah.com","alriyadh.com","sports360.com","365scores.com","fifa.com","olympics.com","almamlakatv.com","alghad.com","cnn.com"],
-        "en": ["bbc.com","espn.com","skysports.com","formula1.com","fifa.com","olympics.com","goal.com","sportingnews.com","bleacherreport.com","talksport.com","motorsport.com","nba.com","nfl.com","mlb.com","apnews.com","reuters.com"],
+        "en": ["bbc.com","espn.com","skysports.com","formula1.com","fifa.com","olympics.com","goal.com","sportingnews.com","bleacherreport.com","talksport.com","motorsport.com","nba.com","nfl.com","mlb.com","apnews.com","reuters.com","theathletic.com"],
     },
     "science": {
-        "ar": ["ngalarabiya.com","aljazeera.net","alarabiya.net","dw.com","france24.com","euronews.com","cnn.com","aa.com.tr","alhurra.com","petra.gov.jo","wam.ae","almamlakatv.com","arabic.rt.com"],
+        "ar": ["ngalarabiya.com","aljazeera.net","alarabiya.net","dw.com","france24.com","euronews.com","cnn.com","aa.com.tr","alhurra.com","petra.gov.jo","wam.ae","almamlakatv.com","arabic.rt.com","scientificamerican.com"],
         "en": ["nasa.gov","space.com","scientificamerican.com","livescience.com","phys.org","sciencenews.org","eurekalert.org","noaa.gov","usgs.gov","nsf.gov","energy.gov","nih.gov","esa.int","nature.com","newscientist.com","sciencedaily.com","science.org","eos.org","cnn.com","apnews.com"],
     },
     "culture": {
         "ar": ["alqafilah.com","thifaf.com","aljazeera.net","alaraby.co.uk","alarab.co.uk","alarabiya.net","albayan.ae","alittihad.ae","masrawy.com","almasryalyoum.com","youm7.com","cairo24.com","alkhaleej.ae","cnn.com","france24.com","dw.com"],
-        "en": ["lithub.com","artsy.net","theguardian.com","smithsonianmag.com","artnews.com","hyperallergic.com","pitchfork.com","variety.com","hollywoodreporter.com","npr.org","theconversation.com","bfi.org.uk","literaryreview.co.uk","cnn.com","apnews.com","euronews.com"],
+        "en": ["lithub.com","artsy.net","theguardian.com","smithsonianmag.com","artnews.com","hyperallergic.com","pitchfork.com","variety.com","hollywoodreporter.com","npr.org","theconversation.com","bfi.org.uk","literaryreview.co.uk","cnn.com","apnews.com","euronews.com","newyorker.com"],
     },
     "world": {
         "ar": ["aljazeera.net","bbc.com","dw.com","france24.com","euronews.com","alarabiya.net","skynewsarabia.com","alghad.com","almamlakatv.com","roya.tv","arabic.rt.com","alhurra.com","cnn.com","aa.com.tr","wam.ae","petra.gov.jo","independentarabia.com","alqabas.com","alain.com"],
@@ -2365,10 +2365,30 @@ def _parse_any_rss(feed_url: str, category: str, lang: str, default_source: str)
                 summary_raw = entry.get("summary", "") or entry.get("description", "")
                 if not summary_raw and entry.get("content"):
                     summary_raw = entry.get("content", [{}])[0].get("value", "")
+            # Prefer images attached to the publisher RSS item; keep publisher attribution.
+            rss_image_url = ""
+            for media in (entry.get("media_content") or []) + (entry.get("media_thumbnail") or []):
+                candidate = str(media.get("url") or "").strip()
+                media_type = str(media.get("type") or "").casefold()
+                if candidate.startswith(("https://", "http://")) and (
+                    media_type.startswith("image/") or urlparse(candidate).path.casefold().endswith((".jpg", ".jpeg", ".png", ".webp", ".gif"))
+                ):
+                    rss_image_url = candidate
+                    break
+            if not rss_image_url:
+                for link in entry.get("links", []) or []:
+                    candidate = str(link.get("href") or "").strip()
+                    media_type = str(link.get("type") or "").casefold()
+                    if str(link.get("rel") or "").casefold() == "enclosure" and media_type.startswith("image/") and candidate.startswith(("https://", "http://")):
+                        rss_image_url = candidate
+                        break
             items.append({
                 "category": category, "source_url": url, "source_name": publisher, "source_domain": publisher_host,
-                "image_url": "", "image_source": "none", "image_credit": "",
-                "image_credit_url": "", "image_provider_url": "", "image_license_url": "", "image_checked_at": None,
+                "image_url": rss_image_url, "image_source": "publisher_rss" if rss_image_url else "none",
+                "image_credit": publisher if rss_image_url else "",
+                "image_credit_url": (source_href or url) if rss_image_url else "",
+                "image_provider_url": source_href if rss_image_url else "",
+                "image_license_url": "", "image_checked_at": datetime.now(timezone.utc).isoformat() if rss_image_url else None,
                 "original_title": title, "original_summary": _clean_text(summary_raw, 900),
                 "published_at": _parse_published(entry), "original_language": lang,
                 "headline_only": headline_only,
@@ -2388,11 +2408,13 @@ def _parse_feed_task(category: str, lang: str) -> tuple[str, str, list[dict[str,
     # Never fall back to an unrestricted Google News search when no sources are eligible.
     if not domains:
         return category, lang, []
-    # Keep the RSS request short: placing every allowlisted domain in one large
-    # site:... OR ... expression makes some Google News queries very slow or stall.
-    # _parse_any_rss still enforces the exact language/category publisher allowlist
-    # on every returned item before it can enter the catalogue.
-    query = f"({query}) when:7d"
+    # Explicitly target requested publishers, rotating up to six domains each refresh.
+    rotation = int(time.time() // (NEWS_REFRESH_MINUTES * 60))
+    window = min(6, len(domains))
+    start = (rotation * window) % len(domains)
+    selected_domains = [domains[(start + offset) % len(domains)] for offset in range(window)]
+    site_filter = " OR ".join(f"site:{domain}" for domain in selected_domains)
+    query = f"({query}) ({site_filter}) when:7d"
     if lang == "ar":
         locale = {"hl": "ar", "gl": "JO", "ceid": "JO:ar"}
     else:
