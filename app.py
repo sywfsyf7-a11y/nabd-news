@@ -21,7 +21,7 @@ import re
 import secrets
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FuturesTimeoutError
 from datetime import date, datetime, timezone, timedelta
 from email.utils import parsedate_to_datetime
 from email.message import EmailMessage
@@ -85,6 +85,7 @@ NEWS_REFRESH_MINUTES = max(15, int(os.getenv("NEWS_REFRESH_MINUTES", "30")))
 NEWS_RETRY_MINUTES = max(5, int(os.getenv("NEWS_RETRY_MINUTES", "10")))
 NEWS_AUTO_FETCH = os.getenv("NEWS_AUTO_FETCH", "true").lower() not in {"0", "false", "no"}
 RSS_TIMEOUT_SECONDS = max(2, int(os.getenv("RSS_TIMEOUT_SECONDS", "6")))
+RSS_BATCH_TIMEOUT_SECONDS = max(8, min(60, int(os.getenv("RSS_BATCH_TIMEOUT_SECONDS", "20"))))
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
 GEMINI_IMAGE_MODEL = os.getenv("GEMINI_IMAGE_MODEL", "gemini-nano-banana-2.1").strip()
 GEMINI_IMAGE_GENERATION_ENABLED = os.getenv("GEMINI_IMAGE_GENERATION_ENABLED", "true").lower() not in {"0", "false", "no"}
@@ -2376,10 +2377,23 @@ def _collect_rss_articles() -> list[dict[str, Any]]:
         for lang in ("ar", "en")
     ]
     by_category: dict[str, list[dict[str, Any]]] = {key: [] for key in CATEGORY_NAMES}
-    with ThreadPoolExecutor(max_workers=20) as pool:
-        futures = [pool.submit(_parse_feed_task, category, lang)
-                   for category, lang in tasks]
-        for future in as_completed(futures):
+    batch_started = time.monotonic()
+    logger.info(
+        "RSS discovery started: feeds=%d per_feed_timeout=%ds batch_timeout=%ds",
+        len(tasks), RSS_TIMEOUT_SECONDS, RSS_BATCH_TIMEOUT_SECONDS,
+    )
+    pool = ThreadPoolExecutor(max_workers=min(20, len(tasks)))
+    futures = {
+        pool.submit(_parse_feed_task, category, lang): (category, lang)
+        for category, lang in tasks
+    }
+    completed = 0
+    failed = 0
+    timed_out = False
+    try:
+        for future in as_completed(futures, timeout=RSS_BATCH_TIMEOUT_SECONDS):
+            requested, requested_lang = futures[future]
+            completed += 1
             try:
                 requested_category, _lang, items = future.result()
                 for item in items:
@@ -2391,8 +2405,33 @@ def _collect_rss_articles() -> list[dict[str, Any]]:
                         actual_category = requested_category
                     item["category"] = actual_category
                     by_category[actual_category].append(item)
-            except Exception:
-                pass
+            except Exception as exc:
+                failed += 1
+                logger.warning(
+                    "RSS feed task failed: category=%s lang=%s error=%s",
+                    requested, requested_lang, type(exc).__name__,
+                )
+    except FuturesTimeoutError:
+        timed_out = True
+    finally:
+        pending = [future for future in futures if not future.done()]
+        for future in pending:
+            future.cancel()
+        # Do not let a single stuck publisher/feed call hold up completed feeds or
+        # new-news persistence. urlopen still uses RSS_TIMEOUT_SECONDS per request.
+        pool.shutdown(wait=False, cancel_futures=True)
+
+    elapsed = time.monotonic() - batch_started
+    if timed_out:
+        logger.warning(
+            "RSS batch deadline reached after %.1fs: completed=%d/%d failed=%d pending=%d; continuing with completed feeds",
+            elapsed, completed, len(tasks), failed, len(pending),
+        )
+    else:
+        logger.info(
+            "RSS batch completed in %.1fs: completed=%d/%d failed=%d",
+            elapsed, completed, len(tasks), failed,
+        )
 
     cleaned: dict[str, list[dict[str, Any]]] = {key: [] for key in CATEGORY_NAMES}
     seen_urls: set[str] = set()

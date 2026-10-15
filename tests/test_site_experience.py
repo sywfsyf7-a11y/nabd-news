@@ -129,6 +129,67 @@ class SiteExperienceTests(unittest.TestCase):
                 world_pulse._CONTROL_CACHE.clear()
                 world_pulse._CONTROL_CACHE.update(old_cache)
 
+    def test_rss_batch_timeout_keeps_completed_feed_results_without_waiting_for_pending_feeds(self):
+        story = {
+            "slug": "stalled-feed-story",
+            "source_url": "https://example.com/stalled-feed-story",
+            "original_title": "A completed feed returned this headline",
+            "original_summary": "A short source excerpt.",
+            "original_language": "en",
+            "source_domain": "example.com",
+            "source_name": "Example",
+            "published_at": datetime(2026, 10, 15, tzinfo=timezone.utc),
+        }
+
+        class FakeFuture:
+            def __init__(self, result=None, is_done=False):
+                self._result = result
+                self._done = is_done
+                self.cancelled = False
+            def done(self):
+                return self._done
+            def result(self):
+                if not self._done:
+                    raise AssertionError("pending future must not be awaited")
+                return self._result
+            def cancel(self):
+                self.cancelled = True
+                return True
+
+        class FakeExecutor:
+            def __init__(self, max_workers):
+                self.max_workers = max_workers
+                self.futures = []
+                self.shutdown_args = None
+            def submit(self, fn, category, lang):
+                if category == "world" and lang == "en":
+                    future = FakeFuture(("world", "en", [dict(story)]), is_done=True)
+                else:
+                    future = FakeFuture(is_done=False)
+                self.futures.append(future)
+                return future
+            def shutdown(self, wait, cancel_futures):
+                self.shutdown_args = (wait, cancel_futures)
+
+        executor = FakeExecutor(max_workers=20)
+
+        def timed_out_as_completed(futures, timeout):
+            yield next(future for future in futures if future.done())
+            raise TimeoutError()
+
+        with patch.object(world_pulse, "_prime_source_control_cache", return_value=True):
+            with patch.object(world_pulse, "ThreadPoolExecutor", return_value=executor):
+                with patch.object(world_pulse, "as_completed", side_effect=timed_out_as_completed):
+                    with patch.object(world_pulse, "_classify_story", return_value="world"):
+                        with patch.object(world_pulse, "_source_domain_for_category", return_value="example.com"):
+                            with patch.object(world_pulse, "_stories_are_near_duplicates", return_value=False):
+                                stories = world_pulse._collect_rss_articles()
+
+        self.assertEqual(len(stories), 1)
+        self.assertEqual(stories[0]["source_url"], story["source_url"])
+        self.assertEqual(executor.shutdown_args, (False, True))
+        self.assertTrue(all(future.cancelled for future in executor.futures if not future.done()))
+
     def test_google_news_rss_query_is_limited_to_recent_stories(self):
         with patch.object(world_pulse, "_control_enabled", return_value=True):
             with patch.object(world_pulse, "_parse_any_rss", return_value=("world", "ar", [])) as parser:
