@@ -387,5 +387,31 @@ class SourcePolicyTests(unittest.TestCase):
         self.assertNotIn("secret-host".encode("utf-8"), response.data)
 
 
+    def test_shared_supabase_session_url_uses_transaction_port(self):
+        from unittest.mock import patch
+
+        session_url = "postgresql://postgres.projectref@aws-0-ap-northeast-1.pooler.supabase.com:5432/postgres?sslmode=require"
+        with patch.dict(
+            world_pulse.os.environ,
+            {"SUPABASE_POOLER_URL": session_url, "DATABASE_URL": ""},
+            clear=False,
+        ):
+            result = world_pulse._database_url()
+        self.assertIn("@aws-0-ap-northeast-1.pooler.supabase.com:6543/", result)
+        self.assertIn("postgres.projectref@", result)
+        self.assertNotIn(":5432/", result)
+
+    def test_supabase_other_hosts_and_already_transaction_urls_are_unchanged(self):
+        from unittest.mock import patch
+
+        direct = "postgresql://postgres@db.projectref.supabase.co:5432/postgres"
+        with patch.dict(world_pulse.os.environ, {"SUPABASE_POOLER_URL": direct, "DATABASE_URL": ""}, clear=False):
+            self.assertEqual(world_pulse._database_url(), direct)
+
+        transaction = "postgresql://postgres.projectref@aws-0-ap-northeast-1.pooler.supabase.com:6543/postgres"
+        with patch.dict(world_pulse.os.environ, {"SUPABASE_POOLER_URL": transaction, "DATABASE_URL": ""}, clear=False):
+            self.assertEqual(world_pulse._database_url(), transaction)
+
+
 if __name__ == "__main__":
     unittest.main()
