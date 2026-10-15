@@ -123,6 +123,40 @@ class SiteExperienceTests(unittest.TestCase):
             ["newest-missing", "older-missing", "newest-with-image", "older-with-image"],
         )
 
+    def test_image_refresh_rotates_past_recently_checked_missing_photos(self):
+        now = datetime(2026, 10, 15, 10, 0, tzinfo=timezone.utc)
+        recent_failed = {
+            "slug": "recent-failed",
+            "image_url": "",
+            "image_checked_at": now,
+            "published_at": now,
+        }
+        older_unchecked = {
+            "slug": "older-unchecked",
+            "image_url": "",
+            "image_checked_at": None,
+            "published_at": datetime(2026, 10, 14, tzinfo=timezone.utc),
+        }
+        older_failed = {
+            "slug": "older-failed",
+            "image_url": "",
+            "image_checked_at": datetime(2026, 10, 14, 8, 0, tzinfo=timezone.utc),
+            "published_at": datetime(2026, 10, 13, tzinfo=timezone.utc),
+        }
+        existing_photo = {
+            "slug": "existing-photo",
+            "image_url": "https://example.com/photo.jpg",
+            "image_checked_at": None,
+            "published_at": now,
+        }
+        rows = world_pulse._prioritise_missing_image_rows([
+            recent_failed, older_failed, existing_photo, older_unchecked,
+        ])
+        self.assertEqual(
+            [row["slug"] for row in rows],
+            ["older-unchecked", "older-failed", "recent-failed", "existing-photo"],
+        )
+
     def test_forced_image_refresh_does_not_reuse_a_fresh_cached_photo_when_better_match_exists(self):
         checked_at = datetime.now(timezone.utc)
         source_url = "https://www.example.com/news/image-refresh"
