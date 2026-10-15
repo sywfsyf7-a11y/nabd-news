@@ -88,3 +88,7 @@ Google News RSS discovery is restricted to the most recent seven days so high-re
 
 ### News ingestion is no longer blocked on image-provider latency
 New RSS headlines and bilingual briefs are saved to Supabase before photo search begins. External image searches are treated as a separate enrichment step; a timeout or provider quota issue can delay image replacement, but it cannot hold newly discovered headlines out of the news table. Each regular refresh also checks a small rotating batch of articles with missing images or image matches older than the configured image-cache window, keeping valid existing imagery if no suitable replacement is found.
+
+
+### Context-aware image search
+Photo discovery combines the most distinctive terms from a story headline with keywords from its source excerpt. This helps open-licence archives match photos whose metadata describes the subject rather than repeating the full headline, while retaining item-level licence checks and relevance filtering. The image-enrichment batch has an overall deadline so slow providers cannot hold the news refresh lock.

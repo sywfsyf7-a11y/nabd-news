@@ -1308,6 +1308,32 @@ def _image_search_phrase(title: str, max_terms: int = 5) -> str:
             break
     return " ".join(kept) or _clean_text(title, 100)
 
+
+def _image_search_query(title: str, context: str = "") -> str:
+    """Combine a couple of core headline terms with source-excerpt context for better photo recall."""
+    title = _clean_text(title, 240)
+    context = _clean_text(context, 600)
+    if not title:
+        return _image_search_phrase(context, 6) if context else ""
+    if not context:
+        return _image_search_phrase(title, 5) or title
+
+    headline_phrase = _image_search_phrase(title, 2)
+    context_phrase = _image_search_phrase(context, 4)
+    seen = _image_tokens(headline_phrase)
+    tail: list[str] = []
+    for word in re.findall(r"[A-Za-z0-9][A-Za-z0-9'’-]*|[\\u0600-\\u06ff]{3,}", context_phrase):
+        key = word.casefold().strip("'-’")
+        if len(key) < 3 or key in seen:
+            continue
+        seen.add(key)
+        tail.append(word.strip("'-’"))
+        if len(tail) >= 4:
+            break
+    query = " ".join(part for part in (headline_phrase, " ".join(tail)) if part)
+    return _clean_text(query or headline_phrase or title, 180)
+
+
 def _https_url(value: Any, allowed_hosts: set[str] | None = None) -> str:
     url = str(value or "").strip()
     try:
@@ -2042,9 +2068,13 @@ def _resolve_article_image(raw: dict[str, Any]) -> dict[str, Any]:
             }
 
     search_title = _clean_text(raw.get("image_search_title") or raw.get("original_title") or "", 240)
-    # Prefer a topic-matched image with explicit reuse terms before creating an illustration.
-    if search_title:
-        result = _search_any_reusable_image(search_title, str(raw.get("original_language") or "en"), str(raw.get("category") or "world"))
+    search_context = _clean_text(
+        raw.get("image_search_context") or raw.get("original_summary") or "", 600
+    )
+    search_query = _image_search_query(search_title, search_context)
+    # Prefer specific headline terms plus source-excerpt context, with strict item-level reuse checks.
+    if search_query:
+        result = _search_any_reusable_image(search_query, str(raw.get("original_language") or "en"), str(raw.get("category") or "world"))
         if result:
             result["image_checked_at"] = datetime.now(timezone.utc)
             return result
@@ -2823,7 +2853,9 @@ def _avoid_repeated_news_photos(raw_articles: list[dict[str, Any]]) -> None:
         alternative: dict[str, str] = {}
         if alt_lookups < max_alternative_lookups:
             alt_lookups += 1
-            query = str(item.get("image_search_title") or item.get("original_title") or "")
+            title = str(item.get("image_search_title") or item.get("original_title") or "")
+            context = str(item.get("image_search_context") or item.get("original_summary") or "")
+            query = _image_search_query(title, context)
             alternative = _search_any_reusable_image(query, str(item.get("original_language") or "en"), str(item.get("category") or "world"))
         candidate_url = str(alternative.get("image_url") or "")
         candidate = urlparse(candidate_url)
@@ -2916,6 +2948,7 @@ def _refresh_existing_article_images_job(limit: int = 8) -> None:
                 continue
             raw = _raw_from_stored_article(row)
             raw["image_search_title"] = row.get("title_en") or row.get("title_ar") or raw.get("original_title", "")
+            raw["image_search_context"] = row.get("summary_en") or row.get("summary_ar") or raw.get("original_summary", "")
             # The current image remains available as a rollback if no better reusable photo is found.
             raw["_force_image_refresh"] = True
             raw["image_url"] = ""
@@ -3022,9 +3055,11 @@ def _refresh_news_job() -> None:
                 if source_url in existing_urls:
                     continue
                 raw["image_search_title"] = raw.get("original_title", "")
+                raw["image_search_context"] = raw.get("original_summary", "")
                 raw_to_publish.append((index, raw))
                 continue
             raw["image_search_title"] = enriched.get("title_en") or raw.get("original_title", "")
+            raw["image_search_context"] = enriched.get("summary_en") or raw.get("original_summary", "")
             raw_to_publish.append((index, raw))
 
         source_language_fallbacks = sum(
