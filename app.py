@@ -497,6 +497,14 @@ def _database_url() -> str:
         pass
     return dsn
 
+def _safe_database_error_detail(exc: Exception) -> str:
+    """Provide a short diagnostic detail while stripping URL credentials and passwords."""
+    detail = " ".join(str(exc or "").split())
+    detail = re.sub(r"(?i)(postgres(?:ql)?://)[^@\s]+@", r"\1[credentials-redacted]@", detail)
+    detail = re.sub(r"(?i)\b(password|passwd|pwd)\s*=\s*[^\s&]+", r"\1=[redacted]", detail)
+    detail = re.sub(r"(?i)(password authentication failed for user\s+)[^\s,;]+", r"\1[redacted]", detail)
+    return detail[:220]
+
 def _database_error_code(exc: Exception) -> str:
     """Return a safe diagnostic category without storing a DSN or raw error text."""
     detail = str(exc or "").casefold()
@@ -599,7 +607,10 @@ def _connect_db():
             "checked_at": datetime.now(timezone.utc).isoformat(),
             "checked_monotonic": time.monotonic(),
         })
-        logger.warning("Database connection unavailable (reason=%s)", code)
+        logger.warning(
+            "Database connection unavailable (reason=%s pgcode=%s detail=%s)",
+            code, getattr(exc, "pgcode", None) or "-", _safe_database_error_detail(exc),
+        )
         return None
 
 def _ensure_schema() -> bool:
