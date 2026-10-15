@@ -424,6 +424,98 @@ class SiteExperienceTests(unittest.TestCase):
             ["older-unchecked", "older-failed", "recent-failed", "existing-photo"],
         )
 
+    def test_image_enrichment_deadline_preserves_previous_safe_image_and_returns(self):
+        now = datetime.now(timezone.utc)
+        stale_checked = now - timedelta(days=10)
+        first_url = "https://example.com/image-deadline-first"
+        second_url = "https://example.com/image-deadline-second"
+        stored = [
+            {
+                "slug": "first",
+                "source_url": first_url,
+                "image_url": "https://images.example.com/old-first.jpg",
+                "image_source": "wikimedia_relevant",
+                "image_credit": "Old photographer",
+                "image_credit_url": "https://commons.wikimedia.org/wiki/Old_first",
+                "image_provider_url": "https://commons.wikimedia.org/wiki/Old_first",
+                "image_license_url": "https://creativecommons.org/licenses/by/4.0/",
+                "image_checked_at": stale_checked,
+            },
+            {
+                "slug": "second",
+                "source_url": second_url,
+                "image_url": "https://images.example.com/old-second.jpg",
+                "image_source": "openverse_licensed",
+                "image_credit": "Second photographer",
+                "image_credit_url": "https://photos.example.org/old-second",
+                "image_provider_url": "https://photos.example.org/old-second",
+                "image_license_url": "https://creativecommons.org/licenses/by/4.0/",
+                "image_checked_at": stale_checked,
+            },
+        ]
+        raw = [
+            {"source_url": first_url, "image_url": "", "image_source": "none", "image_checked_at": None,
+             "image_search_title": "First story", "original_language": "en", "category": "world"},
+            {"source_url": second_url, "image_url": "", "image_source": "none", "image_checked_at": None,
+             "image_search_title": "Second story", "original_language": "en", "category": "world"},
+        ]
+
+        class FakeFuture:
+            def __init__(self, result=None, complete=False):
+                self._result = result
+                self._complete = complete
+                self.cancelled = False
+            def cancel(self):
+                self.cancelled = True
+                return True
+            def result(self):
+                if not self._complete:
+                    raise TimeoutError("still running")
+                return self._result
+
+        class FakeExecutor:
+            def __init__(self, max_workers):
+                self.max_workers = max_workers
+                self.futures = []
+                self.shutdown_args = None
+            def submit(self, _fn, item):
+                if item["source_url"] == first_url:
+                    f = FakeFuture({
+                        "image_url": "https://images.example.com/new-first.jpg",
+                        "image_source": "openverse_licensed",
+                        "image_credit": "New photographer",
+                        "image_credit_url": "https://photos.example.org/new-first",
+                        "image_provider_url": "https://photos.example.org/new-first",
+                        "image_license_url": "https://creativecommons.org/licenses/by/4.0/",
+                        "image_checked_at": now,
+                    }, complete=True)
+                else:
+                    f = FakeFuture(complete=False)
+                self.futures.append(f)
+                return f
+            def shutdown(self, wait, cancel_futures):
+                self.shutdown_args = (wait, cancel_futures)
+
+        executor = FakeExecutor(max_workers=3)
+        def complete_then_timeout(futures, timeout):
+            futures = list(futures)
+            yield futures[0]
+            raise TimeoutError("image batch expired")
+
+        with patch.object(world_pulse, "_db_fetch_all", return_value=stored):
+            with patch.object(world_pulse, "_control_enabled", return_value=True):
+                with patch.object(world_pulse, "_reserve_gemini_image_slots", return_value=0):
+                    with patch.object(world_pulse, "ThreadPoolExecutor", return_value=executor):
+                        with patch.object(world_pulse, "as_completed", side_effect=complete_then_timeout):
+                            world_pulse._enrich_article_images(raw, force_refresh=True, allow_ai_generation=False)
+
+        self.assertEqual(raw[0]["image_url"], "https://images.example.com/new-first.jpg")
+        self.assertEqual(raw[1]["image_url"], "https://images.example.com/old-second.jpg")
+        self.assertEqual(raw[1]["image_source"], "openverse_licensed")
+        self.assertEqual(executor.shutdown_args, (False, True))
+        self.assertTrue(executor.futures[1].cancelled)
+        self.assertEqual(world_pulse._LAST_IMAGE_STATUS["found"], 1)
+
     def test_forced_image_refresh_does_not_reuse_a_fresh_cached_photo_when_better_match_exists(self):
         checked_at = datetime.now(timezone.utc)
         source_url = "https://www.example.com/news/image-refresh"
