@@ -1749,6 +1749,7 @@ EDITORIAL ACCURACY AND RIGHTS:
 - Output only the finished image, no explanation or prompt text."""
     
 def _generate_gemini_article_image(raw: dict[str, Any]) -> dict[str, Any]:
+    global _GEMINI_RATE_LIMIT_UNTIL, _GEMINI_TRANSIENT_ERROR_UNTIL
     if (
         not GEMINI_IMAGE_GENERATION_ENABLED
         or not GEMINI_API_KEY
@@ -1756,6 +1757,20 @@ def _generate_gemini_article_image(raw: dict[str, Any]) -> dict[str, Any]:
         or types is None
         or not _control_enabled("image:gemini_generated", True)
     ):
+        return {}
+    with _GEMINI_STATUS_LOCK:
+        now = time.monotonic()
+        if now < _GEMINI_RATE_LIMIT_UNTIL or now < _GEMINI_TRANSIENT_ERROR_UNTIL:
+            return {}
+    shared_remaining, shared_reason = _shared_gemini_cooldown_remaining("gemini_image_cooldown")
+    if shared_remaining > 0:
+        deadline = time.monotonic() + shared_remaining
+        with _GEMINI_STATUS_LOCK:
+            if shared_reason == "rate_limited_429":
+                _GEMINI_RATE_LIMIT_UNTIL = max(_GEMINI_RATE_LIMIT_UNTIL, deadline)
+            else:
+                _GEMINI_TRANSIENT_ERROR_UNTIL = max(_GEMINI_TRANSIENT_ERROR_UNTIL, deadline)
+        logger.info("Gemini image generation skipped due to shared cooldown (%s)", shared_reason)
         return {}
     prompt = _build_gemini_image_prompt(raw)
     if not prompt:
@@ -1804,13 +1819,34 @@ def _generate_gemini_article_image(raw: dict[str, Any]) -> dict[str, Any]:
             "image_checked_at": datetime.now(timezone.utc),
         }
     except Exception as exc:
+        rate_limited = _is_gemini_rate_limit_error(exc)
+        transient_server_error = _is_gemini_transient_server_error(exc)
+        cooldown_until = None
+        if rate_limited:
+            _GEMINI_RATE_LIMIT_UNTIL = max(
+                _GEMINI_RATE_LIMIT_UNTIL,
+                time.monotonic() + GEMINI_429_COOLDOWN_MINUTES * 60,
+            )
+            cooldown_until = (datetime.now(timezone.utc) + timedelta(minutes=GEMINI_429_COOLDOWN_MINUTES)).isoformat()
+        elif transient_server_error:
+            _GEMINI_TRANSIENT_ERROR_UNTIL = max(
+                _GEMINI_TRANSIENT_ERROR_UNTIL,
+                time.monotonic() + GEMINI_TRANSIENT_ERROR_COOLDOWN_MINUTES * 60,
+            )
+            cooldown_until = (datetime.now(timezone.utc) + timedelta(minutes=GEMINI_TRANSIENT_ERROR_COOLDOWN_MINUTES)).isoformat()
         logger.warning("Gemini image generation failed (model=%s error=%s)", GEMINI_IMAGE_MODEL, type(exc).__name__)
         with _GEMINI_STATUS_LOCK:
             _LAST_GEMINI_ERROR.update({
                 "stage": "image_generation",
-                "type": type(exc).__name__,
+                "type": "rate_limited_429" if rate_limited else "transient_server_error" if transient_server_error else type(exc).__name__,
                 "at": datetime.now(timezone.utc).isoformat(),
+                "cooldown_until": cooldown_until,
             })
+        if rate_limited or transient_server_error:
+            _persist_shared_gemini_cooldown(
+                "rate_limited_429" if rate_limited else "transient_server_error",
+                state_key="gemini_image_cooldown",
+            )
         return {}
 
 def _search_openverse_image(title: str, lang: str = "en", category: str = "world") -> dict[str, Any]:
@@ -1861,6 +1897,13 @@ def _reserve_gemini_image_slots(pending_count: int) -> int:
         or types is None
         or not _control_enabled("image:gemini_generated", True)
     ):
+        return 0
+    shared_image_remaining, shared_image_reason = _shared_gemini_cooldown_remaining("gemini_image_cooldown")
+    if shared_image_remaining > 0:
+        logger.info(
+            "Gemini image slots unavailable due to shared cooldown (%s, about %d seconds remaining)",
+            shared_image_reason, shared_image_remaining,
+        )
         return 0
     recent_count = _db_count_gemini_images_last_24h()
     if recent_count is None:
@@ -2374,7 +2417,7 @@ def _is_gemini_transient_server_error(exc: Exception) -> bool:
         ))
     )
 
-def _persist_shared_gemini_cooldown(reason: str) -> bool:
+def _persist_shared_gemini_cooldown(reason: str, *, state_key: str = "gemini_cooldown") -> bool:
     """Persist Gemini cooldown across Gunicorn workers through Supabase."""
     if not _ensure_schema():
         return False
@@ -2385,10 +2428,10 @@ def _persist_shared_gemini_cooldown(reason: str) -> bool:
         with conn.cursor() as cur:
             cur.execute("""
                 INSERT INTO world_pulse_runtime_state (state_key, state_value, updated_at)
-                VALUES ('gemini_cooldown', %s, NOW())
+                VALUES (%s, %s, NOW())
                 ON CONFLICT (state_key) DO UPDATE
                 SET state_value = EXCLUDED.state_value, updated_at = NOW()
-            """, (reason,))
+            """, (state_key, reason))
         conn.commit()
         return True
     except Exception as exc:
@@ -2399,8 +2442,8 @@ def _persist_shared_gemini_cooldown(reason: str) -> bool:
         conn.close()
 
 
-def _shared_gemini_cooldown_remaining() -> tuple[int, str]:
-    """Return remaining shared cooldown seconds and its reason."""
+def _shared_gemini_cooldown_remaining(state_key: str = "gemini_cooldown") -> tuple[int, str]:
+    """Return remaining shared cooldown seconds and its reason for the requested API stage."""
     if not _ensure_schema():
         return 0, ""
     conn = _connect_db()
@@ -2411,8 +2454,8 @@ def _shared_gemini_cooldown_remaining() -> tuple[int, str]:
             cur.execute("""
                 SELECT state_value, updated_at
                 FROM world_pulse_runtime_state
-                WHERE state_key = 'gemini_cooldown'
-            """)
+                WHERE state_key = %s
+            """, (state_key,))
             row = cur.fetchone()
         if not row or not row[1]:
             return 0, ""
