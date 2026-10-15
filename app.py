@@ -394,6 +394,24 @@ def _infer_source_domain_from_name(category: str, lang: str, source_name: str) -
             return domain
     return ""
 
+def _display_category(row: dict[str, Any], lang: str) -> str:
+    """Correct clearly miscategorized stored stories only when the publisher allows that section."""
+    current = str(row.get("category") or "world")
+    if current not in CATEGORY_NAMES:
+        current = "world"
+    if lang not in {"ar", "en"}:
+        return current
+    host = str(row.get("source_domain") or "").casefold().removeprefix("www.")
+    if not host:
+        host = _infer_source_domain_from_name(current, lang, str(row.get("source_name") or ""))
+    title = str(row.get(f"title_{lang}") or row.get("original_title") or "")
+    summary = str(row.get(f"summary_{lang}") or row.get("original_summary") or "")
+    detected = _classify_story(title, summary, current, host)
+    if detected != current and host and _source_domain_for_category(detected, lang, host):
+        return detected
+    return current
+
+
 def _row_allowed_on_language_site(row: dict[str, Any], lang: str) -> bool:
     """Keep language feeds restricted to their configured publisher list."""
     original_language = str(row.get("original_language") or "").lower()
@@ -2716,14 +2734,18 @@ def _all_live_articles() -> list[dict[str, Any]]:
     return result
 
 def _get_display_stories(lang: str) -> list[dict[str, Any]]:
-    live = [
-        row for row in _all_live_articles()
-        if not row.get("is_demo")
-        and row.get("source_url")
-        and row.get(f"title_{lang}")
-        and row.get("category") in CATEGORY_NAMES
-        and _row_allowed_on_language_site(row, lang)
-    ]
+    live: list[dict[str, Any]] = []
+    for original in _all_live_articles():
+        if original.get("is_demo") or not original.get("source_url") or not original.get(f"title_{lang}"):
+            continue
+        row = original
+        corrected_category = _display_category(original, lang)
+        if corrected_category != original.get("category"):
+            row = dict(original)
+            row["category"] = corrected_category
+        if row.get("category") not in CATEGORY_NAMES or not _row_allowed_on_language_site(row, lang):
+            continue
+        live.append(row)
     live.sort(
         key=lambda item: item.get("published_at") or item.get("fetched_at") or datetime(1970, 1, 1, tzinfo=timezone.utc),
         reverse=True,
