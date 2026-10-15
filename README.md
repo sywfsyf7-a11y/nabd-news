@@ -69,4 +69,4 @@ python app.py
 python -m unittest discover -s tests -v
 ```
 
-The automated test suite covers language/source enforcement and key image-sourcing logic. Live credentials, the production database, external API quotas and actual image rights cannot be certified by unit tests alone; monitor `/api/news-status` and Render logs.
+The automated test suite covers language/source enforcement and key image-sourcing logic. A template-compilation regression test checks the news page's Jinja syntax. Live credentials, the production database, external API quotas and actual image rights cannot be certified by unit tests alone; monitor `/api/news-status` and Render logs.
