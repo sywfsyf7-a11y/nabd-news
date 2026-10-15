@@ -30,7 +30,7 @@
     </form></div>
     {% endfor %}
   </section>
-  <section class="card"><h2>مزودو الصور</h2><p class="muted">Google News ليس مزود صور. الصور التي تظهر في Google News لا تُعتبر مجانية الاستخدام. عند عدم توفر صورة مناسبة، يُستخدم A للخبر العربي وE للخبر الإنجليزي.</p>
+  <section class="card"><h2>مزودو الصور</h2><p class="muted">صور Google News لا تُعتبر مجانية الاستخدام. يبحث الموقع أولاً في المصادر المفتوحة والأرشيفات ذات بيانات الحقوق الواضحة، ثم يجرب Pexels وUnsplash عند ضبط مفاتيح API. إذا لم توجد صورة مناسبة، يظهر رسم تحريري محلي مميز بدلاً من صورة خبر عشوائية. راجع اسم المصوّر والرابط والترخيص المعروضين بجانب الصورة.</p>
     {% for item in controls if item.type == 'image' %}
     <div class="item"><div class="item-main"><div class="item-title">{{ item.name }}</div><div class="tiny">{{ item.key }}</div>
       {% if not item.configured %}<span class="tag">مفتاح API غير مضبوط؛ لن يعمل هذا المزود بعد</span>{% elif item.enabled %}<span class="tag ok">مفعّل</span>{% else %}<span class="tag">معطّل</span>{% endif %}
