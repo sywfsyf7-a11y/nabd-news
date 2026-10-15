@@ -639,14 +639,96 @@ class SourcePolicyTests(unittest.TestCase):
 
         with patch.object(world_pulse, "_control_enabled", return_value=True):
             with patch.object(world_pulse, "_search_commons_image", return_value={}):
-                with patch.object(world_pulse, "_search_loc_open_access_image", return_value={}):
-                    with patch.object(world_pulse, "_search_nasa_image", return_value={}):
-                        with patch.object(world_pulse, "_search_approved_presskit_image", return_value={}):
-                            with patch.object(world_pulse, "_search_pexels_image", side_effect=AssertionError("Pexels API is disabled")) as pexels:
-                                with patch.object(world_pulse, "_search_unsplash_image", side_effect=AssertionError("Unsplash API is disabled")) as unsplash:
-                                    self.assertEqual(world_pulse._search_any_reusable_image("NASA Artemis launch", "en", "science"), {})
+                with patch.object(world_pulse, "_search_openverse_image", return_value={}):
+                    with patch.object(world_pulse, "_search_loc_open_access_image", return_value={}):
+                        with patch.object(world_pulse, "_search_nasa_image", return_value={}):
+                            with patch.object(world_pulse, "_search_approved_presskit_image", return_value={}):
+                                with patch.object(world_pulse, "_search_pexels_image", side_effect=AssertionError("Pexels API is disabled")) as pexels:
+                                    with patch.object(world_pulse, "_search_unsplash_image", side_effect=AssertionError("Unsplash API is disabled")) as unsplash:
+                                        self.assertEqual(world_pulse._search_any_reusable_image("NASA Artemis launch", "en", "science"), {})
         pexels.assert_not_called()
         unsplash.assert_not_called()
+
+    def test_openverse_license_policy_only_accepts_commercially_reusable_cc_licenses(self):
+        self.assertTrue(world_pulse._openverse_license_url_ok("cc0", "https://creativecommons.org/publicdomain/zero/1.0/"))
+        self.assertTrue(world_pulse._openverse_license_url_ok("pdm", "https://creativecommons.org/publicdomain/mark/1.0/"))
+        self.assertTrue(world_pulse._openverse_license_url_ok("by", "https://creativecommons.org/licenses/by/4.0/"))
+        self.assertTrue(world_pulse._openverse_license_url_ok("by-sa", "https://creativecommons.org/licenses/by-sa/4.0/"))
+        self.assertFalse(world_pulse._openverse_license_url_ok("by-nc", "https://creativecommons.org/licenses/by-nc/4.0/"))
+        self.assertFalse(world_pulse._openverse_license_url_ok("by-nd", "https://creativecommons.org/licenses/by-nd/4.0/"))
+        self.assertFalse(world_pulse._openverse_license_url_ok("cc0", "http://creativecommons.org/publicdomain/zero/1.0/"))
+        self.assertFalse(world_pulse._openverse_license_url_ok("cc0", "https://example.test/publicdomain/zero/1.0/"))
+
+    def test_openverse_search_returns_image_with_creator_source_and_license(self):
+        import io
+        import json
+        from unittest.mock import patch
+
+        payload = {
+            "results": [
+                {
+                    "id": "image-cc-by-sa",
+                    "title": "NASA Artemis lunar rocket launch",
+                    "url": "https://images.example.test/artemis-rocket.jpg",
+                    "foreign_landing_url": "https://commons.example.test/artemis",
+                    "creator": "Example photographer",
+                    "creator_url": "https://commons.example.test/photographer",
+                    "license": "by-sa",
+                    "license_version": "4.0",
+                    "license_url": "https://creativecommons.org/licenses/by-sa/4.0/",
+                    "width": 1600,
+                    "height": 900,
+                    "mature": False,
+                    "tags": [{"name": "NASA"}, {"name": "Artemis"}, {"name": "lunar"}],
+                },
+                {
+                    "id": "image-nc",
+                    "title": "NASA Artemis lunar rocket launch",
+                    "url": "https://images.example.test/unapproved.jpg",
+                    "foreign_landing_url": "https://commons.example.test/unapproved",
+                    "creator": "Example photographer",
+                    "license": "by-nc",
+                    "license_version": "4.0",
+                    "license_url": "https://creativecommons.org/licenses/by-nc/4.0/",
+                    "width": 1600,
+                    "height": 900,
+                    "mature": False,
+                    "tags": [{"name": "NASA"}, {"name": "Artemis"}, {"name": "lunar"}],
+                },
+            ]
+        }
+        with patch.object(
+            world_pulse,
+            "urlopen",
+            return_value=io.BytesIO(json.dumps(payload).encode("utf-8")),
+        ) as mock_open:
+            result = world_pulse._search_openverse_image("NASA Artemis lunar rocket launch", "en", "science")
+        self.assertEqual(result["image_source"], "openverse_licensed")
+        self.assertEqual(result["image_credit"], "Example photographer")
+        self.assertEqual(result["image_provider_url"], "https://commons.example.test/artemis")
+        self.assertEqual(result["image_license_url"], "https://creativecommons.org/licenses/by-sa/4.0/")
+        request = mock_open.call_args.args[0]
+        self.assertIn("license=cc0%2Cpdm%2Cby%2Cby-sa", request.full_url)
+
+    def test_active_image_search_uses_openverse_without_unsplash_or_pexels_keys(self):
+        from unittest.mock import patch
+
+        openverse_result = {
+            "image_url": "https://images.example.test/licensed.jpg",
+            "image_source": "openverse_licensed",
+            "image_credit": "Creator",
+            "image_provider_url": "https://openverse.example.test/item",
+            "image_license_url": "https://creativecommons.org/licenses/by/4.0/",
+        }
+        with patch.object(world_pulse, "_control_enabled", return_value=True):
+            with patch.object(world_pulse, "_search_commons_image", return_value={}):
+                with patch.object(world_pulse, "_search_openverse_image", return_value=openverse_result) as openverse:
+                    with patch.object(world_pulse, "_search_loc_open_access_image", side_effect=AssertionError("Openverse result should win")):
+                        with patch.object(world_pulse, "_search_nasa_image", side_effect=AssertionError("Openverse result should win")):
+                            with patch.object(world_pulse, "_search_approved_presskit_image", side_effect=AssertionError("Openverse result should win")):
+                                result = world_pulse._search_any_reusable_image("NASA Artemis lunar rocket launch", "en", "science")
+        self.assertEqual(result, openverse_result)
+        openverse.assert_called_once()
 
 
 if __name__ == "__main__":
