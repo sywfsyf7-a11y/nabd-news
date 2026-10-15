@@ -46,6 +46,10 @@ API access and a free-to-view website do not mean an image is universally copyri
 ### Supabase URL compatibility
 The application normalizes the configured shared Supabase pooler URL before passing it to `psycopg2`: it uses the Transaction Pooler port `6543` for shared pooler hosts, removes the Prisma-only `pgbouncer` URI flag, and trims accidental whitespace around the database name. This does not repair an invalid password or project-specific pooler username; those must match the connection details in Supabase Dashboard → Connect. Never publish the connection URL or password.
 
+
+## Article reading experience
+Article pages include a prominent original-source link, an optional Arabic/English edition switch when both versions exist, clear labeling for AI-generated illustrative images, a compact source/timestamp/language metadata panel, and a sticky related-stories column on wide screens. Source attribution and licence links remain visible when provided.
+
 ## Routes
 - `/`: latest news, language choice and category filters
 - `/search?q=...`: search indexed stories
