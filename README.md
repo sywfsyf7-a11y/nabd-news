@@ -78,6 +78,10 @@ python -m unittest discover -s tests -v
 
 The automated test suite covers language/source enforcement, Openverse licence filtering (CC0/PDM/CC BY/CC BY-SA), attribution metadata, Pexels/Unsplash API request headers, title-keyword matching and attribution, image fallback rendering and NASA/Commons rights policy. Live credentials, the production database, external API quotas and the actual rights status of individual images cannot be certified by unit tests alone; monitor `/api/news-status`, `/admin/monitor` and Render logs.
 
+### Fast article navigation
+
+The sorted and deduplicated display pool is cached per language for a short period to avoid repeating a full article-list scan on every article click. Database writes invalidate both the database-row cache and display-pool cache. This is a performance cache only; article records remain in Supabase.
+
 ### Persistent storage versus temporary cache
 Article records and image URLs, source attribution, provider links, licence metadata, and image-check timestamps are stored in the Supabase PostgreSQL table `world_pulse_articles`. The short-lived in-process article cache is only a performance optimization and is invalidated after database writes. The image freshness window controls when the app repeats external image searches; it does not expire or delete the database records. The protected admin image-refresh action bypasses that freshness window for up to 12 recent articles, clears the current worker's short-lived display cache, and writes successful replacements back to Supabase while preserving the existing image if no suitable replacement is found.
 
@@ -93,6 +97,10 @@ Google News RSS discovery is restricted to the most recent seven days so high-re
 ### News ingestion is no longer blocked on image-provider latency
 New RSS headlines and bilingual briefs are saved to Supabase before photo search begins. External image searches are treated as a separate enrichment step; a timeout or provider quota issue can delay image replacement, but it cannot hold newly discovered headlines out of the news table. Each regular refresh also checks a small rotating batch of articles with missing images or image matches older than the configured image-cache window, keeping valid existing imagery if no suitable replacement is found.
 
+
+### AI image generation disabled
+
+Gemini image generation is disabled by default. News images are sourced from external catalogues and providers with source/reuse metadata; when no suitable result is found, the editorial fallback remains. The site does not intentionally bypass copyright or licensing restrictions.
 
 ### Context-aware image search
 Photo discovery combines the most distinctive terms from a story headline with keywords from its source excerpt. This helps open-licence archives match photos whose metadata describes the subject rather than repeating the full headline, while retaining item-level licence checks and relevance filtering. The image-enrichment batch has an overall deadline so slow providers cannot hold the news refresh lock.
