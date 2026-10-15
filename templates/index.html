@@ -58,7 +58,8 @@
   <title>{% if page == 'article' and article %}{{ article.title }} — {% elif page == 'legal' %}{{ legal_title }} — {% elif page == 'search' %}{{ 'نتائج البحث' if lang == 'ar' else 'Search results' }} — {% endif %}{{ site_name }}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+  <noscript><link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet"></noscript>
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = {
@@ -356,7 +357,7 @@
         <div class="relative aspect-[16/8] max-h-[540px] overflow-hidden bg-slate-200 sm:aspect-[16/7]">
           <div aria-hidden="true" class="absolute inset-0 z-0 h-full w-full bg-gradient-to-br from-ink via-slate-800 to-slate-600"></div>
           {% if article.image_url %}
-            <img src="{{ article.image_url }}" alt="{{ article.title }}" decoding="async" class="absolute inset-0 z-[1] h-full w-full object-cover" onerror="this.onerror=null;this.style.display='none';">
+            <img src="{{ article.image_url }}" alt="{{ article.title }}" loading="eager" fetchpriority="high" decoding="async" class="absolute inset-0 z-[1] h-full w-full object-cover" onerror="this.onerror=null;this.style.display='none';">
           {% endif %}
           <div class="absolute inset-0 bg-gradient-to-t from-ink/75 via-ink/10 to-transparent"></div>
           {% if article.is_demo %}<span class="absolute {{ 'right-6' if lang == 'ar' else 'left-6' }} top-6 rounded-full bg-amber-100 px-3 py-1.5 text-[10px] font-extrabold text-amber-900">{{ ui.sample_badge }}</span>{% endif %}
@@ -390,11 +391,13 @@
               <p class="text-base font-semibold leading-8 text-slate-700">{{ article.summary }}</p>
               {% if not article.is_demo %}<p class="mt-3 text-xs leading-6 text-slate-500">{{ 'ملخص وسياق تحريري بمساعدة الذكاء الاصطناعي استناداً إلى المعلومات المتاحة من المصدر؛ راجع المصدر الأصلي للتفاصيل والتحديثات.' if lang == 'ar' else 'AI-assisted editorial summary and context based on available source information; consult the original publisher for full details and updates.' }}</p>{% endif %}
             </div>
+            <h2 class="mb-4 text-xl font-extrabold tracking-tight sm:text-2xl">{{ ui.article_details }}</h2>
             {% if article.content %}
-              <h2 class="mb-4 text-xl font-extrabold tracking-tight sm:text-2xl">{{ ui.article_details }}</h2>
               <div class="article-copy text-base leading-8 text-slate-700 sm:text-lg">{{ article.content }}</div>
             {% elif not article.is_demo %}
               <p class="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm leading-7 text-slate-500">{{ ('التغطية الكاملة متاحة لدى الناشر الأصلي؛ يعرض هذا الموقع العنوان والرابط فقط.' if lang == 'ar' else 'Full coverage remains on the original publisher; this page displays its headline and source link only.') if article.headline_only else ui.body_unavailable }}</p>
+            {% else %}
+              <p class="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm leading-7 text-slate-500">{{ ui.body_unavailable }}</p>
             {% endif %}
             {% if not article.is_demo and not article.headline_only %}
 

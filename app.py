@@ -461,6 +461,10 @@ _LAST_DB_STATUS: dict[str, Any] = {"state": "unknown", "error_code": "", "checke
 _DB_LAST_FETCHED_VALUE: datetime | None = None
 _DB_LAST_FETCHED_CHECKED = 0.0
 _DB_LAST_FETCHED_LOCK = threading.Lock()
+_DB_ARTICLE_CACHE_TTL_SECONDS = max(1, min(60, int(os.getenv("DB_ARTICLE_CACHE_TTL_SECONDS", "15"))))
+_DB_ARTICLES_CACHE: list[dict[str, Any]] | None = None
+_DB_ARTICLES_CACHE_AT = 0.0
+_DB_ARTICLES_CACHE_LOCK = threading.Lock()
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS world_pulse_articles (
@@ -776,7 +780,24 @@ def _known_source_controls() -> list[dict[str, Any]]:
     return rows
 
 
+def _invalidate_db_articles_cache() -> None:
+    global _DB_ARTICLES_CACHE, _DB_ARTICLES_CACHE_AT
+    with _DB_ARTICLES_CACHE_LOCK:
+        _DB_ARTICLES_CACHE = None
+        _DB_ARTICLES_CACHE_AT = 0.0
+
+
 def _db_fetch_all() -> list[dict[str, Any]]:
+    """Return the latest live articles with a short cache to avoid reconnecting on every page request."""
+    global _DB_ARTICLES_CACHE, _DB_ARTICLES_CACHE_AT
+    now = time.monotonic()
+    with _DB_ARTICLES_CACHE_LOCK:
+        if (
+            _DB_ARTICLES_CACHE is not None
+            and now - _DB_ARTICLES_CACHE_AT < _DB_ARTICLE_CACHE_TTL_SECONDS
+        ):
+            return [dict(row) for row in _DB_ARTICLES_CACHE]
+
     if not _ensure_schema():
         return []
     conn = _connect_db()
@@ -797,7 +818,11 @@ def _db_fetch_all() -> list[dict[str, Any]]:
                 ORDER BY published_at DESC NULLS LAST, fetched_at DESC
                 LIMIT 120
             """)
-            return [dict(row) for row in cur.fetchall()]
+            rows = [dict(row) for row in cur.fetchall()]
+        with _DB_ARTICLES_CACHE_LOCK:
+            _DB_ARTICLES_CACHE = rows
+            _DB_ARTICLES_CACHE_AT = time.monotonic()
+        return [dict(row) for row in rows]
     except Exception:
         return []
     finally:
@@ -931,6 +956,7 @@ def _db_update_article_images(articles: list[dict[str, Any]]) -> int:
                 ))
                 updated += cur.rowcount
         conn.commit()
+        _invalidate_db_articles_cache()
         return updated
     except Exception as exc:
         conn.rollback()
@@ -1080,6 +1106,7 @@ def _db_upsert_many(articles: list[dict[str, Any]]) -> bool:
             for article in articles:
                 cur.execute(sql, article)
         conn.commit()
+        _invalidate_db_articles_cache()
         return True
     except Exception:
         conn.rollback()
@@ -1901,7 +1928,7 @@ def _resolve_article_image(raw: dict[str, Any]) -> dict[str, Any]:
         "image_checked_at": datetime.now(timezone.utc),
     }
 
-def _enrich_article_images(raw_articles: list[dict[str, Any]]) -> None:
+def _enrich_article_images(raw_articles: list[dict[str, Any]], *, force_refresh: bool = False, allow_ai_generation: bool = True) -> None:
     known_images: dict[str, dict[str, Any]] = {}
     try:
         for row in _db_fetch_all():
@@ -1927,7 +1954,8 @@ def _enrich_article_images(raw_articles: list[dict[str, Any]]) -> None:
         if isinstance(input_checked, datetime) and input_checked.tzinfo is None:
             input_checked = input_checked.replace(tzinfo=timezone.utc)
         if (
-            input_source in TRUSTED_REUSABLE_IMAGE_SOURCES
+            not force_refresh
+            and input_source in TRUSTED_REUSABLE_IMAGE_SOURCES
             and _control_enabled(f"image:{input_source}", True)
             and item.get("image_url") and isinstance(input_checked, datetime)
             and (now_utc - input_checked.astimezone(timezone.utc)).total_seconds() < IMAGE_CACHE_MAX_AGE_SECONDS
@@ -1954,6 +1982,7 @@ def _enrich_article_images(raw_articles: list[dict[str, Any]]) -> None:
                 checked = checked.replace(tzinfo=timezone.utc)
             if (
                 isinstance(checked, datetime)
+                and not force_refresh
                 and (now_utc - checked.astimezone(timezone.utc)).total_seconds() < IMAGE_CACHE_MAX_AGE_SECONDS
             ):
                 for key in (
@@ -1963,7 +1992,7 @@ def _enrich_article_images(raw_articles: list[dict[str, Any]]) -> None:
                     if cached.get(key) not in (None, ""):
                         item[key] = cached[key]
                 continue
-            if cached_source != "gemini_generated":
+            if cached_source != "gemini_generated" or force_refresh:
                 item["_fallback_cached_image"] = {
                     key: cached.get(key)
                     for key in (
@@ -1979,7 +2008,7 @@ def _enrich_article_images(raw_articles: list[dict[str, Any]]) -> None:
     if not pending:
         return
 
-    ai_slots = _reserve_gemini_image_slots(len(pending))
+    ai_slots = _reserve_gemini_image_slots(len(pending)) if allow_ai_generation else 0
     for index, item in enumerate(pending):
         item["_allow_ai_image_generation"] = index < ai_slots
 
@@ -1991,7 +2020,17 @@ def _enrich_article_images(raw_articles: list[dict[str, Any]]) -> None:
         for future in as_completed(futures):
             item = futures[future]
             try:
-                item.update(future.result())
+                resolved = future.result()
+                checked_at = resolved.get("image_checked_at")
+                if force_refresh and resolved.get("image_url"):
+                    if isinstance(checked_at, str):
+                        try:
+                            checked_at = datetime.fromisoformat(checked_at.replace("Z", "+00:00"))
+                        except ValueError:
+                            checked_at = None
+                    if not isinstance(checked_at, datetime) or (now_utc - (checked_at.replace(tzinfo=timezone.utc) if checked_at.tzinfo is None else checked_at)).total_seconds() >= IMAGE_CACHE_MAX_AGE_SECONDS:
+                        resolved["image_checked_at"] = datetime.now(timezone.utc)
+                item.update(resolved)
                 if item.get("image_url") and item.get("image_source") in TRUSTED_REUSABLE_IMAGE_SOURCES:
                     found += 1
                     provider = str(item.get("image_source"))
@@ -2270,8 +2309,9 @@ Strict editorial rules:
 - Keep claims and uncertainty exactly as expressed by the source. Do not turn forecasts, allegations, rumours, or analysis into confirmed facts.
 - Use original wording. Do not reproduce a publisher's full article, long phrases, or fabricate quotes or citations.
 - If the excerpt is too thin for a detailed report, write a concise brief that says further details are available at the original source. Do not pad the article with generic filler to reach a target length.
-- Write Arabic and English titles/summaries faithfully and keep the two language versions semantically aligned. Summaries should be short and specific.
-- The body should use short readable paragraphs. Every factual detail must be traceable to the supplied source text. Do not claim the full publisher article was independently checked.
+- Write concise Arabic and English headlines, ideally no more than 70 characters in Arabic and 90 in English. Keep the title as a headline, not a sentence-length summary.
+- The executive summary must be distinct from the title, specific to the story, and limited to 1–2 sentences. Never copy the headline into the summary or merely restate it with minor wording changes.
+- The body should use short readable paragraphs and add supported details that are not just repetitions of the title or summary. If the excerpt supports only a short account, keep the details concise and say more information is at the original source instead of inventing or padding. Every factual detail must be traceable to the supplied source text. Do not claim the full publisher article was independently checked.
 
 Stories to edit: {json.dumps(payload, ensure_ascii=False)}'''
 
@@ -2468,6 +2508,92 @@ def _avoid_repeated_news_photos(raw_articles: list[dict[str, Any]]) -> None:
                 "image_license_url": "",
                 "image_checked_at": datetime.now(timezone.utc),
             })
+
+def _refresh_existing_article_images_job(limit: int = 8) -> None:
+    """Re-query a small batch of existing stories' image searches from the admin panel."""
+    global _REFRESHING
+    lock_file = None
+    lock_acquired = False
+    try:
+        lock_file = open(os.getenv("REFRESH_LOCK_FILE", "/tmp/world-pulse-refresh.lock"), "a+", encoding="utf-8")
+        try:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            lock_acquired = True
+        except BlockingIOError:
+            logger.info("Image refresh skipped: the news refresh lock is already held")
+            return
+
+        rows_by_url: dict[str, dict[str, Any]] = {}
+        for row in _db_fetch_all():
+            if row.get("source_url"):
+                rows_by_url[str(row["source_url"])] = dict(row)
+        for row in _MEMORY_ARTICLES.values():
+            if row.get("source_url"):
+                rows_by_url.setdefault(str(row["source_url"]), dict(row))
+        rows = sorted(
+            rows_by_url.values(),
+            key=lambda row: row.get("published_at") or row.get("fetched_at") or datetime(1970, 1, 1, tzinfo=timezone.utc),
+            reverse=True,
+        )
+
+        candidates: list[dict[str, Any]] = []
+        max_items = max(1, min(12, int(limit)))
+        for row in rows:
+            if not row.get("source_url") or row.get("is_demo"):
+                continue
+            if not (row.get("title_ar") or row.get("title_en")):
+                continue
+            raw = _raw_from_stored_article(row)
+            raw["image_search_title"] = row.get("title_en") or row.get("title_ar") or raw.get("original_title", "")
+            # The current image remains available as a rollback if no better reusable photo is found.
+            raw["_force_image_refresh"] = True
+            raw["image_url"] = ""
+            raw["image_source"] = "none"
+            raw["image_credit"] = ""
+            raw["image_credit_url"] = ""
+            raw["image_provider_url"] = ""
+            raw["image_license_url"] = ""
+            raw["image_checked_at"] = None
+            candidates.append(raw)
+            if len(candidates) >= max_items:
+                break
+
+        if not candidates:
+            logger.info("Image refresh finished: no eligible articles")
+            return
+
+        _enrich_article_images(candidates, force_refresh=True, allow_ai_generation=False)
+        updated = _db_update_article_images(candidates)
+        updated_memory = 0
+        for raw in candidates:
+            source_url = str(raw.get("source_url") or "")
+            cached = _MEMORY_ARTICLES.get(source_url)
+            if cached is not None:
+                for key in ("image_url", "image_source", "image_credit", "image_credit_url",
+                            "image_provider_url", "image_license_url", "image_checked_at"):
+                    cached[key] = raw.get(key, "")
+                updated_memory += 1
+        found = sum(1 for item in candidates if item.get("image_url"))
+        logger.info(
+            "Admin image refresh finished: checked=%d found=%d database_updated=%d memory_updated=%d",
+            len(candidates), found, updated, updated_memory,
+        )
+    except Exception as exc:
+        logger.warning("Admin image refresh failed (%s)", type(exc).__name__)
+    finally:
+        with _STATE_LOCK:
+            _REFRESHING = False
+        if lock_file is not None:
+            try:
+                if lock_acquired:
+                    fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+            except OSError:
+                pass
+            try:
+                lock_file.close()
+            except OSError:
+                pass
+
 
 def _refresh_news_job() -> None:
     global _REFRESHING, _LAST_REFRESH_SUCCESS, _LAST_REFRESH_AT, _LAST_REFRESH_STATE, _LAST_REFRESH_ERROR
@@ -2677,6 +2803,72 @@ def _image_provider_label(source: str) -> str:
         "editorial_generated": "World Pulse topic-specific editorial art",
     }.get(source or "", "")
 
+def _editorial_text_key(value: Any) -> str:
+    text = _clean_text(value, 1600).casefold()
+    text = re.sub(r"[^\w\u0600-\u06ff]+", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _compact_display_title(value: Any, lang: str) -> str:
+    """Keep on-site headlines concise without altering the stored/original source text."""
+    title = _clean_text(value, 1400)
+    title = re.sub(r"^[\s\-–—:؛،]+", "", title)
+    if not title:
+        return ""
+    max_chars = 82 if lang == "ar" else 92
+    if len(title) <= max_chars:
+        return title
+    first_sentence = re.split(r"(?<=[.!?؟])\s+", title, maxsplit=1)[0].strip()
+    if 18 <= len(first_sentence) <= max_chars:
+        return first_sentence
+    cutoff = title.rfind(" ", 0, max_chars + 1)
+    if cutoff < int(max_chars * 0.62):
+        cutoff = max_chars
+    return title[:cutoff].rstrip(" \t,،:;؛—-") + "…"
+
+
+def _summary_repeats_title(title: Any, summary: Any) -> bool:
+    title_key = _editorial_text_key(title)
+    summary_key = _editorial_text_key(summary)
+    if not title_key or not summary_key:
+        return False
+    if title_key == summary_key:
+        return True
+    if min(len(title_key), len(summary_key)) >= 24 and difflib.SequenceMatcher(None, title_key, summary_key).ratio() >= 0.86:
+        return True
+    return bool(
+        len(title_key) >= 28 and summary_key.startswith(title_key)
+        and len(summary_key) <= len(title_key) * 1.55
+    )
+
+
+def _distinct_executive_summary(title: Any, summary: Any, content: Any, lang: str) -> str:
+    """Prevent the executive-summary block from simply repeating the headline."""
+    value = _clean_text(summary, 1400)
+    if not _summary_repeats_title(title, value):
+        return value[:460].rsplit(" ", 1)[0].rstrip(" ,،:;؛—-") + "…" if len(value) > 460 else value
+
+    body = str(content or "").strip()
+    paragraphs = [part.strip() for part in re.split(r"\n\s*\n+", body) if part.strip()]
+    if not paragraphs and body:
+        paragraphs = [part.strip() for part in re.split(r"(?<=[.!?؟])\s+", body) if part.strip()]
+    distinct = []
+    for paragraph in paragraphs:
+        if _summary_repeats_title(title, paragraph):
+            continue
+        distinct.append(paragraph)
+        if len(distinct) >= 2:
+            break
+    derived = _clean_text(" ".join(distinct), 700)
+    if derived and not _summary_repeats_title(title, derived):
+        return derived[:460].rsplit(" ", 1)[0].rstrip(" ,،:;؛—-") + "…" if len(derived) > 460 else derived
+    return (
+        "لا تتضمن المادة المتاحة معلومات كافية لصياغة ملخص مستقل عن العنوان. راجع المصدر الأصلي للتفاصيل والتحديثات."
+        if lang == "ar"
+        else "The available source material does not support a separate summary. Consult the original publisher for details and updates."
+    )
+
+
 def _normalise_story(row: dict[str, Any], lang: str) -> dict[str, Any]:
     story = dict(row)
     story["is_demo"] = False
@@ -2690,10 +2882,12 @@ def _normalise_story(row: dict[str, Any], lang: str) -> dict[str, Any]:
                       "image_credit_url": "", "image_provider_url": "", "image_license_url": ""})
     if not story.get("slug"):
         story["slug"] = _slug_for_url(story.get("source_url", "world-pulse"))
-    story["title"] = story.get(f"title_{lang}") or ""
-    story["summary"] = story.get(f"summary_{lang}") or ""
+    raw_title = story.get(f"title_{lang}") or ""
+    raw_summary = story.get(f"summary_{lang}") or ""
     raw_content = story.get(f"content_{lang}") or ""
-    story["content"] = _normalise_summary_body(story["summary"], raw_content)
+    story["content"] = _normalise_summary_body(raw_summary, raw_content)
+    story["title"] = _compact_display_title(raw_title, lang)
+    story["summary"] = _distinct_executive_summary(raw_title, raw_summary, story["content"], lang)
     story["headline_only"] = _is_headline_only_domain(str(story.get("source_domain") or ""))
     if story["headline_only"]:
         story["summary"] = (
@@ -2899,10 +3093,12 @@ def search():
 @app.get("/article/<slug>")
 def article(slug: str):
     lang = current_language()
-    selected = _find_article(slug, lang)
+    # Build the display pool once: _find_article plus this pool previously read the same
+    # latest article set from PostgreSQL twice for every article click.
+    pool = _get_display_stories(lang)
+    selected = next((story for story in pool if story.get("slug") == slug), None)
     if selected is None:
         abort(404)
-    pool = _get_display_stories(lang)
     related = [story for story in pool if story.get("slug") != slug and story.get("category") == selected.get("category")][:3]
     if len(related) < 3:
         related_ids = {story.get("slug") for story in related}
@@ -3372,6 +3568,7 @@ def _remove_article_image(slug: str) -> bool:
                 WHERE slug = %s AND is_demo = FALSE""", (slug,))
             changed = changed or cur.rowcount > 0
         conn.commit()
+        _invalidate_db_articles_cache()
         return changed
     except Exception:
         conn.rollback()
@@ -3533,6 +3730,21 @@ def admin_sources():
         elif action == "hide_image":
             slug = str(request.form.get("slug") or "")[:120]
             notice = "تمت إزالة الصورة." if slug and _remove_article_image(slug) else "لم يمكن إزالة الصورة؛ تأكد من اتصال قاعدة البيانات."
+        elif action == "refresh_images":
+            global _REFRESHING
+            with _STATE_LOCK:
+                if _REFRESHING:
+                    notice = "هناك تحديث آخر قيد التنفيذ. جرّب بعد انتهائه."
+                else:
+                    _REFRESHING = True
+                    thread = threading.Thread(
+                        target=_refresh_existing_article_images_job,
+                        kwargs={"limit": min(8, MAX_IMAGE_LOOKUPS_PER_REFRESH)},
+                        name="world-pulse-admin-image-refresh",
+                        daemon=True,
+                    )
+                    thread.start()
+                    notice = "بدأت إعادة البحث عن صور حتى 8 أخبار في الخلفية. افتح لوحة المراقبة وتحقق من إحصاءات البحث بعد انتهائها."
         else:
             abort(400)
     return render_template(
