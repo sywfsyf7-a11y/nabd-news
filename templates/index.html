@@ -393,9 +393,9 @@
               <h2 class="mb-4 text-xl font-extrabold tracking-tight sm:text-2xl">{{ ui.article_details }}</h2>
               <div class="article-copy text-base leading-8 text-slate-700 sm:text-lg">{{ article.content }}</div>
             {% elif not article.is_demo %}
-              <p class="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm leading-7 text-slate-500">{{ ui.body_unavailable }}</p>
+              <p class="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm leading-7 text-slate-500">{{ ('التغطية الكاملة متاحة لدى الناشر الأصلي؛ يعرض هذا الموقع العنوان والرابط فقط.' if lang == 'ar' else 'Full coverage remains on the original publisher; this page displays its headline and source link only.') if article.headline_only else ui.body_unavailable }}</p>
             {% endif %}
-            {% if not article.is_demo %}
+            {% if not article.is_demo and not article.headline_only %}
 
               <p class="mt-8 border-t border-slate-100 pt-5 text-xs leading-6 text-slate-400">{{ ui.ai_note }}</p>
               {% if article.source_url %}
