@@ -2509,6 +2509,18 @@ def _avoid_repeated_news_photos(raw_articles: list[dict[str, Any]]) -> None:
                 "image_checked_at": datetime.now(timezone.utc),
             })
 
+def _prioritise_missing_image_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Try newer stories without a persisted image before spending lookups on existing images."""
+    recent_first = sorted(
+        rows,
+        key=lambda row: row.get("published_at") or row.get("fetched_at") or datetime(1970, 1, 1, tzinfo=timezone.utc),
+        reverse=True,
+    )
+    missing = [row for row in recent_first if not str(row.get("image_url") or "").strip()]
+    present = [row for row in recent_first if str(row.get("image_url") or "").strip()]
+    return missing + present
+
+
 def _refresh_existing_article_images_job(limit: int = 8) -> None:
     """Re-query a small batch of existing stories' image searches from the admin panel."""
     global _REFRESHING
@@ -2530,11 +2542,7 @@ def _refresh_existing_article_images_job(limit: int = 8) -> None:
         for row in _MEMORY_ARTICLES.values():
             if row.get("source_url"):
                 rows_by_url.setdefault(str(row["source_url"]), dict(row))
-        rows = sorted(
-            rows_by_url.values(),
-            key=lambda row: row.get("published_at") or row.get("fetched_at") or datetime(1970, 1, 1, tzinfo=timezone.utc),
-            reverse=True,
-        )
+        rows = _prioritise_missing_image_rows(list(rows_by_url.values()))
 
         candidates: list[dict[str, Any]] = []
         max_items = max(1, min(12, int(limit)))
@@ -2989,24 +2997,6 @@ def _format_date(value: Any, lang: str) -> str:
     except (ValueError, TypeError, OverflowError):
         return ""
 
-def _today_breaking(stories: list[dict[str, Any]], lang: str) -> dict[str, Any] | None:
-    today = datetime.now(TIMEZONE).date()
-    for story in stories:
-        published = story.get("published_at")
-        if not published or story.get("is_demo"):
-            continue
-        if isinstance(published, str):
-            try:
-                published = datetime.fromisoformat(published.replace("Z", "+00:00"))
-            except ValueError:
-                continue
-        if isinstance(published, datetime):
-            if published.tzinfo is None:
-                published = published.replace(tzinfo=timezone.utc)
-            if published.astimezone(TIMEZONE).date() == today:
-                return story
-    return None
-
 @app.before_request
 def remember_language() -> None:
     requested = request.args.get("lang", "").lower()
@@ -3071,7 +3061,7 @@ def index():
         home_pages=total_pages,
         home_page_size=HOME_STORIES_PER_PAGE,
         active_category=category,
-        breaking_story=_today_breaking(all_stories, lang),
+        breaking_story=all_stories[0] if all_stories else None,
         related_stories=[],
         article=None,
     )

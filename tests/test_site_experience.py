@@ -80,6 +80,49 @@ class SiteExperienceTests(unittest.TestCase):
         self.assertEqual(response.get_data(as_text=True), "article rendered")
         pool.assert_called_once_with("en")
 
+    def test_homepage_ticker_uses_latest_story_and_does_not_require_a_today_timestamp(self):
+        latest = {
+            "slug": "latest-story",
+            "category": "world",
+            "title": "Latest stored story",
+            "published_at": datetime(2026, 10, 14, tzinfo=timezone.utc),
+        }
+        with patch.object(world_pulse, "_maybe_start_refresh"):
+            with patch.object(world_pulse, "_get_display_stories", return_value=[latest]):
+                with patch.object(world_pulse, "render_template", return_value="home") as render:
+                    response = world_pulse.app.test_client().get("/?lang=ar")
+        self.assertEqual(response.status_code, 200)
+        self.assertIs(render.call_args.kwargs["breaking_story"], latest)
+
+    def test_image_refresh_prioritises_stories_without_persisted_images(self):
+        newest_with_image = {
+            "slug": "newest-with-image",
+            "image_url": "https://example.com/photo.jpg",
+            "published_at": datetime(2026, 10, 15, tzinfo=timezone.utc),
+        }
+        newest_missing = {
+            "slug": "newest-missing",
+            "image_url": "",
+            "published_at": datetime(2026, 10, 14, tzinfo=timezone.utc),
+        }
+        older_missing = {
+            "slug": "older-missing",
+            "image_url": "",
+            "published_at": datetime(2026, 10, 13, tzinfo=timezone.utc),
+        }
+        older_with_image = {
+            "slug": "older-with-image",
+            "image_url": "https://example.com/older.jpg",
+            "published_at": datetime(2026, 10, 12, tzinfo=timezone.utc),
+        }
+        rows = world_pulse._prioritise_missing_image_rows([
+            newest_with_image, older_with_image, newest_missing, older_missing,
+        ])
+        self.assertEqual(
+            [row["slug"] for row in rows],
+            ["newest-missing", "older-missing", "newest-with-image", "older-with-image"],
+        )
+
     def test_forced_image_refresh_does_not_reuse_a_fresh_cached_photo_when_better_match_exists(self):
         checked_at = datetime.now(timezone.utc)
         source_url = "https://www.example.com/news/image-refresh"
