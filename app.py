@@ -1006,12 +1006,20 @@ def _db_fetch_articles_needing_images(limit: int = 6) -> list[dict[str, Any]]:
                 FROM world_pulse_articles
                 WHERE is_demo = FALSE
                   AND source_url <> ''
-                  AND COALESCE(image_url, '') = ''
-                  AND (image_checked_at IS NULL OR image_checked_at < NOW() - (%s * INTERVAL '1 hour'))
+                  AND (
+                    (
+                      COALESCE(image_url, '') = ''
+                      AND (image_checked_at IS NULL OR image_checked_at < NOW() - (%s * INTERVAL '1 hour'))
+                    )
+                    OR (
+                      COALESCE(image_url, '') <> ''
+                      AND (image_checked_at IS NULL OR image_checked_at < NOW() - (%s * INTERVAL '1 second'))
+                    )
+                  )
                 ORDER BY image_checked_at ASC NULLS FIRST,
                          published_at DESC NULLS LAST, fetched_at DESC
                 LIMIT %s
-            """, (IMAGE_RETRY_AFTER_HOURS, max(1, min(24, int(limit)))))
+            """, (IMAGE_RETRY_AFTER_HOURS, IMAGE_CACHE_MAX_AGE_SECONDS, max(1, min(24, int(limit)))))
             return [dict(row) for row in cur.fetchall()]
     except Exception as exc:
         logger.debug("Image backfill query failed (%s)", type(exc).__name__)
@@ -1058,6 +1066,7 @@ def _db_update_article_images(articles: list[dict[str, Any]]) -> int:
         conn.close()
 
 def _backfill_missing_article_images(limit: int = 6) -> int:
+    """Repair missing photos and re-check stale image matches in small batches."""
     rows = _db_fetch_articles_needing_images(limit)
     if not rows:
         return 0
@@ -2051,7 +2060,11 @@ def _resolve_article_image(raw: dict[str, Any]) -> dict[str, Any]:
             fallback_url and fallback_source in TRUSTED_REUSABLE_IMAGE_SOURCES
             and _control_enabled(f"image:{fallback_source}", True)
         ):
-            return fallback
+            # The image search has just been attempted. Keep the previous safe image,
+            # but reset its check timestamp so failed lookups don't repeat every refresh.
+            retained = dict(fallback)
+            retained["image_checked_at"] = datetime.now(timezone.utc)
+            return retained
 
     return {
         "image_url": "",
@@ -2127,14 +2140,13 @@ def _enrich_article_images(raw_articles: list[dict[str, Any]], *, force_refresh:
                     if cached.get(key) not in (None, ""):
                         item[key] = cached[key]
                 continue
-            if cached_source != "gemini_generated" or force_refresh:
-                item["_fallback_cached_image"] = {
-                    key: cached.get(key)
-                    for key in (
-                        "image_url", "image_source", "image_credit", "image_credit_url",
-                        "image_provider_url", "image_license_url", "image_checked_at",
-                    )
-                }
+            item["_fallback_cached_image"] = {
+                key: cached.get(key)
+                for key in (
+                    "image_url", "image_source", "image_credit", "image_credit_url",
+                    "image_provider_url", "image_license_url", "image_checked_at",
+                )
+            }
 
     pending = [
         item for item in raw_articles
@@ -2961,10 +2973,9 @@ def _refresh_news_job() -> None:
             _LAST_REFRESH_ERROR = "No new stories; existing stories retained. Images repaired: %d." % backfilled
             return
 
-        image_candidates = [raw for _index, raw in raw_to_publish]
-        _enrich_article_images(image_candidates)
-        _avoid_repeated_news_photos(image_candidates)
-
+        # Persist the fresh headlines and bilingual briefs before any external image
+        # provider is called. Image searches may time out or hit rate limits; they must
+        # not hold new news back from Supabase and the homepage.
         ready: list[dict[str, Any]] = []
         for index, raw in raw_to_publish:
             article_data = _base_article(raw)
@@ -2974,19 +2985,49 @@ def _refresh_news_job() -> None:
             ready.append(article_data)
 
         saved = _db_upsert_many(ready)
-        images_found = sum(
-            1 for item in ready
-            if item.get("image_url") and item.get("image_source") in TRUSTED_REUSABLE_IMAGE_SOURCES
-        )
-        logger.info(
-            "News refresh save outcome: candidates=%d database_saved=%s source_language_fallbacks=%d reusable_images=%d",
-            len(ready), saved, source_language_fallbacks, images_found,
-        )
         for article_data in ready:
             _MEMORY_ARTICLES[article_data["source_url"]] = article_data
-        backfilled = _backfill_missing_article_images(limit=min(6, MAX_IMAGE_LOOKUPS_PER_REFRESH)) if schema_available and MAX_IMAGE_LOOKUPS_PER_REFRESH > 0 else 0
+        logger.info(
+            "News headlines saved before image lookup: candidates=%d database_saved=%s source_language_fallbacks=%d",
+            len(ready), saved, source_language_fallbacks,
+        )
+
+        image_candidates = [raw for _index, raw in raw_to_publish]
+        image_updates = 0
+        images_found = 0
+        try:
+            _enrich_article_images(image_candidates)
+            _avoid_repeated_news_photos(image_candidates)
+            image_updates = _db_update_article_images(image_candidates)
+            image_keys = (
+                "image_url", "image_source", "image_credit", "image_credit_url",
+                "image_provider_url", "image_license_url", "image_checked_at",
+            )
+            by_url = {str(item.get("source_url") or ""): item for item in image_candidates}
+            for article_data in ready:
+                image = by_url.get(str(article_data.get("source_url") or ""))
+                if not image:
+                    continue
+                for key in image_keys:
+                    article_data[key] = image.get(key, "")
+            images_found = sum(
+                1 for item in image_candidates
+                if item.get("image_url") and item.get("image_source") in TRUSTED_REUSABLE_IMAGE_SOURCES
+            )
+            logger.info(
+                "News image pass finished: candidates=%d image_updates=%d reusable_images=%d",
+                len(image_candidates), image_updates, images_found,
+            )
+        except Exception as image_exc:
+            # Headlines have already been saved; image provider failures are non-fatal.
+            logger.warning(
+                "Image lookup failed after news was saved (%s)",
+                type(image_exc).__name__,
+            )
+
+        backfilled = _backfill_missing_article_images(limit=min(4, MAX_IMAGE_LOOKUPS_PER_REFRESH)) if schema_available and MAX_IMAGE_LOOKUPS_PER_REFRESH > 0 else 0
         if backfilled:
-            logger.info("Repaired %d previously missing article images", backfilled)
+            logger.info("Repaired/refreshed %d existing article image matches", backfilled)
         _LAST_REFRESH_SUCCESS = time.monotonic()
         _LAST_REFRESH_AT = datetime.now(timezone.utc)
         _LAST_REFRESH_STATE = "success" if saved else "memory_only"
