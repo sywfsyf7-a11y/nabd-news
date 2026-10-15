@@ -53,7 +53,7 @@ Adding a host to `CONTENT_LICENSE_APPROVED_DOMAINS` is an administrative overrid
 3. Manually reviewed press-kit assets whose manifest records approval for the intended use and includes source, creator/credit and licence fields.
 4. Official Pexels and Unsplash API results, only when the corresponding API key is configured; follow current API, attribution, hotlinking and other usage requirements.
 5. Original, topic-aware 16:9 Gemini editorial illustrations, only after no suitable sourced photo was found and if generation is enabled and within configured limits. They are illustrations, not documentary proof, and still need human review.
-6. A local topic-specific vector editorial illustration with a category-specific colour palette and motif is used if no eligible photo or generated image is available. This avoids repeatedly showing the generic A.jpg/E.jpg files and is labelled as editorial art. Failed image lookups are retried after a configurable interval (default: 12 hours), instead of waiting a full week.
+6. A local topic-specific vector editorial illustration with a category-specific colour palette and motif is used if no eligible photo or generated image is available. This avoids repeatedly showing the generic A.jpg/E.jpg files and is labelled as editorial art. Failed image lookups are retried after a configurable interval (default: 1 hour), instead of waiting a full week.
 
 
 Google News thumbnails, unverified RSS images, publisher-page thumbnails and generic image-search results are not treated as reusable licensed images. API access alone is not a universal copyright clearance: confirm the original item's licence, attribution rules, trademarks, privacy/publicity rights and any additional restrictions before commercial reuse.
