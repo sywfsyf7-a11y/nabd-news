@@ -40,20 +40,19 @@ Arabic-origin stories are displayed only on the Arabic site; English-origin stor
 
 ## Publisher rights gate
 
-The code blocks BBC, Reuters, Associated Press, TechCrunch, ESPN, ScienceDaily, The Guardian and Al Jazeera unless a domain is specifically approved after rights review. Adding a host to `CONTENT_LICENSE_APPROVED_DOMAINS` is an administrative override, not proof of permission; retain evidence of the licence or written permission and confirm it covers the actual use.
+BBC (`bbc.com`, `bbc.co.uk`) and Al Jazeera (`aljazeera.net`, `aljazeera.com`) are included in the news discovery catalog in **headline-and-source-link-only mode by default** unless the domain is explicitly approved after rights review. The site does not copy their RSS descriptions or run them through Gemini for a new article body. CNN (`cnn.com`) is included in the regular category-based discovery catalog. Reuters, Associated Press, TechCrunch, ESPN, ScienceDaily and The Guardian remain blocked from reuse of feed excerpts unless specifically approved.
 
-World Pulse prepares its own short bilingual brief from the source headline and limited RSS excerpt and links to the original report. A listing, headline, RSS excerpt or attribution does not grant a right to republish a full article or its photograph. A source can be added to the catalog without bypassing these rules.
+Adding a host to `CONTENT_LICENSE_APPROVED_DOMAINS` is an administrative override, not proof of permission; retain evidence of the licence or written permission and confirm it covers the intended use. A listing, headline, RSS excerpt or attribution does not grant a right to republish a full article or its photograph.
 
 ## Image pipeline
 
-1. Wikimedia Commons results accepted only when item metadata indicates Public Domain Mark, CC0 or CC BY (and rejects noncommercial, no-derivatives and share-alike variants); creator, file page and licence are retained.
-2. Library of Congress photo records only where the individual item record explicitly indicates public domain, no known restrictions, CC0, or free-to-use-and-reuse status. Ambiguous/contradictory rights notes are rejected and the exact record URL is retained.
-3. Manually reviewed press-kit assets whose manifest records approval for the intended commercial use and includes source, creator/credit and licence fields.
+1. Wikimedia Commons items are accepted only when item metadata identifies Public Domain Mark, CC0, CC BY or CC BY-SA (attribution/ShareAlike conditions are retained and must be followed). Noncommercial and no-derivatives variants are rejected; creator, file page and licence are retained.
+2. Library of Congress photo records are accepted only where the individual item record explicitly indicates public domain, no known restrictions, CC0, or free-to-use-and-reuse status. Ambiguous/contradictory rights notes are rejected and the exact record URL is retained.
+3. Manually reviewed press-kit assets whose manifest records approval for the intended use and includes source, creator/credit and licence fields.
 4. Official Pexels and Unsplash API results, only when the corresponding API key is configured; follow current API, attribution, hotlinking and other usage requirements.
-5. Original, topic-aware 16:9 Gemini editorial illustrations, only after no suitable sourced image was found and if generation is enabled and within configured limits. They are illustrations, not documentary proof, and still need human review.
-6. Local fallbacks: `static/A.jpg` for Arabic-origin stories and `static/E.jpg` for English-origin stories.
+5. Original, topic-aware 16:9 Gemini editorial illustrations, only after no suitable sourced photo was found and if generation is enabled and within configured limits. They are illustrations, not documentary proof, and still need human review.
+6. A local topic-specific vector editorial illustration with a category-specific colour palette and motif is used if no eligible photo or generated image is available. This avoids repeatedly showing the generic A.jpg/E.jpg files and is labelled as editorial art. Failed image lookups are retried after a configurable interval (default: 12 hours), instead of waiting a full week.
 
-Google News thumbnails, unverified RSS images, publisher-page thumbnails and generic image-search results are not treated as reusable licensed images. API access alone is not a universal copyright clearance: confirm the original item's licence, attribution rules, trademarks, privacy/publicity rights and any additional restrictions before commercial reuse.
 
 Google News thumbnails, unverified RSS images, publisher-page thumbnails and generic image-search results are not treated as reusable licensed images. API access alone is not a universal copyright clearance: confirm the original item's licence, attribution rules, trademarks, privacy/publicity rights and any additional restrictions before commercial reuse.
 
