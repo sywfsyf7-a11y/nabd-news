@@ -10,6 +10,10 @@ services:
         generateValue: true
       - key: ADMIN_PANEL_PASSWORD
         sync: false
+      - key: PEXELS_API_KEY
+        sync: false
+      - key: UNSPLASH_ACCESS_KEY
+        sync: false
       - key: SESSION_COOKIE_SECURE
         value: "true"
       - key: NEWS_AUTO_FETCH
