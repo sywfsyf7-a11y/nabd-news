@@ -1,5 +1,7 @@
 """Regression tests for fast article navigation and distinct editorial fields."""
 import unittest
+import os
+import tempfile
 from datetime import datetime, timezone, timedelta
 from urllib.parse import parse_qs, urlparse
 from unittest.mock import patch
@@ -183,6 +185,106 @@ class SiteExperienceTests(unittest.TestCase):
         self.assertEqual(reason, "rate_limited_429")
         self.assertGreater(remaining, 0)
         self.assertTrue(connection.closed)
+
+    def test_existing_image_query_includes_stale_matches_for_rotation(self):
+        class FakeCursor:
+            def __init__(self):
+                self.query = ""
+                self.params = None
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                return False
+            def execute(self, query, params=None):
+                self.query, self.params = query, params
+            def fetchall(self):
+                return []
+
+        class FakeConnection:
+            def __init__(self):
+                self.cursor_instance = FakeCursor()
+                self.closed = False
+            def cursor(self, **kwargs):
+                return self.cursor_instance
+            def close(self):
+                self.closed = True
+
+        connection = FakeConnection()
+        with patch.object(world_pulse, "_ensure_schema", return_value=True):
+            with patch.object(world_pulse, "_connect_db", return_value=connection):
+                result = world_pulse._db_fetch_articles_needing_images(limit=6)
+        self.assertEqual(result, [])
+        self.assertIn("COALESCE(image_url, '') <> ''", connection.cursor_instance.query)
+        self.assertIn("INTERVAL '1 second'", connection.cursor_instance.query)
+        self.assertEqual(connection.cursor_instance.params[0], world_pulse.IMAGE_RETRY_AFTER_HOURS)
+        self.assertEqual(connection.cursor_instance.params[1], world_pulse.IMAGE_CACHE_MAX_AGE_SECONDS)
+        self.assertTrue(connection.closed)
+
+    def test_news_is_persisted_before_image_provider_calls(self):
+        raw = {
+            "slug": "fresh-news-first",
+            "source_url": "https://example.com/fresh-news-first",
+            "category": "world",
+            "source_name": "Example News",
+            "source_domain": "example.com",
+            "original_title": "A newly reported development",
+            "original_summary": "The source provides a short, factual excerpt.",
+            "original_language": "en",
+            "published_at": datetime(2026, 10, 15, tzinfo=timezone.utc),
+            "image_url": "",
+            "image_source": "none",
+            "image_checked_at": None,
+        }
+        translation = {
+            "title_ar": "تطور جديد",
+            "title_en": "A newly reported development",
+            "summary_ar": "موجز موجز يوضح ما ذكره المصدر.",
+            "summary_en": "A short brief describing the source report.",
+            "content_ar": "تفاصيل متاحة من المصدر لا تقل عن مئة حرف لاختبار حفظ الخبر قبل الصور.",
+            "content_en": "Source-supported details long enough for the test to persist the new article before image fetching.",
+        }
+        events = []
+        image_candidate = {
+            "image_url": "https://images.example.com/news.jpg",
+            "image_source": "openverse_licensed",
+            "image_credit": "Photographer",
+            "image_credit_url": "https://photos.example.com/item",
+            "image_provider_url": "https://photos.example.com/item",
+            "image_license_url": "https://creativecommons.org/licenses/by/4.0/",
+            "image_checked_at": datetime.now(timezone.utc),
+        }
+
+        def save_news(rows):
+            events.append("save")
+            self.assertEqual(rows[0]["source_url"], raw["source_url"])
+            self.assertEqual(rows[0]["image_url"], "")
+            return True
+
+        def enrich(rows):
+            self.assertIn("save", events, "news must be stored before calling image providers")
+            events.append("images")
+            rows[0].update(image_candidate)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            lock_path = os.path.join(tmp, "news.lock")
+            with patch.dict(os.environ, {"REFRESH_LOCK_FILE": lock_path}):
+                with patch.object(world_pulse, "_ensure_schema", return_value=True):
+                    with patch.object(world_pulse, "_collect_rss_articles", return_value=[dict(raw)]):
+                        with patch.object(world_pulse, "_db_fetch_articles_needing_editorial", return_value=[]):
+                            with patch.object(world_pulse, "_db_fetch_all", return_value=[]):
+                                with patch.object(world_pulse, "_translate_batch", return_value={0: translation}):
+                                    with patch.object(world_pulse, "_db_upsert_many", side_effect=save_news):
+                                        with patch.object(world_pulse, "_enrich_article_images", side_effect=enrich):
+                                            with patch.object(world_pulse, "_avoid_repeated_news_photos"):
+                                                with patch.object(world_pulse, "_db_update_article_images", return_value=1) as image_update:
+                                                    with patch.object(world_pulse, "_backfill_missing_article_images", return_value=0):
+                                                        world_pulse._refresh_news_job()
+        self.assertEqual(events, ["save", "images"])
+        image_update.assert_called_once()
+        stored_in_memory = world_pulse._MEMORY_ARTICLES[raw["source_url"]]
+        self.assertEqual(stored_in_memory["image_url"], image_candidate["image_url"])
+        self.assertEqual(world_pulse._LAST_REFRESH_STATE, "success")
+        world_pulse._MEMORY_ARTICLES.pop(raw["source_url"], None)
 
     def test_homepage_ticker_uses_latest_story_and_does_not_require_a_today_timestamp(self):
         latest = {
