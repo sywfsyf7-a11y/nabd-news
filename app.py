@@ -89,7 +89,7 @@ RSS_BATCH_TIMEOUT_SECONDS = max(8, min(60, int(os.getenv("RSS_BATCH_TIMEOUT_SECO
 IMAGE_ENRICHMENT_BATCH_TIMEOUT_SECONDS = max(5, min(120, int(os.getenv("IMAGE_ENRICHMENT_BATCH_TIMEOUT_SECONDS", "65"))))
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
 GEMINI_IMAGE_MODEL = os.getenv("GEMINI_IMAGE_MODEL", "gemini-nano-banana-2.1").strip()
-GEMINI_IMAGE_GENERATION_ENABLED = os.getenv("GEMINI_IMAGE_GENERATION_ENABLED", "true").lower() not in {"0", "false", "no"}
+GEMINI_IMAGE_GENERATION_ENABLED = os.getenv("GEMINI_IMAGE_GENERATION_ENABLED", "false").lower() not in {"0", "false", "no"}
 MAX_GEMINI_IMAGES_PER_REFRESH = max(0, min(4, int(os.getenv("MAX_GEMINI_IMAGES_PER_REFRESH", "1"))))
 MAX_GEMINI_IMAGES_PER_24H = max(0, min(100, int(os.getenv("MAX_GEMINI_IMAGES_PER_24H", "4"))))
 GEMINI_429_COOLDOWN_MINUTES = max(5, min(1440, int(os.getenv("GEMINI_429_COOLDOWN_MINUTES", "60"))))
@@ -468,6 +468,9 @@ _DB_ARTICLE_CACHE_TTL_SECONDS = max(1, min(60, int(os.getenv("DB_ARTICLE_CACHE_T
 _DB_ARTICLES_CACHE: list[dict[str, Any]] | None = None
 _DB_ARTICLES_CACHE_AT = 0.0
 _DB_ARTICLES_CACHE_LOCK = threading.Lock()
+_DISPLAY_STORIES_CACHE_TTL_SECONDS = max(2, min(30, int(os.getenv("DISPLAY_STORIES_CACHE_TTL_SECONDS", "15"))))
+_DISPLAY_STORIES_CACHE: dict[str, tuple[float, list[dict[str, Any]]]] = {}
+_DISPLAY_STORIES_CACHE_LOCK = threading.Lock()
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS world_pulse_articles (
@@ -878,6 +881,8 @@ def _invalidate_db_articles_cache() -> None:
     with _DB_ARTICLES_CACHE_LOCK:
         _DB_ARTICLES_CACHE = None
         _DB_ARTICLES_CACHE_AT = 0.0
+    with _DISPLAY_STORIES_CACHE_LOCK:
+        _DISPLAY_STORIES_CACHE.clear()
 
 
 def _db_fetch_all() -> list[dict[str, Any]]:
@@ -3432,7 +3437,7 @@ def _all_live_articles() -> list[dict[str, Any]]:
     result.sort(key=lambda item: item.get("published_at") or item.get("fetched_at") or datetime(1970, 1, 1, tzinfo=timezone.utc), reverse=True)
     return result
 
-def _get_display_stories(lang: str) -> list[dict[str, Any]]:
+def _build_display_stories(lang: str) -> list[dict[str, Any]]:
     live: list[dict[str, Any]] = []
     for original in _all_live_articles():
         if original.get("is_demo") or not original.get("source_url") or not original.get(f"title_{lang}"):
@@ -3460,6 +3465,21 @@ def _get_display_stories(lang: str) -> list[dict[str, Any]]:
         seen_urls.add(url_key)
         unique.append(row)
     return [_normalise_story(row, lang) for row in unique]
+
+
+def _get_display_stories(lang: str) -> list[dict[str, Any]]:
+    """Reuse the sorted/deduplicated display pool across requests."""
+    now = time.monotonic()
+    with _DISPLAY_STORIES_CACHE_LOCK:
+        cached = _DISPLAY_STORIES_CACHE.get(lang)
+        if cached and now - cached[0] < _DISPLAY_STORIES_CACHE_TTL_SECONDS:
+            return [dict(row) for row in cached[1]]
+
+    stories = _build_display_stories(lang)
+    with _DISPLAY_STORIES_CACHE_LOCK:
+        _DISPLAY_STORIES_CACHE[lang] = (time.monotonic(), stories)
+    return [dict(row) for row in stories]
+
 
 def _find_article(slug: str, lang: str) -> dict[str, Any] | None:
     for row in _all_live_articles():
@@ -3591,8 +3611,8 @@ def search():
 @app.get("/article/<slug>")
 def article(slug: str):
     lang = current_language()
-    # Build the display pool once: _find_article plus this pool previously read the same
-    # latest article set from PostgreSQL twice for every article click.
+    # Reuse the short-lived display pool; sorting and near-duplicate checks are
+    # expensive to repeat for every article click and unnecessary between DB writes.
     pool = _get_display_stories(lang)
     selected = next((story for story in pool if story.get("slug") == slug), None)
     if selected is None:

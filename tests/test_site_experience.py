@@ -543,6 +543,19 @@ class SiteExperienceTests(unittest.TestCase):
         self.assertTrue(executor.futures[1].cancelled)
         self.assertEqual(world_pulse._LAST_IMAGE_STATUS["found"], 1)
 
+    def test_display_stories_cache_reuses_builder_until_invalidated(self):
+        stories = [{"slug": "cached-story", "title_ar": "عنوان", "title_en": "Headline"}]
+        with patch.object(world_pulse, "_build_display_stories", return_value=stories) as builder:
+            with world_pulse._DISPLAY_STORIES_CACHE_LOCK:
+                world_pulse._DISPLAY_STORIES_CACHE.clear()
+            first = world_pulse._get_display_stories("ar")
+            second = world_pulse._get_display_stories("ar")
+            self.assertEqual(first, second)
+            builder.assert_called_once_with("ar")
+            world_pulse._invalidate_db_articles_cache()
+            world_pulse._get_display_stories("ar")
+            self.assertEqual(builder.call_count, 2)
+
     def test_news_status_poll_checks_whether_auto_refresh_is_due(self):
         with patch.object(world_pulse, "_maybe_start_refresh") as maybe_refresh:
             with patch.object(world_pulse, "_db_last_fetched_at", return_value=None):
