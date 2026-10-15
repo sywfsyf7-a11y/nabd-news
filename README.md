@@ -20,6 +20,8 @@ Gemini receives the source headline and a short RSS excerpt to prepare a bilingu
 The article-level Ask-Me AI question panel and `/api/ask` endpoint are removed. Bilingual article summarization and the optional Gemini illustration feature are separate and remain available.
 
 ## Image sourcing
+The Openverse API adapter and item-level licence validator live in `image_sources.py`, separate from the Flask routes and database logic; the app injects its scoring, URL-safety and HTTP helpers for deterministic tests.
+
 
 The system searches the story headline for topic-relevant images from Wikimedia Commons (Public Domain Mark, CC0, CC BY, and CC BY-SA only, with required attribution), the Library of Congress (item-level rights notes), and NASA's public image library for relevant science/space/Earth stories. It then checks manually approved press kits. Pexels and Unsplash API calls are disabled in the current deployment because those API integrations are unavailable. When no photo is suitable, a bounded Gemini illustration may be generated separately; if that is unavailable too, the page shows a distinct local SVG illustration keyed to the story title and category instead of the generic A.jpg/E.jpg image.
 
