@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="{{ lang }}" dir="{{ 'rtl' if lang == 'ar' else 'ltr' }}">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ 'حقوق الصور والإبلاغ' if lang == 'ar' else 'Image Copyright & Reporting' }} — {{ site_name }}</title>
+<style>
+:root{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;color:#172033;background:#f3f6fb}body{margin:0;padding:24px;line-height:1.8}
+main{max-width:850px;margin:30px auto;background:#fff;border:1px solid #dfe6ef;border-radius:18px;padding:clamp(20px,4vw,42px)}
+h1{line-height:1.35}label{display:block;font-weight:700;margin-top:14px}input,textarea{width:100%;box-sizing:border-box;padding:12px;border:1px solid #cbd5e1;border-radius:9px;font:inherit}
+button{margin-top:16px;background:#172033;color:white;border:0;border-radius:9px;padding:12px 18px;font:inherit;font-weight:700;cursor:pointer}.muted{color:#64748b}.notice{padding:10px;background:#fff4e5;border-radius:9px}
+</style></head><body><main>
+<a href="{{ url_for('index', lang=lang) }}">← {{ 'العودة إلى الأخبار' if lang == 'ar' else 'Back to news' }}</a>
+<h1>{{ 'سياسة حقوق الصور وطلب الإزالة' if lang == 'ar' else 'Image Copyright & Takedown Policy' }}</h1>
+{% if lang == 'ar' %}
+<p>تسعى نبض العالم إلى عرض صور يمكن التحقق من شروط استخدامها. نفضّل الصور ذات ترخيص واضح أو المصرّح باستخدامها، ونحتفظ ببيانات المصدر وصاحب الصورة ورابط الترخيص وتاريخ الفحص عندما تكون متاحة.</p>
+<ul><li>وجود الصورة على الإنترنت أو ظهورها في نتائج البحث لا يعني أنها مجانية الاستخدام.</li><li>لا ينبغي عرض صورة خارجية ما لم يُحفظ رابط ترخيص قابل للتحقق. عند غياب الترخيص الواضح، تُستخدم صورة تحريرية محلية بديلة أو تُترك المادة بلا صورة.</li><li>البيانات الوصفية للصورة تساعد على التحقق، لكنها ليست ضماناً قانونياً مستقلاً؛ راجع شروط الترخيص الأصلي.</li><li>إذا كنت صاحب حق وتعتقد أن صورة تخالف حقوقك، أرسل رابط الخبر ورابط الصورة وسبب البلاغ. سنراجع البلاغ ونعطّل الصورة أو نستبدلها عند الحاجة.</li></ul>
+<h2>الإبلاغ عن صورة</h2><p>يمكنك أيضاً مراسلتنا مباشرة عبر <a href="mailto:{{ contact_email }}">{{ contact_email }}</a>.</p>
+{% else %}
+<p>World Pulse aims to display images whose reuse terms can be checked. Where available, we retain source, creator, license URL, and review date metadata.</p>
+<ul><li>Being available online or in search results does not make an image free to use.</li><li>Third-party images should not be displayed without a verifiable license URL. If rights are unclear, use a locally hosted editorial fallback or show no image.</li><li>Metadata helps review a license but is not, by itself, a legal guarantee. Please consult the original license terms.</li><li>Rights holders can report a suspected issue using the form below. We will review it and remove or replace the image when appropriate.</li></ul>
+<h2>Report an image</h2><p>You can also contact us at <a href="mailto:{{ contact_email }}">{{ contact_email }}</a>.</p>
+{% endif %}
+{% if notice %}<p class="notice" role="status">{{ notice }}</p>{% endif %}
+<form method="post">
+<label for="article_url">{{ 'رابط الخبر' if lang == 'ar' else 'Article URL' }}</label><input id="article_url" name="article_url" type="url" maxlength="500" placeholder="https://…">
+<label for="image_url">{{ 'رابط الصورة' if lang == 'ar' else 'Image URL' }}</label><input id="image_url" name="image_url" type="url" maxlength="500" placeholder="https://…">
+<label for="details">{{ 'تفاصيل البلاغ وسبب طلب المراجعة' if lang == 'ar' else 'Report details and reason for review' }}</label><textarea id="details" name="details" rows="5" maxlength="1200" required></textarea>
+<button type="submit">{{ 'إرسال البلاغ عبر البريد' if lang == 'ar' else 'Send report by email' }}</button>
+</form><p class="muted">{{ 'سيُفتح تطبيق البريد لديك لإرسال البلاغ؛ لا يتم رفع ملفات أو صور من هذا النموذج.' if lang == 'ar' else 'Your email app will open to send the report; this form does not upload files or images.' }}</p>
+</main></body></html>
