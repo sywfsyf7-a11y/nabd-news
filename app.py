@@ -2147,6 +2147,7 @@ def _resolve_article_image(raw: dict[str, Any]) -> dict[str, Any]:
         fallback_url = str(fallback.get("image_url") or "")
         if (
             fallback_url and fallback_source in TRUSTED_REUSABLE_IMAGE_SOURCES
+            and _image_license_verified(fallback)
             and _control_enabled(f"image:{fallback_source}", True)
         ):
             # The image search has just been attempted. Keep the previous safe image,
