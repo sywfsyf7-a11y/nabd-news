@@ -328,6 +328,27 @@
               </article>
             {% endfor %}
           </div>
+          {% if page == 'home' and home_pages > 1 %}
+            <nav class="mt-8 flex flex-wrap items-center justify-center gap-3" aria-label="{{ 'تنقل صفحات الأخبار' if lang == 'ar' else 'News pagination' }}">
+              {% if home_page > 1 %}
+                <a href="{{ url_for('index', lang=lang, category=active_category, page=home_page - 1) }}" class="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 transition hover:border-pulse hover:text-pulse">
+                  {{ 'السابق' if lang == 'ar' else 'Previous' }}
+                </a>
+              {% endif %}
+              <span class="px-2 text-xs font-semibold text-slate-500">
+                {% if lang == 'ar' %}
+                  الصفحة {{ home_page }} من {{ home_pages }} · {{ home_total_stories }} خبر
+                {% else %}
+                  Page {{ home_page }} of {{ home_pages }} · {{ home_total_stories }} stories
+                {% endif %}
+              </span>
+              {% if home_page < home_pages %}
+                <a href="{{ url_for('index', lang=lang, category=active_category, page=home_page + 1) }}" class="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 transition hover:border-pulse hover:text-pulse">
+                  {{ 'التالي' if lang == 'ar' else 'Next' }}
+                </a>
+              {% endif %}
+            </nav>
+          {% endif %}
         {% else %}
           <div class="rounded-3xl border border-dashed border-slate-300 bg-white px-6 py-16 text-center">
             <p class="text-base font-semibold text-slate-500">{{ ui.empty }}</p>
