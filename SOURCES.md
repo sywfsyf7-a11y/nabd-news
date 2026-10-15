@@ -1,6 +1,6 @@
 # World Pulse — Publisher and image-source policy
 
-This allowlist contains 259 category-and-language assignments covering 166 distinct publisher domains across eight sections. It is a maintained catalog, not a claim that every publisher worldwide is integrated. Google News RSS is used for discovery only; the original publisher's article URL remains the destination for readers.
+This allowlist contains 270 category-and-language assignments covering 168 distinct publisher domains across eight sections. It is a maintained catalog, not a claim that every publisher worldwide is integrated. Google News RSS is used for discovery only; the original publisher's article URL remains the destination for readers.
 
 Arabic-origin stories are displayed only on the Arabic site; English-origin stories only on the English site. Each discovered host must match the configured source allowlist for the story category and language. Some publishers may return no eligible stories because of regional feeds, robots restrictions, or the rights gate.
 
