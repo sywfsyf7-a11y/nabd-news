@@ -413,5 +413,40 @@ class SourcePolicyTests(unittest.TestCase):
             self.assertEqual(world_pulse._database_url(), transaction)
 
 
+    def test_database_url_removes_unsupported_pgbouncer_query_parameter(self):
+        from unittest.mock import patch
+
+        dsn = (
+            "postgresql://postgres.projectref@aws-0-ap-northeast-1.pooler.supabase.com:5432/postgres"
+            "?sslmode=require&pgbouncer=true&application_name=world-pulse"
+        )
+        with patch.dict(
+            world_pulse.os.environ,
+            {"SUPABASE_POOLER_URL": dsn, "DATABASE_URL": ""},
+            clear=False,
+        ):
+            result = world_pulse._database_url()
+        self.assertIn(":6543/postgres", result)
+        self.assertIn("sslmode=require", result)
+        self.assertIn("application_name=world-pulse", result)
+        self.assertNotIn("pgbouncer", result.casefold())
+
+    def test_database_url_removes_pgbouncer_flag_case_insensitively(self):
+        from unittest.mock import patch
+
+        dsn = (
+            "postgresql://postgres.projectref@aws-0-ap-northeast-1.pooler.supabase.com:6543/postgres"
+            "?PgBouncer=true&sslmode=require"
+        )
+        with patch.dict(
+            world_pulse.os.environ,
+            {"SUPABASE_POOLER_URL": dsn, "DATABASE_URL": ""},
+            clear=False,
+        ):
+            result = world_pulse._database_url()
+        self.assertNotIn("pgbouncer", result.casefold())
+        self.assertIn("sslmode=require", result)
+
+
 if __name__ == "__main__":
     unittest.main()
