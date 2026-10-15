@@ -3040,10 +3040,10 @@ def inject_shared_template_data() -> dict[str, Any]:
         "now_year": datetime.now(TIMEZONE).year,
     }
 
-@app.get("/")
 HOME_STORIES_PER_PAGE = max(12, min(36, int(os.getenv("HOME_STORIES_PER_PAGE", "24"))))
 
 
+@app.get("/")
 def index():
     _maybe_start_refresh()
     lang = current_language()
