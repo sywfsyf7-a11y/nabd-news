@@ -81,6 +81,52 @@ class SiteExperienceTests(unittest.TestCase):
         self.assertEqual(response.get_data(as_text=True), "article rendered")
         pool.assert_called_once_with("en")
 
+    def test_source_control_cache_primes_all_known_toggles_with_one_database_query(self):
+        class FakeCursor:
+            def __init__(self):
+                self.query = None
+                self.params = None
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                return False
+            def execute(self, query, params=None):
+                self.query, self.params = query, params
+            def fetchall(self):
+                return [
+                    ("news:world:ar:cnn.com", False),
+                    ("image:openverse_licensed", False),
+                ]
+
+        class FakeConnection:
+            def __init__(self):
+                self.cursor_instance = FakeCursor()
+                self.closed = False
+            def cursor(self):
+                return self.cursor_instance
+            def close(self):
+                self.closed = True
+
+        old_cache = dict(world_pulse._CONTROL_CACHE)
+        connection = FakeConnection()
+        try:
+            with world_pulse._CONTROL_CACHE_LOCK:
+                world_pulse._CONTROL_CACHE.clear()
+            with patch.object(world_pulse, "_ensure_schema", return_value=True):
+                with patch.object(world_pulse, "_connect_db", return_value=connection) as connect:
+                    self.assertTrue(world_pulse._prime_source_control_cache())
+                    self.assertFalse(world_pulse._control_enabled("news:world:ar:cnn.com"))
+                    self.assertFalse(world_pulse._control_enabled("image:openverse_licensed"))
+                    # An unset source retains the current default-on behavior.
+                    self.assertTrue(world_pulse._control_enabled("news:world:ar:petra.gov.jo"))
+            connect.assert_called_once()
+            self.assertIn("SELECT control_key, enabled FROM world_pulse_controls", connection.cursor_instance.query)
+            self.assertTrue(connection.closed)
+        finally:
+            with world_pulse._CONTROL_CACHE_LOCK:
+                world_pulse._CONTROL_CACHE.clear()
+                world_pulse._CONTROL_CACHE.update(old_cache)
+
     def test_google_news_rss_query_is_limited_to_recent_stories(self):
         with patch.object(world_pulse, "_control_enabled", return_value=True):
             with patch.object(world_pulse, "_parse_any_rss", return_value=("world", "ar", [])) as parser:
