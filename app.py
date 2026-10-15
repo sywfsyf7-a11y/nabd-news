@@ -1796,12 +1796,17 @@ def _search_openverse_image(title: str, lang: str = "en", category: str = "world
     )
 
 def _search_any_reusable_image(title: str, lang: str = "en", category: str = "world") -> dict[str, str]:
+    # Prefer sources with item-level open-reuse evidence and editorial archives first.
+    # Pexels/Unsplash are title-query-based licensed stock fallbacks; each is called only
+    # when its API key is configured and the corresponding admin control is enabled.
     finders = (
         ("image:wikimedia_relevant", lambda: _search_commons_image(title, lang, category)),
         ("image:openverse_licensed", lambda: _search_openverse_image(title, lang, category)),
         ("image:loc_open_access", lambda: _search_loc_open_access_image(title, lang, category)),
         ("image:nasa_images", lambda: _search_nasa_image(title, lang, category)),
         ("image:presskit_approved", lambda: _search_approved_presskit_image(title, category)),
+        ("image:pexels_api", lambda: _search_pexels_image(title)),
+        ("image:unsplash_api", lambda: _search_unsplash_image(title)),
     )
     for control_key, finder in finders:
         if not _control_enabled(control_key, True):
