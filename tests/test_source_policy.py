@@ -27,6 +27,36 @@ class SourcePolicyTests(unittest.TestCase):
         unapproved = dict(arabic_story, source_domain="unknown.example")
         self.assertFalse(world_pulse._row_allowed_on_language_site(unapproved, "ar"))
 
+    def test_bbc_al_jazeera_and_cnn_catalog_policies(self):
+        self.assertEqual(world_pulse._source_domain_for_category("world", "ar", "www.aljazeera.net"), "aljazeera.net")
+        self.assertEqual(world_pulse._source_domain_for_category("world", "en", "www.aljazeera.com"), "aljazeera.com")
+        self.assertEqual(world_pulse._source_domain_for_category("world", "en", "www.bbc.co.uk"), "bbc.co.uk")
+        self.assertEqual(world_pulse._source_domain_for_category("world", "en", "edition.cnn.com"), "cnn.com")
+        self.assertTrue(world_pulse._is_headline_only_domain("www.bbc.com"))
+        self.assertTrue(world_pulse._is_headline_only_domain("aljazeera.com"))
+        self.assertFalse(world_pulse._is_headline_only_domain("cnn.com"))
+
+    def test_headline_only_sources_do_not_copy_rss_text_or_generate_ai_article(self):
+        row = {
+            "slug": "bbc-headline",
+            "source_url": "https://www.bbc.com/news/world-example",
+            "category": "world",
+            "source_domain": "www.bbc.com",
+            "source_name": "BBC News",
+            "original_language": "en",
+            "title_en": "A verified BBC headline",
+            "title_ar": "",
+            "summary_en": "Publisher headline and source link only.",
+            "summary_ar": "",
+            "content_en": "This full text must not be displayed on the site.",
+            "content_ar": "",
+            "image_url": "",
+            "image_source": "none",
+        }
+        story = world_pulse._normalise_story(row, "en")
+        self.assertTrue(story["headline_only"])
+        self.assertEqual(story["content"], "")
+        self.assertIn("Headline and source link only", story["summary"])
     def test_missing_images_use_topic_specific_editorial_fallbacks(self):
         base = {
             "slug": "story-fallback",
