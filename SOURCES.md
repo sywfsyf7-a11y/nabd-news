@@ -6,17 +6,19 @@ Arabic-origin stories are displayed only on the Arabic site; English-origin stor
 
 ## Publisher allowlist
 
+The lists below are generated from the current category/language catalog (270 category-language publisher assignments across 168 distinct domains). A domain appearing in several categories is counted once in the distinct-domain total.
+
 ### Politics
-- Arabic: `aljazeera.net`, `alarabiya.net`, `skynewsarabia.com`, `aawsat.com`, `alquds.co.uk`, `alghad.com`, `almamlakatv.com`, `roya.tv`, `arabic.rt.com`, `cnn.com`, `france24.com`, `dw.com`, `euronews.com`, `aa.com.tr`, `alhurra.com`, `independentarabia.com`, `wam.ae`, `petra.gov.jo`
-- English: `bbc.com`, `reuters.com`, `apnews.com`, `politico.com`, `thehill.com`, `axios.com`, `voanews.com`, `rferl.org`, `dw.com`, `france24.com`, `euronews.com`, `abc.net.au`, `cbc.ca`, `npr.org`, `theconversation.com`, `almonitor.com`, `foreignpolicy.com`, `defensenews.com`, `opendemocracy.net`, `chinadaily.com.cn`
+- Arabic: `aljazeera.net`, `bbc.com`, `alarabiya.net`, `skynewsarabia.com`, `aawsat.com`, `alquds.co.uk`, `alghad.com`, `almamlakatv.com`, `roya.tv`, `arabic.rt.com`, `cnn.com`, `france24.com`, `dw.com`, `euronews.com`, `aa.com.tr`, `alhurra.com`, `independentarabia.com`, `wam.ae`, `petra.gov.jo`
+- English: `bbc.com`, `bbc.co.uk`, `aljazeera.com`, `cnn.com`, `reuters.com`, `apnews.com`, `politico.com`, `thehill.com`, `axios.com`, `voanews.com`, `rferl.org`, `dw.com`, `france24.com`, `euronews.com`, `abc.net.au`, `cbc.ca`, `npr.org`, `theconversation.com`, `almonitor.com`, `foreignpolicy.com`, `defensenews.com`, `opendemocracy.net`, `chinadaily.com.cn`
 
 ### Economy
 - Arabic: `asharqbusiness.com`, `cnbcarabia.com`, `mubasher.info`, `alarabiya.net`, `argaam.com`, `aleqt.com`, `zawya.com`, `almalnews.com`, `amwalalghad.com`, `almamlakatv.com`, `alghad.com`, `albayan.ae`, `alittihad.ae`, `wam.ae`, `petra.gov.jo`
-- English: `bloomberg.com`, `ft.com`, `wsj.com`, `cnbc.com`, `marketwatch.com`, `fortune.com`, `businessinsider.com`, `investopedia.com`, `finance.yahoo.com`, `economist.com`, `economictimes.indiatimes.com`, `forbes.com`, `theinformation.com`, `techcrunch.com`, `axios.com`, `dw.com`, `reuters.com`, `apnews.com`
+- English: `bloomberg.com`, `ft.com`, `wsj.com`, `cnbc.com`, `marketwatch.com`, `fortune.com`, `businessinsider.com`, `investopedia.com`, `finance.yahoo.com`, `economist.com`, `economictimes.indiatimes.com`, `forbes.com`, `theinformation.com`, `techcrunch.com`, `axios.com`, `cnn.com`, `dw.com`, `reuters.com`, `apnews.com`
 
 ### Technology
 - Arabic: `aitnews.com`, `tech-wd.com`, `arabhardware.net`, `alarabiya.net`, `almamlakatv.com`, `france24.com`, `dw.com`, `cnn.com`, `aljazeera.net`, `arabic.rt.com`
-- English: `theverge.com`, `techcrunch.com`, `wired.com`, `arstechnica.com`, `engadget.com`, `zdnet.com`, `cnet.com`, `techradar.com`, `androidauthority.com`, `tomshardware.com`, `venturebeat.com`, `9to5mac.com`, `thenextweb.com`, `digitaltrends.com`, `gizmodo.com`, `technologyreview.com`, `theregister.com`, `bloomberg.com`, `apnews.com`
+- English: `theverge.com`, `techcrunch.com`, `wired.com`, `arstechnica.com`, `engadget.com`, `zdnet.com`, `cnet.com`, `techradar.com`, `androidauthority.com`, `tomshardware.com`, `venturebeat.com`, `9to5mac.com`, `thenextweb.com`, `digitaltrends.com`, `gizmodo.com`, `technologyreview.com`, `theregister.com`, `bloomberg.com`, `cnn.com`, `apnews.com`
 
 ### Gaming
 - Arabic: `saudigamer.com`, `arabhardware.net`, `arabgamenews.com`, `vga4a.com`, `agdn-online.com`, `true-gaming.net`, `l3ab.co`, `gamers8.gg`
@@ -28,15 +30,15 @@ Arabic-origin stories are displayed only on the Arabic site; English-origin stor
 
 ### Science
 - Arabic: `ngalarabiya.com`, `aljazeera.net`, `alarabiya.net`, `dw.com`, `france24.com`, `euronews.com`, `cnn.com`, `aa.com.tr`, `alhurra.com`, `petra.gov.jo`, `wam.ae`, `almamlakatv.com`, `arabic.rt.com`
-- English: `nasa.gov`, `space.com`, `scientificamerican.com`, `livescience.com`, `phys.org`, `sciencenews.org`, `eurekalert.org`, `noaa.gov`, `usgs.gov`, `nsf.gov`, `energy.gov`, `nih.gov`, `esa.int`, `nature.com`, `newscientist.com`, `sciencedaily.com`, `science.org`, `eos.org`, `apnews.com`
+- English: `nasa.gov`, `space.com`, `scientificamerican.com`, `livescience.com`, `phys.org`, `sciencenews.org`, `eurekalert.org`, `noaa.gov`, `usgs.gov`, `nsf.gov`, `energy.gov`, `nih.gov`, `esa.int`, `nature.com`, `newscientist.com`, `sciencedaily.com`, `science.org`, `eos.org`, `cnn.com`, `apnews.com`
 
 ### Culture
 - Arabic: `alqafilah.com`, `thifaf.com`, `aljazeera.net`, `alaraby.co.uk`, `alarab.co.uk`, `alarabiya.net`, `albayan.ae`, `alittihad.ae`, `masrawy.com`, `almasryalyoum.com`, `youm7.com`, `cairo24.com`, `alkhaleej.ae`, `cnn.com`, `france24.com`, `dw.com`
-- English: `lithub.com`, `artsy.net`, `theguardian.com`, `smithsonianmag.com`, `artnews.com`, `hyperallergic.com`, `pitchfork.com`, `variety.com`, `hollywoodreporter.com`, `npr.org`, `theconversation.com`, `bfi.org.uk`, `literaryreview.co.uk`, `apnews.com`, `euronews.com`
+- English: `lithub.com`, `artsy.net`, `theguardian.com`, `smithsonianmag.com`, `artnews.com`, `hyperallergic.com`, `pitchfork.com`, `variety.com`, `hollywoodreporter.com`, `npr.org`, `theconversation.com`, `bfi.org.uk`, `literaryreview.co.uk`, `cnn.com`, `apnews.com`, `euronews.com`
 
 ### World
 - Arabic: `aljazeera.net`, `bbc.com`, `dw.com`, `france24.com`, `euronews.com`, `alarabiya.net`, `skynewsarabia.com`, `alghad.com`, `almamlakatv.com`, `roya.tv`, `arabic.rt.com`, `alhurra.com`, `cnn.com`, `aa.com.tr`, `wam.ae`, `petra.gov.jo`, `independentarabia.com`, `alqabas.com`, `alain.com`
-- English: `euronews.com`, `bbc.com`, `apnews.com`, `reuters.com`, `voanews.com`, `rferl.org`, `axios.com`, `abc.net.au`, `cbc.ca`, `france24.com`, `dw.com`, `thehill.com`, `npr.org`, `theconversation.com`, `almonitor.com`, `chinadaily.com.cn`, `straitstimes.com`, `japantimes.co.jp`, `theafricareport.com`, `restofworld.org`, `foreignpolicy.com`, `opendemocracy.net`, `theguardian.com`
+- English: `euronews.com`, `bbc.com`, `bbc.co.uk`, `aljazeera.com`, `cnn.com`, `apnews.com`, `reuters.com`, `voanews.com`, `rferl.org`, `axios.com`, `abc.net.au`, `cbc.ca`, `france24.com`, `dw.com`, `thehill.com`, `npr.org`, `theconversation.com`, `almonitor.com`, `chinadaily.com.cn`, `straitstimes.com`, `japantimes.co.jp`, `theafricareport.com`, `restofworld.org`, `foreignpolicy.com`, `opendemocracy.net`, `theguardian.com`
 
 ## Publisher rights gate
 
