@@ -500,6 +500,7 @@
         <a class="hover:text-pulse" href="{{ url_for('static_page', page_key='terms', lang=lang) }}">{{ 'شروط الاستخدام' if lang == 'ar' else 'Terms of Service' }}</a>
         <a class="hover:text-pulse" href="{{ url_for('static_page', page_key='about', lang=lang) }}">{{ 'من نحن' if lang == 'ar' else 'About Us' }}</a>
         <a class="hover:text-pulse" href="{{ url_for('contact', lang=lang) }}">{{ 'اتصل بنا' if lang == 'ar' else 'Contact Us' }}</a>
+        <a class="hover:text-pulse" href="{{ url_for('copyright_policy', lang=lang) }}">{{ 'حقوق الصور والإبلاغ' if lang == 'ar' else 'Image Copyright & Reporting' }}</a>
       </div>
       <p class="text-xs leading-6 text-slate-500">{{ ui.footer }}</p>
       <p class="text-xs text-slate-500"><a href="mailto:syfsywf86@gmail.com" class="underline underline-offset-4 hover:text-pulse">syfsywf86@gmail.com</a></p>
