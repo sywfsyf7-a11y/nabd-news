@@ -492,7 +492,6 @@ def _database_url() -> str:
         if (parsed.hostname or "").casefold().endswith(".pooler.supabase.com") and parsed.port == 5432:
             netloc = re.sub(r":5432$", ":6543", parsed.netloc)
             dsn = parsed._replace(netloc=netloc).geturl()
-            logger.info("Supabase shared pooler configured for transaction mode (port 6543)")
     except ValueError:
         # Leave malformed URLs unchanged so the driver provides the normal safe error category.
         pass
