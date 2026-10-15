@@ -197,6 +197,14 @@ class SiteExperienceTests(unittest.TestCase):
         feed_url = parser.call_args.args[0]
         query = parse_qs(urlparse(feed_url).query).get("q", [""])[0]
         self.assertIn("when:7d", query)
+        self.assertNotIn("site:", query)
+
+    def test_rss_feed_does_not_search_when_no_allowlisted_sources_are_enabled(self):
+        with patch.object(world_pulse, "CATEGORY_SOURCE_DOMAINS", {"world": {"ar": []}}):
+            with patch.object(world_pulse, "_parse_any_rss") as parser:
+                result = world_pulse._parse_feed_task("world", "ar")
+        self.assertEqual(result, ("world", "ar", []))
+        parser.assert_not_called()
 
     def test_source_language_story_with_no_rss_excerpt_gets_transparent_summary(self):
         article = world_pulse._base_article({

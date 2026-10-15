@@ -2344,9 +2344,11 @@ def _parse_feed_task(category: str, lang: str) -> tuple[str, str, list[dict[str,
     # Never fall back to an unrestricted Google News search when no sources are eligible.
     if not domains:
         return category, lang, []
-    domain_query = " OR ".join(f"site:{domain}" for domain in domains)
-    # Search feeds without a freshness operator can keep returning prominent old stories.
-    query = f"({query}) ({domain_query}) when:7d"
+    # Keep the RSS request short: placing every allowlisted domain in one large
+    # site:... OR ... expression makes some Google News queries very slow or stall.
+    # _parse_any_rss still enforces the exact language/category publisher allowlist
+    # on every returned item before it can enter the catalogue.
+    query = f"({query}) when:7d"
     if lang == "ar":
         locale = {"hl": "ar", "gl": "JO", "ceid": "JO:ar"}
     else:
