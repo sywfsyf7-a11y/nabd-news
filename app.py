@@ -96,7 +96,8 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 MAX_ARTICLES_PER_REFRESH = max(8, min(32, int(os.getenv("MAX_ARTICLES_PER_REFRESH", "24"))))
 MAX_ARTICLES_PER_CATEGORY = max(1, min(5, int(os.getenv("MAX_ARTICLES_PER_CATEGORY", "3"))))
 IMAGE_SEARCH_TIMEOUT_SECONDS = max(3, min(12, int(os.getenv("IMAGE_SEARCH_TIMEOUT_SECONDS", "5"))))
-MAX_IMAGE_LOOKUPS_PER_REFRESH = max(0, min(12, int(os.getenv("MAX_IMAGE_LOOKUPS_PER_REFRESH", "8"))))
+MAX_IMAGE_LOOKUPS_PER_REFRESH = max(0, min(24, int(os.getenv("MAX_IMAGE_LOOKUPS_PER_REFRESH", "16"))))
+IMAGE_RETRY_AFTER_HOURS = max(1, min(168, int(os.getenv("IMAGE_RETRY_AFTER_HOURS", "12"))))
 UNSPLASH_ACCESS_KEY = os.getenv("UNSPLASH_ACCESS_KEY", "").strip()
 PEXELS_API_KEY = os.getenv("PEXELS_API_KEY", "").strip()
 IMAGE_CACHE_MAX_AGE_SECONDS = max(3600, int(os.getenv("IMAGE_CACHE_MAX_AGE_HOURS", "168")) * 3600)
@@ -858,10 +859,10 @@ def _db_fetch_articles_needing_images(limit: int = 6) -> list[dict[str, Any]]:
                 WHERE is_demo = FALSE
                   AND source_url <> ''
                   AND COALESCE(image_url, '') = ''
-                  AND (image_checked_at IS NULL OR image_checked_at < NOW() - INTERVAL '7 days')
+                  AND (image_checked_at IS NULL OR image_checked_at < NOW() - (%s * INTERVAL '1 hour'))
                 ORDER BY published_at DESC NULLS LAST, fetched_at DESC
                 LIMIT %s
-            """, (max(1, min(24, int(limit))),))
+            """, (IMAGE_RETRY_AFTER_HOURS, max(1, min(24, int(limit)))))
             return [dict(row) for row in cur.fetchall()]
     except Exception as exc:
         logger.debug("Image backfill query failed (%s)", type(exc).__name__)
@@ -1199,10 +1200,11 @@ def _search_commons_image(title: str, lang: str, category: str = "world") -> dic
                 is_cc0_url = bool(re.search(r"/publicdomain/zero/1\.0/?$", license_url_path))
                 is_pd_url = bool(re.search(r"/publicdomain/mark/1\.0/?$", license_url_path))
                 is_cc_by_url = bool(re.search(r"/licenses/by/(?:2\.0|3\.0|4\.0)/?$", license_url_path))
-                license_ok = is_pd_url or is_cc0_url or is_cc_by_url
-                forbidden = any(term in license_short for term in ("noncommercial", "non-commercial", "no derivatives", "no-derivatives", "by-nc", "by-nd", "by-sa", "share alike"))
+                is_cc_by_sa_url = bool(re.search(r"/licenses/by-sa/(?:2\.0|3\.0|4\.0)/?$", license_url_path))
+                license_ok = is_pd_url or is_cc0_url or is_cc_by_url or is_cc_by_sa_url
+                forbidden = any(term in license_short for term in ("noncommercial", "non-commercial", "no derivatives", "no-derivatives", "by-nc", "by-nd"))
                 artist = _clean_text((ext.get("Artist") or {}).get("value", ""), 180)
-                if is_cc_by_url and not artist:
+                if (is_cc_by_url or is_cc_by_sa_url) and not artist:
                     continue
                 if not license_ok or forbidden:
                     continue
@@ -2367,9 +2369,14 @@ def _image_license_label(license_url: str, source: str = "") -> str:
         return "CC0 1.0"
     if "publicdomain/mark/1.0" in value:
         return "Public Domain Mark 1.0"
+    match_sa = re.search(r"creativecommons\.org/licenses/by-sa/(2\.0|3\.0|4\.0)", value)
+    if match_sa:
+        return "CC BY-SA " + match_sa.group(1)
     match = re.search(r"creativecommons\.org/licenses/by/(2\.0|3\.0|4\.0)", value)
     if match:
         return "CC BY " + match.group(1)
+    if source == "editorial_generated":
+        return "Original locally generated editorial illustration"
     if source == "loc_open_access":
         return "Item marked public domain / no known restrictions (verify item record)"
     if source == "pexels_api":
@@ -2395,27 +2402,28 @@ def _image_provider_label(source: str) -> str:
 def _normalise_story(row: dict[str, Any], lang: str) -> dict[str, Any]:
     story = dict(row)
     story["is_demo"] = False
-    story.setdefault("source_name", "")
-    story.setdefault("image_url", "")
-    story.setdefault("image_source", "")
-    story.setdefault("image_credit", "")
-    story.setdefault("image_credit_url", "")
-    story.setdefault("image_provider_url", "")
-    story.setdefault("image_license_url", "")
+    for key in ("source_name", "image_url", "image_source", "image_credit", "image_credit_url",
+                "image_provider_url", "image_license_url"):
+        story.setdefault(key, "")
     if story.get("original_language") not in {"ar", "en"}:
         story["original_language"] = "ar" if _looks_arabic(story.get("title_ar", "")) else "en"
     if story.get("image_url") and story.get("image_source") not in TRUSTED_REUSABLE_IMAGE_SOURCES:
-        # Do not display unverified publisher thumbnails or URLs with no recorded reuse source.
-        story.update({"image_url": "", "image_source": "none", "image_credit": "", "image_credit_url": "", "image_provider_url": "", "image_license_url": ""})
-    if not story.get("image_url"):
-        story["image_url"] = "/static/A.jpg" if story["original_language"] == "ar" else "/static/E.jpg"
-        story["image_source"] = "language_fallback"
-    story["image_license_name"] = _image_license_label(str(story.get("image_license_url") or ""), str(story.get("image_source") or ""))
-    story["image_provider_name"] = _image_provider_label(str(story.get("image_source") or ""))
+        story.update({"image_url": "", "image_source": "none", "image_credit": "",
+                      "image_credit_url": "", "image_provider_url": "", "image_license_url": ""})
+    if not story.get("slug"):
+        story["slug"] = _slug_for_url(story.get("source_url", "world-pulse"))
     story["title"] = story.get(f"title_{lang}") or ""
     story["summary"] = story.get(f"summary_{lang}") or ""
     raw_content = story.get(f"content_{lang}") or ""
     story["content"] = _normalise_summary_body(story["summary"], raw_content)
+    if not story.get("image_url"):
+        story["image_url"] = "/media/editorial.svg?" + urlencode({
+            "title": story["title"] or story.get("source_name") or story.get("category") or "News",
+            "category": story.get("category", "world"), "lang": lang, "seed": story["slug"],
+        })
+        story["image_source"] = "editorial_generated"
+    story["image_license_name"] = _image_license_label(str(story.get("image_license_url") or ""), str(story.get("image_source") or ""))
+    story["image_provider_name"] = _image_provider_label(str(story.get("image_source") or ""))
     story["ai_enriched"] = bool(
         len(str(story.get("title_ar") or "").strip()) > 0
         and len(str(story.get("title_en") or "").strip()) > 0
@@ -2425,8 +2433,6 @@ def _normalise_story(row: dict[str, Any], lang: str) -> dict[str, Any]:
     story["category_label"] = CATEGORY_NAMES.get(story.get("category", "world"), CATEGORY_NAMES["world"])[lang]
     story["published_label"] = _format_date(story.get("published_at"), lang)
     story["read_minutes"] = max(1, int(story.get("read_minutes") or 1))
-    if not story.get("slug"):
-        story["slug"] = _slug_for_url(story.get("source_url", "world-pulse"))
     return story
 
 def _all_live_articles() -> list[dict[str, Any]]:
@@ -2527,7 +2533,7 @@ def inject_shared_template_data() -> dict[str, Any]:
     return {
         "lang": lang,
         "site_csrf_token": site_csrf_token,
-        "public_image_url": lambda value: (_site_origin() + value if str(value or "").startswith("/media/generated/") else str(value or "")),
+        "public_image_url": lambda value: (_site_origin() + value if str(value or "").startswith(("/media/generated/", "/media/editorial.svg")) else str(value or "")),
         "ui": UI_TEXT[lang],
         "site_name": SITE_NAME_AR if lang == "ar" else SITE_NAME_EN,
         "site_name_other": SITE_NAME_EN if lang == "ar" else SITE_NAME_AR,
@@ -2902,6 +2908,80 @@ def robots():
     origin = _site_origin()
     body = f"User-agent: *\nAllow: /\nDisallow: /api/\nSitemap: {origin}/sitemap.xml\nSitemap: {origin}/news-sitemap.xml\n"
     return app.response_class(body, mimetype="text/plain")
+
+@app.get("/media/editorial.svg")
+def editorial_fallback_image():
+    """Create a safe, local, topic-specific illustration when no rights-cleared photo is available."""
+    category = str(request.args.get("category") or "world").casefold()
+    if category not in CATEGORY_NAMES:
+        category = "world"
+    lang = "ar" if request.args.get("lang") == "ar" else "en"
+    title = _clean_text(request.args.get("title") or ("نبض العالم" if lang == "ar" else "World Pulse"), 150)
+    palettes = {
+        "politics": ("#101f3a", "#4d7fc8", "#f3bd57"),
+        "economy": ("#092e2b", "#23a88b", "#d7d78a"),
+        "technology": ("#101b3d", "#637ef7", "#4ce0dc"),
+        "gaming": ("#25133f", "#9066ed", "#fa77b5"),
+        "sports": ("#3b1a17", "#ed713b", "#f5ce63"),
+        "science": ("#072c3b", "#2cb7c8", "#9ce8da"),
+        "culture": ("#3b1938", "#d45a9a", "#f0c17d"),
+        "world": ("#101f3c", "#428ac2", "#55d2c2"),
+    }
+    base, accent, highlight = palettes[category]
+    words, lines, current = title.split(), [], ""
+    max_chars = 31 if lang == "ar" else 34
+    for word in words:
+        candidate = (current + " " + word).strip()
+        if current and len(candidate) > max_chars:
+            lines.append(current)
+            current = word
+        else:
+            current = candidate
+    if current:
+        lines.append(current)
+    lines = lines[:3] or [CATEGORY_NAMES[category][lang]]
+    if len(lines) == 3 and len(title) > sum(len(line) for line in lines):
+        lines[-1] = lines[-1][:max_chars-1] + "…"
+    anchor, title_x = ("end", 1090) if lang == "ar" else ("start", 110)
+    motif_x, pill_x = (220, 870) if lang == "ar" else (980, 110)
+    direction = "rtl" if lang == "ar" else "ltr"
+    title_y = 390 - (len(lines)-1)*27
+    title_nodes = "".join(
+        f'<text x="{title_x}" y="{title_y+i*55}" text-anchor="{anchor}" direction="{direction}" unicode-bidi="plaintext" font-size="38" font-weight="750" fill="#fff">{html.escape(line, quote=False)}</text>'
+        for i, line in enumerate(lines)
+    )
+    motifs = {
+        "politics": f'<path d="M-90 -25 L0 -78 L90 -25 Z" fill="{highlight}"/><rect x="-88" y="-20" width="176" height="96" rx="8" fill="{accent}"/>' + "".join(f'<rect x="{x}" y="-5" width="13" height="69" rx="4" fill="#fff" opacity=".8"/>' for x in (-63,-22,19,60)),
+        "economy": f'<rect x="-92" y="12" width="34" height="72" rx="7" fill="{accent}"/><rect x="-43" y="-26" width="34" height="110" rx="7" fill="{highlight}"/><rect x="6" y="-65" width="34" height="149" rx="7" fill="{accent}"/><path d="M-96 -48 L-38 -72 L9 -37 L83 -102" fill="none" stroke="#fff" stroke-width="8" stroke-linecap="round"/>',
+        "technology": f'<rect x="-66" y="-66" width="132" height="132" rx="22" fill="{accent}" stroke="{highlight}" stroke-width="7"/><rect x="-34" y="-34" width="68" height="68" rx="12" fill="{base}" stroke="#fff" stroke-width="4"/>' + "".join(f'<path d="M{x} -91 V-67 M{x} 67 V91 M-91 {y} H-67 M67 {y} H91" stroke="#fff" stroke-width="7" stroke-linecap="round"/>' for x,y in [(-35,-35),(0,0),(35,35)]),
+        "gaming": f'<rect x="-95" y="-67" width="190" height="134" rx="28" fill="{accent}" stroke="{highlight}" stroke-width="6"/><path d="M-54 -24 V24 M-79 0 H-29" stroke="#fff" stroke-width="11" stroke-linecap="round"/><circle cx="48" cy="-18" r="11" fill="{highlight}"/><circle cx="70" cy="17" r="11" fill="#fff"/>',
+        "sports": f'<circle r="82" fill="{accent}" stroke="#fff" stroke-width="7"/><path d="M0 -39 L37 -12 L23 32 H-23 L-37 -12 Z" fill="{base}" stroke="#fff" stroke-width="5"/><path d="M0 -39 L-4 -82 M37 -12 L76 -23 M23 32 L48 69 M-23 32 L-48 69 M-37 -12 L-76 -23" stroke="#fff" stroke-width="6" stroke-linecap="round"/>',
+        "science": f'<ellipse rx="98" ry="38" fill="none" stroke="{highlight}" stroke-width="6" transform="rotate(30)"/><ellipse rx="98" ry="38" fill="none" stroke="#fff" stroke-width="6" transform="rotate(-30)"/><ellipse rx="98" ry="38" fill="none" stroke="{accent}" stroke-width="6"/><circle r="17" fill="{highlight}"/><circle cx="-70" cy="-38" r="10" fill="#fff"/>',
+        "culture": f'<path d="M-92 -62 Q-40 -80 0 -46 Q40 -80 92 -62 V75 Q40 57 0 88 Q-40 57 -92 75 Z" fill="{accent}" stroke="{highlight}" stroke-width="6"/><path d="M0 -45 V83 M-69 -31 Q-42 -34 -19 -17 M-69 -5 Q-42 -8 -19 9 M69 -31 Q42 -34 19 -17 M69 -5 Q42 -8 19 9" fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round"/>',
+        "world": f'<circle r="88" fill="{accent}" stroke="{highlight}" stroke-width="7"/><ellipse rx="38" ry="88" fill="none" stroke="#fff" stroke-width="5"/><ellipse rx="88" ry="33" fill="none" stroke="#fff" stroke-width="5"/><path d="M-78 -42 Q0 -5 78 -42 M-78 42 Q0 5 78 42" fill="none" stroke="#fff" stroke-width="5"/>',
+    }[category]
+    category_text = html.escape(CATEGORY_NAMES[category][lang], quote=False)
+    brand = html.escape("نبض العالم" if lang == "ar" else "WORLD PULSE", quote=False)
+    svg = f'''<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="675" viewBox="0 0 1200 675" role="img" aria-label="{html.escape(title, quote=True)}">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="{base}"/><stop offset="1" stop-color="{accent}" stop-opacity=".85"/></linearGradient>
+    <radialGradient id="glow"><stop stop-color="{highlight}" stop-opacity=".5"/><stop offset="1" stop-color="{highlight}" stop-opacity="0"/></radialGradient>
+    <pattern id="grid" width="44" height="44" patternUnits="userSpaceOnUse"><path d="M44 0H0V44" fill="none" stroke="#fff" stroke-opacity=".055"/></pattern>
+  </defs>
+  <rect width="1200" height="675" fill="url(#bg)"/><rect width="1200" height="675" fill="url(#grid)"/>
+  <circle cx="{motif_x}" cy="325" r="265" fill="url(#glow)"/>
+  <path d="M0 560 Q250 455 475 570 T1200 520 V675 H0Z" fill="#020817" opacity=".28"/>
+  <g transform="translate({motif_x} 300)">{motifs}</g>
+  <rect x="{pill_x}" y="82" width="220" height="44" rx="22" fill="#fff" fill-opacity=".13" stroke="#fff" stroke-opacity=".3"/>
+  <circle cx="{pill_x+22}" cy="104" r="5" fill="{highlight}"/>
+  <text x="{pill_x+38}" y="111" font-size="16" font-weight="700" fill="#fff">{category_text}</text>
+  {title_nodes}
+  <text x="{title_x}" y="570" text-anchor="{anchor}" font-size="16" letter-spacing="2.2" font-weight="800" fill="#fff" fill-opacity=".78">{brand}</text>
+</svg>'''
+    response = Response(svg, mimetype="image/svg+xml")
+    response.headers["Cache-Control"] = "public, max-age=86400"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    return response
 
 @app.get("/media/generated/<image_id>")
 def generated_image(image_id: str):
