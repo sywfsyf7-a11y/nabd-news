@@ -35,6 +35,8 @@ from urllib.request import Request, urlopen
 from zoneinfo import ZoneInfo
 
 import feedparser
+from image_sources import openverse_license_url_ok as _openverse_license_url_ok
+from image_sources import search_openverse_image as _search_openverse_provider
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from flask import Flask, Response, abort, jsonify, redirect, render_template, request, session, url_for
@@ -1756,127 +1758,20 @@ def _generate_gemini_article_image(raw: dict[str, Any]) -> dict[str, Any]:
             })
         return {}
 
-def _openverse_license_url_ok(license_code: str, license_url: str) -> bool:
-    """Accept only reusable public-domain/CC licenses that permit commercial reuse."""
-    code = (license_code or "").casefold().strip()
-    try:
-        parsed = urlparse(license_url)
-    except ValueError:
-        return False
-    if parsed.scheme != "https" or (parsed.hostname or "").casefold() not in {"creativecommons.org", "www.creativecommons.org"}:
-        return False
-    path = parsed.path.casefold().rstrip("/")
-    if code == "cc0":
-        return path == "/publicdomain/zero/1.0"
-    if code == "pdm":
-        return path == "/publicdomain/mark/1.0"
-    if code == "by":
-        return bool(re.fullmatch(r"/licenses/by/(?:2\.0|3\.0|4\.0)", path))
-    if code == "by-sa":
-        return bool(re.fullmatch(r"/licenses/by-sa/(?:2\.0|3\.0|4\.0)", path))
-    return False
-
-
-def _search_openverse_image(title: str, lang: str = "en", category: str = "world") -> dict[str, str]:
-    """Search openly-licensed images by the news headline without needing a stock-site API key.
-
-    Openverse provides anonymous search access; only CC0, public-domain, CC BY and CC BY-SA
-    records are considered. The item-level licence URL is checked and attribution is retained.
-    """
-    title = _clean_text(title, 200)
-    if not title:
-        return {}
-    query = _image_search_phrase(title, 6)
-    if not query:
-        query = title[:180]
-    params = urlencode({
-        "q": query,
-        "license": "cc0,pdm,by,by-sa",
-        "extension": "jpg,jpeg,png,webp",
-        "page_size": 20,
-        "page": 1,
-        "mature": "false",
-        "filter_dead": "true",
-    })
-    request_obj = Request(
-        "https://api.openverse.org/v1/images/?" + params,
-        headers={
-            "Accept": "application/json",
-            "User-Agent": "WorldPulseNews/2.0 (+licensed news image discovery)",
-        },
+def _search_openverse_image(title: str, lang: str = "en", category: str = "world") -> dict[str, Any]:
+    """Delegate the Openverse adapter while injecting tested application helpers."""
+    return _search_openverse_provider(
+        title,
+        timeout_seconds=IMAGE_SEARCH_TIMEOUT_SECONDS,
+        clean_text_fn=_clean_text,
+        query_fn=_image_search_phrase,
+        match_score_fn=_image_match_score,
+        https_url_fn=_https_url,
+        request_factory=Request,
+        urlopen_func=urlopen,
+        now_fn=lambda: datetime.now(timezone.utc),
+        logger=logger,
     )
-    try:
-        with urlopen(request_obj, timeout=IMAGE_SEARCH_TIMEOUT_SECONDS) as response:
-            data = json.loads(response.read(2_000_000).decode("utf-8", errors="replace"))
-        best: tuple[float, dict[str, str]] | None = None
-        for item in (data.get("results") or [])[:20]:
-            if not isinstance(item, dict) or item.get("mature") is True:
-                continue
-            license_code = str(item.get("license") or "").casefold().strip()
-            license_url = _https_url(item.get("license_url"), {"creativecommons.org"})
-            if not _openverse_license_url_ok(license_code, license_url):
-                continue
-            image_url = _https_url(item.get("url"))
-            item_page = _https_url(item.get("foreign_landing_url"))
-            if not image_url or not item_page:
-                continue
-            try:
-                width = int(item.get("width") or 0)
-                height = int(item.get("height") or 0)
-            except (ValueError, TypeError):
-                width, height = 0, 0
-            if width and width < 500:
-                continue
-            if width and height and (height <= 0 or width / height < 0.8):
-                continue
-            creator = _clean_text(item.get("creator") or "", 180)
-            creator_url = _https_url(item.get("creator_url"))
-            if license_code in {"by", "by-sa"} and not creator:
-                continue
-            item_title = _clean_text(item.get("title") or "", 240)
-            tags = item.get("tags") or []
-            if isinstance(tags, list):
-                tag_text = " ".join(
-                    _clean_text(tag.get("name") if isinstance(tag, dict) else tag, 80)
-                    for tag in tags[:20]
-                )
-            else:
-                tag_text = _clean_text(tags, 500)
-            evidence = " ".join((item_title, tag_text, creator))
-            score = max(
-                _image_match_score(query, evidence),
-                _image_match_score(title, evidence),
-            )
-            if score <= 0:
-                continue
-            version = str(item.get("license_version") or "")
-            if license_code == "cc0" and "/publicdomain/zero/1.0" in license_url:
-                license_label = "CC0 1.0"
-            elif license_code == "pdm":
-                license_label = "Public Domain Mark 1.0"
-            elif license_code == "by-sa":
-                license_label = "CC BY-SA " + version if version else "CC BY-SA"
-            else:
-                license_label = "CC BY " + version if version else "CC BY"
-            result = {
-                "image_url": image_url,
-                "image_source": "openverse_licensed",
-                "image_credit": creator or "Creator not listed · see original item",
-                "image_credit_url": creator_url or item_page,
-                "image_provider_url": item_page,
-                "image_license_url": license_url,
-                "image_checked_at": datetime.now(timezone.utc),
-                "image_title": item_title,
-                "image_license_label": license_label,
-            }
-            if best is None or score > best[0]:
-                best = (score, result)
-        return best[1] if best else {}
-    except Exception as exc:
-        # Fail over to other providers without leaking upstream response bodies or URL details.
-        logger.debug("Openverse image lookup failed (%s)", type(exc).__name__)
-        return {}
-
 
 def _search_any_reusable_image(title: str, lang: str = "en", category: str = "world") -> dict[str, str]:
     finders = (
