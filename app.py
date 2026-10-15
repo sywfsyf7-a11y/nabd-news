@@ -480,7 +480,23 @@ ALTER TABLE world_pulse_articles ADD COLUMN IF NOT EXISTS source_domain TEXT NOT
 """
 
 def _database_url() -> str:
-    return (os.getenv("SUPABASE_POOLER_URL") or os.getenv("DATABASE_URL") or "").strip()
+    dsn = (os.getenv("SUPABASE_POOLER_URL") or os.getenv("DATABASE_URL") or "").strip()
+    if not dsn:
+        return ""
+    # This app opens short-lived connections and closes them after each unit of work.
+    # Prefer Supabase's shared transaction pooler over the session pooler when the
+    # configured URL is using the shared pooler's session port. Preserve credentials
+    # verbatim and change only the port, never logging or exposing the DSN.
+    try:
+        parsed = urlparse(dsn)
+        if (parsed.hostname or "").casefold().endswith(".pooler.supabase.com") and parsed.port == 5432:
+            netloc = re.sub(r":5432$", ":6543", parsed.netloc)
+            dsn = parsed._replace(netloc=netloc).geturl()
+            logger.info("Supabase shared pooler configured for transaction mode (port 6543)")
+    except ValueError:
+        # Leave malformed URLs unchanged so the driver provides the normal safe error category.
+        pass
+    return dsn
 
 def _database_error_code(exc: Exception) -> str:
     """Return a safe diagnostic category without storing a DSN or raw error text."""
