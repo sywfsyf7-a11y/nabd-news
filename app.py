@@ -102,7 +102,7 @@ UNSPLASH_ACCESS_KEY = os.getenv("UNSPLASH_ACCESS_KEY", "").strip()
 PEXELS_API_KEY = os.getenv("PEXELS_API_KEY", "").strip()
 IMAGE_CACHE_MAX_AGE_SECONDS = max(3600, int(os.getenv("IMAGE_CACHE_MAX_AGE_HOURS", "168")) * 3600)
 TRUSTED_REUSABLE_IMAGE_SOURCES = {
-    "wikimedia_relevant", "loc_open_access", "unsplash_api", "pexels_api", "presskit_approved", "gemini_generated"
+    "wikimedia_relevant", "loc_open_access", "nasa_images", "unsplash_api", "pexels_api", "presskit_approved", "gemini_generated"
 }
 
 CATEGORY_NAMES = {
@@ -1017,27 +1017,27 @@ def _db_upsert_many(articles: list[dict[str, Any]]) -> bool:
             source_name = EXCLUDED.source_name,
             source_domain = CASE WHEN EXCLUDED.source_domain <> '' THEN EXCLUDED.source_domain ELSE world_pulse_articles.source_domain END,
             image_url = CASE
-                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'unsplash_api', 'pexels_api', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
+                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'loc_open_access', 'nasa_images', 'unsplash_api', 'pexels_api', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
                     THEN world_pulse_articles.image_url
                 ELSE EXCLUDED.image_url END,
             image_source = CASE
-                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'unsplash_api', 'pexels_api', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
+                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'loc_open_access', 'nasa_images', 'unsplash_api', 'pexels_api', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
                     THEN world_pulse_articles.image_source
                 ELSE EXCLUDED.image_source END,
             image_credit = CASE
-                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'unsplash_api', 'pexels_api', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
+                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'loc_open_access', 'nasa_images', 'unsplash_api', 'pexels_api', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
                     THEN world_pulse_articles.image_credit
                 ELSE EXCLUDED.image_credit END,
             image_credit_url = CASE
-                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'unsplash_api', 'pexels_api', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
+                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'loc_open_access', 'nasa_images', 'unsplash_api', 'pexels_api', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
                     THEN world_pulse_articles.image_credit_url
                 ELSE EXCLUDED.image_credit_url END,
             image_provider_url = CASE
-                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'unsplash_api', 'pexels_api', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
+                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'loc_open_access', 'nasa_images', 'unsplash_api', 'pexels_api', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
                     THEN world_pulse_articles.image_provider_url
                 ELSE EXCLUDED.image_provider_url END,
             image_license_url = CASE
-                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'unsplash_api', 'pexels_api', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
+                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'loc_open_access', 'nasa_images', 'unsplash_api', 'pexels_api', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
                     THEN world_pulse_articles.image_license_url
                 ELSE EXCLUDED.image_license_url END,
             image_checked_at = COALESCE(EXCLUDED.image_checked_at, world_pulse_articles.image_checked_at),
@@ -1168,80 +1168,92 @@ def _https_url(value: Any, allowed_hosts: set[str] | None = None) -> str:
     return url
 
 def _search_commons_image(title: str, lang: str, category: str = "world") -> dict[str, str]:
+    """Find topic-relevant Commons images with explicit reusable licences and attribution."""
     title = _clean_text(title, 240)
     if not title:
         return {}
-    short_query = _image_search_phrase(title, 5)
-    queries = [title]
-    if short_query and short_query.casefold() != title.casefold():
-        queries.append(short_query)
+    short_query = _image_search_phrase(title, 4)
+    queries = []
+    for query in (short_query, title):
+        query = _clean_text(query, 160)
+        if query and query.casefold() not in {existing.casefold() for existing in queries}:
+            queries.append(query)
     best: tuple[float, dict[str, str]] | None = None
-    try:
-        for query in queries:
+    # Each query is isolated: a temporary first-query outage must not skip the alternate phrase.
+    for query_index, query in enumerate(queries[:2], start=1):
+        try:
             params = {
                 "action": "query", "generator": "search", "gsrsearch": query,
-                "gsrnamespace": 6, "gsrlimit": 12, "prop": "imageinfo",
+                "gsrnamespace": 6, "gsrlimit": 20, "prop": "imageinfo",
                 "iiprop": "url|extmetadata|mime", "iiurlwidth": 1400,
                 "format": "json", "formatversion": 2,
             }
             url = "https://commons.wikimedia.org/w/api.php?" + urlencode(params)
-            request_obj = Request(url, headers={"User-Agent": "WorldPulseNews/1.4 (news image finder; Wikimedia Commons API; contact site owner)"})
+            request_obj = Request(
+                url,
+                headers={"User-Agent": "WorldPulseNews/1.6 (rights-filtered editorial image discovery; Wikimedia Commons API)"},
+            )
             with urlopen(request_obj, timeout=IMAGE_SEARCH_TIMEOUT_SECONDS) as response:
                 data = json.loads(response.read(1_800_000).decode("utf-8", errors="replace"))
-            pages = data.get("query", {}).get("pages", [])
-            if isinstance(pages, dict):
-                pages = list(pages.values())
-            for page in pages:
-                imageinfos = page.get("imageinfo") or []
-                if not imageinfos:
-                    continue
-                info = imageinfos[0]
-                mime = str(info.get("mime", "")).lower()
-                if mime not in {"image/jpeg", "image/png", "image/webp"}:
-                    continue
-                page_title = str(page.get("title", ""))
-                if re.search(r"(?i)\b(logo|icon|wordmark|commons-logo|flag icon|map icon|banner logo)\b", page_title):
-                    continue
-                ext = info.get("extmetadata") or {}
-                license_short = _clean_text((ext.get("LicenseShortName") or {}).get("value", ""), 100).casefold()
-                license_url = _https_url(html.unescape((ext.get("LicenseUrl") or {}).get("value", "")), {"creativecommons.org"})
-                license_url_path = urlparse(license_url).path.casefold() if license_url else ""
-                is_cc0_url = bool(re.search(r"/publicdomain/zero/1\.0/?$", license_url_path))
-                is_pd_url = bool(re.search(r"/publicdomain/mark/1\.0/?$", license_url_path))
-                is_cc_by_url = bool(re.search(r"/licenses/by/(?:2\.0|3\.0|4\.0)/?$", license_url_path))
-                is_cc_by_sa_url = bool(re.search(r"/licenses/by-sa/(?:2\.0|3\.0|4\.0)/?$", license_url_path))
-                license_ok = is_pd_url or is_cc0_url or is_cc_by_url or is_cc_by_sa_url
-                forbidden = any(term in license_short for term in ("noncommercial", "non-commercial", "no derivatives", "no-derivatives", "by-nc", "by-nd"))
-                artist = _clean_text((ext.get("Artist") or {}).get("value", ""), 180)
-                if (is_cc_by_url or is_cc_by_sa_url) and not artist:
-                    continue
-                if not license_ok or forbidden:
-                    continue
-                image_url = _https_url(info.get("thumburl") or info.get("url"), {"wikimedia.org", "wikipedia.org"})
-                if not image_url:
-                    continue
-                desc = _clean_text((ext.get("ImageDescription") or {}).get("value", ""), 1000)
-                score = max(_image_match_score(title, page_title + " " + desc),
-                            _image_match_score(query, page_title + " " + desc))
-                if score <= 0:
-                    continue
-                file_page_url = "https://commons.wikimedia.org/wiki/" + quote(page_title.replace(" ", "_"), safe=":_()!,.'-")
-                credit = artist or "Public-domain image via Wikimedia Commons"
-                result = {
-                    "image_url": image_url,
-                    "image_source": "wikimedia_relevant",
-                    "image_credit": credit,
-                    "image_credit_url": file_page_url,
-                    "image_provider_url": file_page_url,
-                    "image_license_url": license_url,
-                    "image_checked_at": datetime.now(timezone.utc),
-                }
-                if best is None or score > best[0]:
-                    best = (score, result)
-        return best[1] if best else {}
-    except Exception as exc:
-        logger.debug("Wikimedia image lookup failed (%s)", type(exc).__name__)
-        return best[1] if best else {}
+        except Exception as exc:
+            logger.debug("Wikimedia query failed (variant=%d error=%s)", query_index, type(exc).__name__)
+            continue
+
+        pages = data.get("query", {}).get("pages", [])
+        if isinstance(pages, dict):
+            pages = list(pages.values())
+        for page in pages:
+            imageinfos = page.get("imageinfo") or []
+            if not imageinfos:
+                continue
+            info = imageinfos[0]
+            mime = str(info.get("mime", "")).lower()
+            if mime not in {"image/jpeg", "image/png", "image/webp"}:
+                continue
+            page_title = str(page.get("title", ""))
+            if re.search(r"(?i)\b(logo|icon|wordmark|commons-logo|flag icon|map icon|banner logo|coat of arms|seal of)\b", page_title):
+                continue
+            ext = info.get("extmetadata") or {}
+            license_short = _clean_text((ext.get("LicenseShortName") or {}).get("value", ""), 100).casefold()
+            license_url = _https_url(html.unescape((ext.get("LicenseUrl") or {}).get("value", "")), {"creativecommons.org"})
+            license_path = urlparse(license_url).path.casefold() if license_url else ""
+            is_cc0 = bool(re.search(r"/publicdomain/zero/1\.0/?$", license_path))
+            is_pd = bool(re.search(r"/publicdomain/mark/1\.0/?$", license_path))
+            is_cc_by = bool(re.search(r"/licenses/by/(?:2\.0|3\.0|4\.0)/?$", license_path))
+            is_cc_by_sa = bool(re.search(r"/licenses/by-sa/(?:2\.0|3\.0|4\.0)/?$", license_path))
+            if not (is_cc0 or is_pd or is_cc_by or is_cc_by_sa):
+                continue
+            forbidden = any(term in license_short for term in (
+                "noncommercial", "non-commercial", "no derivatives", "no-derivatives",
+                "by-nc", "by-nd", "share alike prohibited",
+            ))
+            if forbidden:
+                continue
+            artist = _clean_text((ext.get("Artist") or {}).get("value", ""), 180)
+            if (is_cc_by or is_cc_by_sa) and not artist:
+                continue
+            image_url = _https_url(info.get("thumburl") or info.get("url"), {"wikimedia.org", "wikipedia.org"})
+            if not image_url:
+                continue
+            description = _clean_text((ext.get("ImageDescription") or {}).get("value", ""), 1200)
+            categories = _clean_text((ext.get("Categories") or {}).get("value", ""), 500)
+            evidence = page_title + " " + description + " " + categories
+            score = max(_image_match_score(title, evidence), _image_match_score(query, evidence))
+            if score <= 0:
+                continue
+            file_page_url = "https://commons.wikimedia.org/wiki/" + quote(page_title.replace(" ", "_"), safe=":_()!,.'-")
+            result = {
+                "image_url": image_url,
+                "image_source": "wikimedia_relevant",
+                "image_credit": artist or "Public-domain image via Wikimedia Commons",
+                "image_credit_url": file_page_url,
+                "image_provider_url": file_page_url,
+                "image_license_url": license_url,
+                "image_checked_at": datetime.now(timezone.utc),
+            }
+            if best is None or score > best[0]:
+                best = (score, result)
+    return best[1] if best else {}
 
 def _search_loc_open_access_image(title: str, lang: str = "en", category: str = "world") -> dict[str, str]:
     """Find relevant Library of Congress images only when the individual record marks reuse as permitted."""
@@ -1317,6 +1329,97 @@ def _search_loc_open_access_image(title: str, lang: str = "en", category: str = 
         return best[1] if best else {}
     except Exception as exc:
         logger.debug("Library of Congress image lookup failed (%s)", type(exc).__name__)
+        return {}
+
+def _search_nasa_image(title: str, lang: str = "en", category: str = "world") -> dict[str, str]:
+    """Search NASA's public image archive for closely matching science/space/Earth stories."""
+    if category not in {"science", "technology", "world"}:
+        return {}
+    query = _image_search_phrase(_clean_text(title, 220), 5)
+    if not query:
+        return {}
+    topic_tokens = {
+        "nasa", "space", "moon", "mars", "earth", "planet", "orbit", "rocket", "satellite",
+        "astronaut", "telescope", "galaxy", "asteroid", "comet", "artemis", "hubble", "webb",
+        "climate", "hurricane", "wildfire", "ocean", "flood", "ice", "arctic", "antarctic",
+        "ناسا", "فضاء", "القمر", "المريخ", "الأرض", "كوكب", "صاروخ", "قمر", "مدار", "فلك",
+    }
+    if not (_image_tokens(title) & topic_tokens):
+        return {}
+    try:
+        params = urlencode({"q": query, "media_type": "image", "page_size": 18})
+        req = Request(
+            "https://images-api.nasa.gov/search?" + params,
+            headers={"User-Agent": "WorldPulseNews/1.6 (NASA Image and Video Library; topic-matched editorial photo search)"},
+        )
+        with urlopen(req, timeout=IMAGE_SEARCH_TIMEOUT_SECONDS) as response:
+            data = json.loads(response.read(1_800_000).decode("utf-8", errors="replace"))
+        items = ((data.get("collection") or {}).get("items") or [])[:18]
+        best: tuple[float, dict[str, str]] | None = None
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            meta_list = item.get("data") or []
+            if not meta_list or not isinstance(meta_list[0], dict):
+                continue
+            meta = meta_list[0]
+            item_title = _clean_text(meta.get("title") or "", 240)
+            if not item_title or re.search(r"(?i)\\b(logo|insignia|emblem|wordmark|mission patch|seal)\\b", item_title):
+                continue
+            # NASA imagery is generally usable editorially; records explicitly marked as copyrighted are excluded.
+            rights_fields = " ".join(str(meta.get(key) or "") for key in (
+                "copyright", "copyright_status", "rights", "rights_statement", "license", "usage", "access_notes"
+            )).casefold()
+            if any(marker in rights_fields for marker in (
+                "third-party copyright", "third party copyright", "copyrighted", "all rights reserved",
+                "permission required", "not cleared for use", "restricted rights",
+            )):
+                continue
+            copyright_note = str(meta.get("copyright") or "").casefold()
+            if copyright_note and not any(marker in copyright_note for marker in (
+                "public domain", "u.s. government", "us government", "united states government"
+            )):
+                continue
+            desc = _clean_text(meta.get("description") or meta.get("description_508") or "", 1000)
+            keywords = meta.get("keywords") or []
+            if isinstance(keywords, list):
+                keyword_text = " ".join(
+                    _clean_text((k.get("name") or k.get("title") or "") if isinstance(k, dict) else k, 100)
+                    for k in keywords[:30]
+                )
+            else:
+                keyword_text = _clean_text(keywords, 500)
+            evidence = " ".join((item_title, desc, keyword_text, str(meta.get("center") or "")))
+            score = max(_image_match_score(title, evidence), _image_match_score(query, evidence))
+            if score <= 0:
+                continue
+            preview_url = ""
+            for link in (item.get("links") or []):
+                if not isinstance(link, dict) or link.get("rel") != "preview":
+                    continue
+                candidate = _https_url(link.get("href"), {"images-assets.nasa.gov"})
+                if candidate and not candidate.casefold().endswith(".json"):
+                    preview_url = candidate
+                    break
+            if not preview_url:
+                continue
+            nasa_id = _clean_text(meta.get("nasa_id") or "", 80)
+            source_page = "https://images.nasa.gov/details/" + quote(nasa_id, safe="") if nasa_id else "https://images.nasa.gov/"
+            creator = _clean_text(meta.get("secondary_creator") or meta.get("photographer") or "NASA", 180)
+            result = {
+                "image_url": preview_url,
+                "image_source": "nasa_images",
+                "image_credit": "NASA" + (" · " + creator if creator and creator.casefold() != "nasa" else ""),
+                "image_credit_url": source_page,
+                "image_provider_url": source_page,
+                "image_license_url": "https://www.nasa.gov/nasa-brand-center/images-and-media/",
+                "image_checked_at": datetime.now(timezone.utc),
+            }
+            if best is None or score > best[0]:
+                best = (score, result)
+        return best[1] if best else {}
+    except Exception as exc:
+        logger.debug("NASA image lookup failed (error=%s)", type(exc).__name__)
         return {}
 
 def _search_pexels_image(title: str) -> dict[str, str]:
@@ -1657,9 +1760,8 @@ def _search_any_reusable_image(title: str, lang: str = "en", category: str = "wo
     finders = (
         ("image:wikimedia_relevant", lambda: _search_commons_image(title, lang, category)),
         ("image:loc_open_access", lambda: _search_loc_open_access_image(title, lang, category)),
+        ("image:nasa_images", lambda: _search_nasa_image(title, lang, category)),
         ("image:presskit_approved", lambda: _search_approved_presskit_image(title, category)),
-        ("image:pexels_api", lambda: _search_pexels_image(title)),
-        ("image:unsplash_api", lambda: _search_unsplash_image(title)),
     )
     for control_key, finder in finders:
         if not _control_enabled(control_key, True):
@@ -2420,6 +2522,7 @@ def _image_provider_label(source: str) -> str:
     return {
         "wikimedia_relevant": "Wikimedia Commons",
         "loc_open_access": "Library of Congress (item marked reusable)",
+        "nasa_images": "NASA Image and Video Library",
         "unsplash_api": "Unsplash",
         "pexels_api": "Pexels",
         "presskit_approved": "Approved press kit",
