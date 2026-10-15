@@ -38,7 +38,7 @@ API access and a free-to-view website do not mean an image is universally copyri
 - `GEMINI_IMAGE_GENERATION_ENABLED=true`, `MAX_GEMINI_IMAGES_PER_REFRESH=2`, `MAX_GEMINI_IMAGES_PER_24H=8`, `GEMINI_429_COOLDOWN_MINUTES=60`: bounded image-generation caps and a circuit breaker after Gemini 429 responses; generation may require a paid/eligible API tier.
 - `NEWS_AUTO_FETCH=true`, `NEWS_REFRESH_MINUTES=30`, `NEWS_RETRY_MINUTES=10`, `MAX_ARTICLES_PER_REFRESH=24`, `MAX_ARTICLES_PER_CATEGORY=3`: news refresh cadence and ingestion caps. A shared worker lock prevents duplicate concurrent refreshes on the same Render instance.
 - `MAX_IMAGE_LOOKUPS_PER_REFRESH=16`, `IMAGE_RETRY_AFTER_HOURS=1` (up to six older missing-image records are checked in each refresh cycle): per-refresh photo lookup budget and retry interval for articles that have no suitable image.
-- `UNSPLASH_ACCESS_KEY`, `PEXELS_API_KEY`: optional official image API credentials. These providers are skipped unless their keys are configured in Render.
+- `UNSPLASH_ACCESS_KEY`, `PEXELS_API_KEY`: legacy optional keys; those APIs are not called by the active image search until API access is verified. Openverse provides the additional keyless open-licence search.
 - `CONTENT_LICENSE_APPROVED_DOMAINS`: only after source-specific rights review, with permission evidence retained.
 - `ADMIN_PANEL_PASSWORD`: enables `/admin/login`, `/admin/monitor`, and `/admin/sources`; use a strong password. The protected monitoring page reports safe database state, Gemini cooldown and image search/storage probes without exposing secrets.
 - `CONTACT_EMAIL`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM_EMAIL`: optional contact delivery.
@@ -47,6 +47,9 @@ API access and a free-to-view website do not mean an image is universally copyri
 ### Supabase URL compatibility
 The application normalizes the configured shared Supabase pooler URL before passing it to `psycopg2`: it uses the Transaction Pooler port `6543` for shared pooler hosts, removes the Prisma-only `pgbouncer` URI flag, and trims accidental whitespace around the database name. This does not repair an invalid password or project-specific pooler username; those must match the connection details in Supabase Dashboard → Connect. Never publish the connection URL or password.
 
+
+## Image sourcing
+Images are selected from the story headline using Wikimedia Commons and the keyless Openverse API before Library of Congress/NASA/approved press-kit searches. Openverse results are restricted to CC0, Public Domain Mark, CC BY and CC BY-SA with attribution and original item links retained. Unsplash and Pexels API calls are intentionally disabled until their official API access is available again. If no suitable photo is found, the site generates a distinct local 16:9 editorial SVG based on the news title and category; the generic A.jpg/E.jpg fallback is not used for story cards.
 
 ## Article reading experience
 Article pages include a prominent original-source link, an optional Arabic/English edition switch when both versions exist, clear labeling for AI-generated illustrative images, a compact source/timestamp/language metadata panel, and a sticky related-stories column on wide screens. Source attribution and licence links remain visible when provided.
