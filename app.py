@@ -29,7 +29,7 @@ import smtplib
 import ssl
 from typing import Any
 from urllib.error import URLError, HTTPError
-from urllib.parse import urlencode, quote, urlparse
+from urllib.parse import urlencode, quote, urlparse, parse_qsl
 import sys
 from urllib.request import Request, urlopen
 from zoneinfo import ZoneInfo
@@ -483,17 +483,22 @@ def _database_url() -> str:
     dsn = (os.getenv("SUPABASE_POOLER_URL") or os.getenv("DATABASE_URL") or "").strip()
     if not dsn:
         return ""
-    # This app opens short-lived connections and closes them after each unit of work.
-    # Prefer Supabase's shared transaction pooler over the session pooler when the
-    # configured URL is using the shared pooler's session port. Preserve credentials
-    # verbatim and change only the port, never logging or exposing the DSN.
+    # Remove flags intended for other drivers. In particular, Prisma's pgbouncer=true
+    # query parameter is not a valid libpq/psycopg2 option and prevents connecting.
     try:
         parsed = urlparse(dsn)
+        query_items = parse_qsl(parsed.query, keep_blank_values=True)
+        compatible_items = [(key, value) for key, value in query_items if key.casefold() != "pgbouncer"]
+        if len(compatible_items) != len(query_items):
+            parsed = parsed._replace(query=urlencode(compatible_items, doseq=True))
+            dsn = parsed.geturl()
+        # Short-lived queries benefit from Supabase's shared transaction pooler.
+        # The original username and encoded password are left untouched.
         if (parsed.hostname or "").casefold().endswith(".pooler.supabase.com") and parsed.port == 5432:
             netloc = re.sub(r":5432$", ":6543", parsed.netloc)
             dsn = parsed._replace(netloc=netloc).geturl()
     except ValueError:
-        # Leave malformed URLs unchanged so the driver provides the normal safe error category.
+        # Leave malformed URLs unchanged so the driver provides the normal error category.
         pass
     return dsn
 
