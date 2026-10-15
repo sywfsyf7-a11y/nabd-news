@@ -3568,6 +3568,7 @@ def _remove_article_image(slug: str) -> bool:
                 WHERE slug = %s AND is_demo = FALSE""", (slug,))
             changed = changed or cur.rowcount > 0
         conn.commit()
+        _invalidate_db_articles_cache()
         return changed
     except Exception:
         conn.rollback()
