@@ -107,8 +107,21 @@ UNSPLASH_ACCESS_KEY = os.getenv("UNSPLASH_ACCESS_KEY", "").strip()
 PEXELS_API_KEY = os.getenv("PEXELS_API_KEY", "").strip()
 IMAGE_CACHE_MAX_AGE_SECONDS = max(3600, int(os.getenv("IMAGE_CACHE_MAX_AGE_HOURS", "24")) * 3600)
 TRUSTED_REUSABLE_IMAGE_SOURCES = {
-    "wikimedia_relevant", "openverse_licensed", "loc_open_access", "nasa_images", "presskit_approved", "unsplash_api", "pexels_api", "gemini_generated"
+    "wikimedia_relevant", "openverse_licensed", "loc_open_access", "nasa_images", "presskit_approved", "unsplash_api", "pexels_api"
 }
+
+
+def _image_license_verified(row: dict[str, Any]) -> bool:
+    """Only display third-party images when a human-auditable license URL is stored."""
+    image_url = str(row.get("image_url") or "").strip()
+    license_url = str(row.get("image_license_url") or "").strip()
+    source = str(row.get("image_source") or "").strip()
+    return bool(
+        image_url.startswith("https://")
+        and source in TRUSTED_REUSABLE_IMAGE_SOURCES
+        and license_url.startswith(("https://", "http://"))
+        and source != "gemini_generated"
+    )
 
 CATEGORY_NAMES = {
     "politics": {"ar": "سياسة", "en": "Politics"},
@@ -2091,7 +2104,7 @@ def _resolve_article_image(raw: dict[str, Any]) -> dict[str, Any]:
     existing = str(raw.get("image_url") or "").strip()
     source = str(raw.get("image_source") or "")
     if (existing and source in TRUSTED_REUSABLE_IMAGE_SOURCES and existing not in LEGACY_IMAGE_URLS
-            and _control_enabled(f"image:{source}", True)):
+            and _image_license_verified(raw) and _control_enabled(f"image:{source}", True)):
         checked = raw.get("image_checked_at")
         if isinstance(checked, str):
             try:
@@ -4050,10 +4063,10 @@ def _admin_csrf_valid() -> bool:
 def _admin_image_rows() -> list[dict[str, Any]]:
     rows: dict[str, dict[str, Any]] = {}
     for row in _db_fetch_all():
-        if row.get("image_url") and row.get("image_source") in TRUSTED_REUSABLE_IMAGE_SOURCES:
+        if row.get("image_url") and _image_license_verified(row):
             rows[str(row.get("slug") or row.get("source_url"))] = row
     for row in _MEMORY_ARTICLES.values():
-        if row.get("image_url") and row.get("image_source") in TRUSTED_REUSABLE_IMAGE_SOURCES:
+        if row.get("image_url") and _image_license_verified(row):
             rows.setdefault(str(row.get("slug") or row.get("source_url")), row)
     results = sorted(
         (dict(row) for row in rows.values()),
@@ -4061,6 +4074,7 @@ def _admin_image_rows() -> list[dict[str, Any]]:
         reverse=True,
     )[:80]
     for row in results:
+        row["image_license_status"] = "licensed" if _image_license_verified(row) else "needs_review"
         row["image_provider_display"] = _image_provider_label(str(row.get("image_source") or ""))
         row["image_license_display"] = _image_license_label(
             str(row.get("image_license_url") or ""), str(row.get("image_source") or "")
@@ -4277,6 +4291,23 @@ def admin_sources():
         "admin_sources.html", controls=_known_source_controls(), images=_admin_image_rows(),
         notice=notice, csrf_token=session.get("wp_admin_csrf", ""),
     )
+
+@app.route("/copyright", methods=["GET", "POST"])
+def copyright_policy():
+    notice = ""
+    if request.method == "POST":
+        # Keep the public reporting endpoint lightweight; reports go directly to the published contact.
+        image_url = _clean_text(request.form.get("image_url") or "", 500)
+        article_url = _clean_text(request.form.get("article_url") or "", 500)
+        details = _clean_text(request.form.get("details") or "", 1200)
+        if not details or not (image_url or article_url):
+            notice = "يرجى إدخال رابط الخبر أو الصورة وشرح مختصر للمشكلة."
+        else:
+            subject = quote("بلاغ حقوق صورة — World Pulse")
+            body = quote("رابط الخبر: " + article_url + "\nرابط الصورة: " + image_url + "\nالتفاصيل: " + details)
+            return redirect("mailto:" + CONTACT_EMAIL + "?subject=" + subject + "&body=" + body)
+    return render_template("copyright_policy.html", notice=notice)
+
 
 @app.errorhandler(404)
 def not_found(_error):
