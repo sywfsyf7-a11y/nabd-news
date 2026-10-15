@@ -543,6 +543,29 @@ class SiteExperienceTests(unittest.TestCase):
         self.assertTrue(executor.futures[1].cancelled)
         self.assertEqual(world_pulse._LAST_IMAGE_STATUS["found"], 1)
 
+    def test_news_status_poll_checks_whether_auto_refresh_is_due(self):
+        with patch.object(world_pulse, "_maybe_start_refresh") as maybe_refresh:
+            with patch.object(world_pulse, "_db_last_fetched_at", return_value=None):
+                with patch.object(world_pulse, "_probe_database", return_value={"state": "not_configured", "error_code": "", "checked_at": None}):
+                    with patch.object(world_pulse, "_database_url", return_value=""):
+                        with patch.object(world_pulse, "_control_enabled", return_value=True):
+                            with patch.object(world_pulse, "_presskit_provider_configured", return_value=False):
+                                with patch.object(world_pulse, "_news_setup_issues", return_value=[]):
+                                    response = world_pulse.app.test_client().get("/api/news-status")
+        self.assertEqual(response.status_code, 200)
+        maybe_refresh.assert_called_once_with()
+
+    def test_image_provider_group_returns_first_configured_priority_match(self):
+        first = {"image_url": "https://images.example.com/commons.jpg", "image_source": "wikimedia_relevant"}
+        second = {"image_url": "https://images.example.com/openverse.jpg", "image_source": "openverse_licensed"}
+        finders = (
+            ("image:wikimedia_relevant", lambda: first),
+            ("image:openverse_licensed", lambda: second),
+        )
+        with patch.object(world_pulse, "_control_enabled", return_value=True):
+            result = world_pulse._search_image_provider_group("test", finders)
+        self.assertEqual(result, first)
+
     def test_forced_image_refresh_does_not_reuse_a_fresh_cached_photo_when_better_match_exists(self):
         checked_at = datetime.now(timezone.utc)
         source_url = "https://www.example.com/news/image-refresh"
