@@ -27,7 +27,7 @@ class SourcePolicyTests(unittest.TestCase):
         unapproved = dict(arabic_story, source_domain="unknown.example")
         self.assertFalse(world_pulse._row_allowed_on_language_site(unapproved, "ar"))
 
-    def test_missing_images_use_original_language_fallbacks(self):
+    def test_missing_images_use_topic_specific_editorial_fallbacks(self):
         base = {
             "slug": "story-fallback",
             "source_url": "https://example.test/story",
@@ -44,11 +44,12 @@ class SourcePolicyTests(unittest.TestCase):
         }
         arabic = world_pulse._normalise_story(dict(base), "ar")
         english = world_pulse._normalise_story(dict(base, original_language="en"), "en")
-
-        self.assertEqual(arabic["image_url"], "/static/A.jpg")
-        self.assertEqual(arabic["image_source"], "language_fallback")
-        self.assertEqual(english["image_url"], "/static/E.jpg")
-        self.assertEqual(english["image_source"], "language_fallback")
+        self.assertTrue(arabic["image_url"].startswith("/media/editorial.svg?"))
+        self.assertIn("lang=ar", arabic["image_url"])
+        self.assertEqual(arabic["image_source"], "editorial_generated")
+        self.assertTrue(english["image_url"].startswith("/media/editorial.svg?"))
+        self.assertIn("lang=en", english["image_url"])
+        self.assertEqual(english["image_source"], "editorial_generated")
 
     def test_headline_image_query_removes_editorial_filler(self):
         query = world_pulse._image_search_phrase(
@@ -465,6 +466,26 @@ class SourcePolicyTests(unittest.TestCase):
         self.assertNotIn("postgres%20", result)
         self.assertNotIn("pgbouncer", result.casefold())
 
+    def test_editorial_fallback_route_returns_topic_specific_svg(self):
+        client = world_pulse.app.test_client()
+        response = client.get("/media/editorial.svg?title=NASA%20Artemis%20mission&category=science&lang=en")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("image/svg+xml", response.content_type)
+        self.assertIn(b"<svg", response.data)
+        self.assertIn(b"WORLD PULSE", response.data)
+        self.assertIn(b"Artemis", response.data)
+
+    def test_editorial_fallback_escapes_untrusted_title_markup(self):
+        client = world_pulse.app.test_client()
+        response = client.get("/media/editorial.svg?title=%3Cscript%3Ealert(1)%3C%2Fscript%3E&category=world")
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn(b"<script", response.data.lower())
+
+    def test_cc_by_sa_image_license_has_a_correct_visible_label(self):
+        self.assertEqual(
+            world_pulse._image_license_label("https://creativecommons.org/licenses/by-sa/4.0/"),
+            "CC BY-SA 4.0",
+        )
 
 if __name__ == "__main__":
     unittest.main()
