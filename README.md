@@ -21,7 +21,7 @@ The article-level Ask-Me AI question panel and `/api/ask` endpoint are removed. 
 
 ## Image sourcing
 
-The system first searches for a topic-relevant image from Wikimedia Commons (Public Domain Mark, CC0, CC BY or CC BY-SA only, with required creator attribution), then Library of Congress photo records whose own item page explicitly marks them as public domain or having no known restrictions, then manually approved press-kit assets, and official Pexels/Unsplash APIs when their credentials are configured. Provider/item pages, photographer credit and licence details are retained where available.
+The system searches the story headline for topic-relevant images from Wikimedia Commons (Public Domain Mark, CC0, CC BY, and CC BY-SA only, with required attribution), the Library of Congress (item-level rights notes), and NASA's public image library for relevant science/space/Earth stories. It then checks manually approved press kits. Pexels and Unsplash API calls are disabled in the current deployment because those API integrations are unavailable. When no photo is suitable, a bounded Gemini illustration may be generated separately; if that is unavailable too, the page shows a distinct local SVG illustration keyed to the story title and category instead of the generic A.jpg/E.jpg image.
 
 Only when no suitable sourced image is found, the site may generate a topic-specific 16:9 Gemini editorial illustration, within the configured limits. A generated illustration is labelled as illustrative content and is not documentary evidence. The CI suite also checks local SVG fallback safety and the BBC/Al Jazeera headline-only policy.
 

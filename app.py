@@ -1377,7 +1377,7 @@ def _search_nasa_image(title: str, lang: str = "en", category: str = "world") ->
                 continue
             copyright_note = str(meta.get("copyright") or "").casefold()
             if copyright_note and not any(marker in copyright_note for marker in (
-                "public domain", "u.s. government", "us government", "united states government"
+                "public domain", "u.s. government", "us government", "united states government", "nasa"
             )):
                 continue
             desc = _clean_text(meta.get("description") or meta.get("description_508") or "", 1000)
@@ -2504,6 +2504,8 @@ def _image_license_label(license_url: str, source: str = "") -> str:
     match = re.search(r"creativecommons\.org/licenses/by/(2\.0|3\.0|4\.0)", value)
     if match:
         return "CC BY " + match.group(1)
+    if source == "nasa_images":
+        return "NASA media (check the item page for third-party restrictions)"
     if source == "editorial_generated":
         return "Original locally generated editorial illustration"
     if source == "loc_open_access":
@@ -2527,6 +2529,7 @@ def _image_provider_label(source: str) -> str:
         "pexels_api": "Pexels",
         "presskit_approved": "Approved press kit",
         "gemini_generated": "Gemini AI illustration",
+        "editorial_generated": "World Pulse topic-specific editorial art",
     }.get(source or "", "")
 
 def _normalise_story(row: dict[str, Any], lang: str) -> dict[str, Any]:
