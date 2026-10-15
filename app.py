@@ -502,6 +502,11 @@ CREATE TABLE IF NOT EXISTS world_pulse_controls (
     enabled BOOLEAN NOT NULL DEFAULT TRUE,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+CREATE TABLE IF NOT EXISTS world_pulse_runtime_state (
+    state_key TEXT PRIMARY KEY,
+    state_value TEXT NOT NULL DEFAULT '',
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
 CREATE TABLE IF NOT EXISTS world_pulse_generated_images (
     image_id TEXT PRIMARY KEY,
     mime_type TEXT NOT NULL DEFAULT 'image/jpeg',
@@ -917,7 +922,8 @@ def _db_fetch_articles_needing_images(limit: int = 6) -> list[dict[str, Any]]:
                   AND source_url <> ''
                   AND COALESCE(image_url, '') = ''
                   AND (image_checked_at IS NULL OR image_checked_at < NOW() - (%s * INTERVAL '1 hour'))
-                ORDER BY published_at DESC NULLS LAST, fetched_at DESC
+                ORDER BY image_checked_at ASC NULLS FIRST,
+                         published_at DESC NULLS LAST, fetched_at DESC
                 LIMIT %s
             """, (IMAGE_RETRY_AFTER_HOURS, max(1, min(24, int(limit)))))
             return [dict(row) for row in cur.fetchall()]
@@ -1743,6 +1749,7 @@ EDITORIAL ACCURACY AND RIGHTS:
 - Output only the finished image, no explanation or prompt text."""
     
 def _generate_gemini_article_image(raw: dict[str, Any]) -> dict[str, Any]:
+    global _GEMINI_RATE_LIMIT_UNTIL, _GEMINI_TRANSIENT_ERROR_UNTIL
     if (
         not GEMINI_IMAGE_GENERATION_ENABLED
         or not GEMINI_API_KEY
@@ -1750,6 +1757,20 @@ def _generate_gemini_article_image(raw: dict[str, Any]) -> dict[str, Any]:
         or types is None
         or not _control_enabled("image:gemini_generated", True)
     ):
+        return {}
+    with _GEMINI_STATUS_LOCK:
+        now = time.monotonic()
+        if now < _GEMINI_RATE_LIMIT_UNTIL or now < _GEMINI_TRANSIENT_ERROR_UNTIL:
+            return {}
+    shared_remaining, shared_reason = _shared_gemini_cooldown_remaining("gemini_image_cooldown")
+    if shared_remaining > 0:
+        deadline = time.monotonic() + shared_remaining
+        with _GEMINI_STATUS_LOCK:
+            if shared_reason == "rate_limited_429":
+                _GEMINI_RATE_LIMIT_UNTIL = max(_GEMINI_RATE_LIMIT_UNTIL, deadline)
+            else:
+                _GEMINI_TRANSIENT_ERROR_UNTIL = max(_GEMINI_TRANSIENT_ERROR_UNTIL, deadline)
+        logger.info("Gemini image generation skipped due to shared cooldown (%s)", shared_reason)
         return {}
     prompt = _build_gemini_image_prompt(raw)
     if not prompt:
@@ -1798,13 +1819,34 @@ def _generate_gemini_article_image(raw: dict[str, Any]) -> dict[str, Any]:
             "image_checked_at": datetime.now(timezone.utc),
         }
     except Exception as exc:
+        rate_limited = _is_gemini_rate_limit_error(exc)
+        transient_server_error = _is_gemini_transient_server_error(exc)
+        cooldown_until = None
+        if rate_limited:
+            _GEMINI_RATE_LIMIT_UNTIL = max(
+                _GEMINI_RATE_LIMIT_UNTIL,
+                time.monotonic() + GEMINI_429_COOLDOWN_MINUTES * 60,
+            )
+            cooldown_until = (datetime.now(timezone.utc) + timedelta(minutes=GEMINI_429_COOLDOWN_MINUTES)).isoformat()
+        elif transient_server_error:
+            _GEMINI_TRANSIENT_ERROR_UNTIL = max(
+                _GEMINI_TRANSIENT_ERROR_UNTIL,
+                time.monotonic() + GEMINI_TRANSIENT_ERROR_COOLDOWN_MINUTES * 60,
+            )
+            cooldown_until = (datetime.now(timezone.utc) + timedelta(minutes=GEMINI_TRANSIENT_ERROR_COOLDOWN_MINUTES)).isoformat()
         logger.warning("Gemini image generation failed (model=%s error=%s)", GEMINI_IMAGE_MODEL, type(exc).__name__)
         with _GEMINI_STATUS_LOCK:
             _LAST_GEMINI_ERROR.update({
                 "stage": "image_generation",
-                "type": type(exc).__name__,
+                "type": "rate_limited_429" if rate_limited else "transient_server_error" if transient_server_error else type(exc).__name__,
                 "at": datetime.now(timezone.utc).isoformat(),
+                "cooldown_until": cooldown_until,
             })
+        if rate_limited or transient_server_error:
+            _persist_shared_gemini_cooldown(
+                "rate_limited_429" if rate_limited else "transient_server_error",
+                state_key="gemini_image_cooldown",
+            )
         return {}
 
 def _search_openverse_image(title: str, lang: str = "en", category: str = "world") -> dict[str, Any]:
@@ -1855,6 +1897,13 @@ def _reserve_gemini_image_slots(pending_count: int) -> int:
         or types is None
         or not _control_enabled("image:gemini_generated", True)
     ):
+        return 0
+    shared_image_remaining, shared_image_reason = _shared_gemini_cooldown_remaining("gemini_image_cooldown")
+    if shared_image_remaining > 0:
+        logger.info(
+            "Gemini image slots unavailable due to shared cooldown (%s, about %d seconds remaining)",
+            shared_image_reason, shared_image_remaining,
+        )
         return 0
     recent_count = _db_count_gemini_images_last_24h()
     if recent_count is None:
@@ -2130,7 +2179,8 @@ def _parse_feed_task(category: str, lang: str) -> tuple[str, str, list[dict[str,
     if not domains:
         return category, lang, []
     domain_query = " OR ".join(f"site:{domain}" for domain in domains)
-    query = f"({query}) ({domain_query})"
+    # Search feeds without a freshness operator can keep returning prominent old stories.
+    query = f"({query}) ({domain_query}) when:7d"
     if lang == "ar":
         locale = {"hl": "ar", "gl": "JO", "ceid": "JO:ar"}
     else:
@@ -2207,6 +2257,18 @@ def _stories_are_near_duplicates(left: dict[str, Any], right: dict[str, Any]) ->
 
 
 
+def _log_rss_selection(stories: list[dict[str, Any]], candidates_before_selection: int) -> None:
+    languages = {lang: sum(1 for story in stories if story.get("original_language") == lang) for lang in ("ar", "en")}
+    categories = {
+        category: sum(1 for story in stories if story.get("category") == category)
+        for category in CATEGORY_NAMES
+    }
+    logger.info(
+        "RSS discovery summary: candidates=%d selected=%d languages=%s categories=%s",
+        candidates_before_selection, len(stories), languages, categories,
+    )
+
+
 def _collect_rss_articles() -> list[dict[str, Any]]:
     tasks = [
         (category, lang)
@@ -2251,6 +2313,7 @@ def _collect_rss_articles() -> list[dict[str, Any]]:
             cleaned[category].append(item)
             accepted_stories.append(item)
 
+    candidates_before_selection = sum(len(items) for items in cleaned.values())
     selected: list[dict[str, Any]] = []
     for round_index in range(MAX_ARTICLES_PER_CATEGORY):
         for category in CATEGORY_NAMES:
@@ -2259,8 +2322,10 @@ def _collect_rss_articles() -> list[dict[str, Any]]:
                 selected.append(candidates[round_index])
                 if len(selected) >= MAX_ARTICLES_PER_REFRESH:
                     selected.sort(key=lambda item: item.get("published_at") or item.get("fetched_at") or datetime(1970, 1, 1, tzinfo=timezone.utc), reverse=True)
+                    _log_rss_selection(selected, candidates_before_selection)
                     return selected
     selected.sort(key=lambda item: item.get("published_at") or item.get("fetched_at") or datetime(1970, 1, 1, tzinfo=timezone.utc), reverse=True)
+    _log_rss_selection(selected, candidates_before_selection)
     return selected
 
 def _looks_arabic(value: str) -> bool:
@@ -2270,6 +2335,12 @@ def _base_article(raw: dict[str, Any]) -> dict[str, Any]:
     title = raw.get("original_title", "").strip()
     summary = _clean_text(raw.get("original_summary", ""), 280).strip()
     original_lang = raw.get("original_language", "ar" if _looks_arabic(title) else "en")
+    if not summary:
+        summary = (
+            "لم يتضمن موجز المصدر تفاصيل إضافية. افتح رابط الناشر الأصلي لقراءة الخبر كاملًا."
+            if original_lang == "ar"
+            else "The source feed did not include an excerpt. Open the original publisher for the full report and details."
+        )
     return {
         "slug": raw["slug"],
         "source_url": raw["source_url"],
@@ -2346,6 +2417,69 @@ def _is_gemini_transient_server_error(exc: Exception) -> bool:
         ))
     )
 
+def _persist_shared_gemini_cooldown(reason: str, *, state_key: str = "gemini_cooldown") -> bool:
+    """Persist Gemini cooldown across Gunicorn workers through Supabase."""
+    if not _ensure_schema():
+        return False
+    conn = _connect_db()
+    if conn is None:
+        return False
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO world_pulse_runtime_state (state_key, state_value, updated_at)
+                VALUES (%s, %s, NOW())
+                ON CONFLICT (state_key) DO UPDATE
+                SET state_value = EXCLUDED.state_value, updated_at = NOW()
+            """, (state_key, reason))
+        conn.commit()
+        return True
+    except Exception as exc:
+        conn.rollback()
+        logger.debug("Could not persist shared Gemini cooldown (%s)", type(exc).__name__)
+        return False
+    finally:
+        conn.close()
+
+
+def _shared_gemini_cooldown_remaining(state_key: str = "gemini_cooldown") -> tuple[int, str]:
+    """Return remaining shared cooldown seconds and its reason for the requested API stage."""
+    if not _ensure_schema():
+        return 0, ""
+    conn = _connect_db()
+    if conn is None:
+        return 0, ""
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT state_value, updated_at
+                FROM world_pulse_runtime_state
+                WHERE state_key = %s
+            """, (state_key,))
+            row = cur.fetchone()
+        if not row or not row[1]:
+            return 0, ""
+        reason, updated_at = str(row[0] or ""), row[1]
+        if not isinstance(updated_at, datetime):
+            return 0, ""
+        if updated_at.tzinfo is None:
+            updated_at = updated_at.replace(tzinfo=timezone.utc)
+        cooldown_minutes = (
+            GEMINI_429_COOLDOWN_MINUTES if reason == "rate_limited_429"
+            else GEMINI_TRANSIENT_ERROR_COOLDOWN_MINUTES if reason == "transient_server_error"
+            else 0
+        )
+        remaining = cooldown_minutes * 60 - (
+            datetime.now(timezone.utc) - updated_at.astimezone(timezone.utc)
+        ).total_seconds()
+        return (max(0, int(remaining)), reason) if remaining > 0 else (0, "")
+    except Exception as exc:
+        logger.debug("Could not read shared Gemini cooldown (%s)", type(exc).__name__)
+        return 0, ""
+    finally:
+        conn.close()
+
+
 def _translate_batch(raw_articles: list[dict[str, Any]]) -> dict[int, dict[str, str]]:
     global _GEMINI_RATE_LIMIT_UNTIL, _GEMINI_TRANSIENT_ERROR_UNTIL
     if not raw_articles or not GEMINI_API_KEY or genai is None or types is None:
@@ -2356,6 +2490,26 @@ def _translate_batch(raw_articles: list[dict[str, Any]]) -> dict[int, dict[str, 
             return {}
         if now < _GEMINI_TRANSIENT_ERROR_UNTIL:
             return {}
+
+    shared_remaining, shared_reason = _shared_gemini_cooldown_remaining()
+    if shared_remaining > 0:
+        deadline = time.monotonic() + shared_remaining
+        with _GEMINI_STATUS_LOCK:
+            if shared_reason == "rate_limited_429":
+                _GEMINI_RATE_LIMIT_UNTIL = max(_GEMINI_RATE_LIMIT_UNTIL, deadline)
+            else:
+                _GEMINI_TRANSIENT_ERROR_UNTIL = max(_GEMINI_TRANSIENT_ERROR_UNTIL, deadline)
+            _LAST_GEMINI_ERROR.update({
+                "stage": "editorial",
+                "type": shared_reason,
+                "at": datetime.now(timezone.utc).isoformat(),
+                "cooldown_until": (datetime.now(timezone.utc) + timedelta(seconds=shared_remaining)).isoformat(),
+            })
+        logger.info(
+            "Gemini editorial enrichment skipped due to shared cooldown (%s, about %d seconds remaining)",
+            shared_reason, shared_remaining,
+        )
+        return {}
 
     result: dict[int, dict[str, str]] = {}
     batch_size = 4
@@ -2454,8 +2608,11 @@ def _translate_batch(raw_articles: list[dict[str, Any]]) -> dict[int, dict[str, 
             if rate_limited or transient_server_error:
                 cooldown_minutes = GEMINI_429_COOLDOWN_MINUTES if rate_limited else GEMINI_TRANSIENT_ERROR_COOLDOWN_MINUTES
                 reason = "429 quota/rate limit" if rate_limited else "temporary 5xx server error"
+                _persist_shared_gemini_cooldown(
+                    "rate_limited_429" if rate_limited else "transient_server_error"
+                )
                 logger.warning(
-                    "Gemini request circuit breaker enabled for %d minutes after %s; source-language news and image search will continue",
+                    "Gemini request circuit breaker enabled for %d minutes after %s; shared cooldown saved for all workers; source-language news and image search will continue",
                     cooldown_minutes, reason,
                 )
                 break
@@ -2545,12 +2702,25 @@ def _refresh_existing_article_images_job(limit: int = 8) -> None:
     lock_acquired = False
     try:
         lock_file = open(os.getenv("REFRESH_LOCK_FILE", "/tmp/world-pulse-refresh.lock"), "a+", encoding="utf-8")
-        try:
-            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-            lock_acquired = True
-        except BlockingIOError:
-            logger.info("Image refresh skipped: the news refresh lock is already held")
-            return
+        wait_seconds = max(30, min(600, int(os.getenv("IMAGE_REFRESH_LOCK_WAIT_SECONDS", "300"))))
+        wait_deadline = time.monotonic() + wait_seconds
+        logged_wait = False
+        while True:
+            try:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                lock_acquired = True
+                break
+            except BlockingIOError:
+                if time.monotonic() >= wait_deadline:
+                    logger.warning(
+                        "Admin image refresh could not acquire the news lock within %d seconds",
+                        wait_seconds,
+                    )
+                    return
+                if not logged_wait:
+                    logger.info("Admin image refresh queued behind the active news refresh")
+                    logged_wait = True
+                time.sleep(3)
 
         rows_by_url: dict[str, dict[str, Any]] = {}
         for row in _db_fetch_all():
@@ -2642,6 +2812,8 @@ def _refresh_news_job() -> None:
 
         schema_available = _ensure_schema()
         raw_articles = _collect_rss_articles()
+        logger.info("News refresh started with %d RSS/editorial candidates; database_available=%s",
+                    len(raw_articles), schema_available)
         known_urls = {str(item.get("source_url", "")) for item in raw_articles}
         if schema_available:
             for stored in _db_fetch_articles_needing_editorial(limit=4):
@@ -2679,7 +2851,21 @@ def _refresh_news_job() -> None:
             raw["image_search_title"] = enriched.get("title_en") or raw.get("original_title", "")
             raw_to_publish.append((index, raw))
 
+        source_language_fallbacks = sum(
+            1 for index, raw in raw_to_publish
+            if index not in translations and not raw.get("headline_only")
+        )
+        not_in_recent_db_read = sum(
+            1 for _index, raw in raw_to_publish
+            if str(raw.get("source_url") or "") not in existing_urls
+        )
+        logger.info(
+            "News refresh selection: candidates=%d translations=%d publish_candidates=%d urls_not_in_recent_db_read=%d source_language_fallbacks=%d",
+            len(raw_articles), len(translations), len(raw_to_publish), not_in_recent_db_read, source_language_fallbacks,
+        )
+
         if not raw_to_publish:
+            logger.info("News refresh found no unseen publishable URLs among %d candidates", len(raw_articles))
             backfilled = _backfill_missing_article_images(limit=min(6, MAX_IMAGE_LOOKUPS_PER_REFRESH)) if schema_available and MAX_IMAGE_LOOKUPS_PER_REFRESH > 0 else 0
             _LAST_REFRESH_SUCCESS = time.monotonic()
             _LAST_REFRESH_AT = datetime.now(timezone.utc)
@@ -2700,6 +2886,14 @@ def _refresh_news_job() -> None:
             ready.append(article_data)
 
         saved = _db_upsert_many(ready)
+        images_found = sum(
+            1 for item in ready
+            if item.get("image_url") and item.get("image_source") in TRUSTED_REUSABLE_IMAGE_SOURCES
+        )
+        logger.info(
+            "News refresh save outcome: candidates=%d database_saved=%s source_language_fallbacks=%d reusable_images=%d",
+            len(ready), saved, source_language_fallbacks, images_found,
+        )
         for article_data in ready:
             _MEMORY_ARTICLES[article_data["source_url"]] = article_data
         backfilled = _backfill_missing_article_images(limit=min(6, MAX_IMAGE_LOOKUPS_PER_REFRESH)) if schema_available and MAX_IMAGE_LOOKUPS_PER_REFRESH > 0 else 0
@@ -3771,7 +3965,7 @@ def admin_sources():
                         daemon=True,
                     )
                     thread.start()
-                    notice = "تم مسح ذاكرة العرض المؤقتة وبدأ البحث الإجباري عن صور حتى 12 خبراً. تبقى البيانات الدائمة في Supabase، وتُحفظ أي صورة بديلة مناسبة هناك بعد انتهاء البحث."
+                    notice = "تم مسح ذاكرة العرض المؤقتة وبدأ البحث الإجباري عن صور حتى 12 خبراً. إذا كان تحديث الأخبار جارياً، ستنتظر مهمة الصور انتهاءه بدل إلغاء البحث. تبقى البيانات الدائمة في Supabase محفوظة."
         else:
             abort(400)
     return render_template(

@@ -1,6 +1,7 @@
 """Regression tests for fast article navigation and distinct editorial fields."""
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+from urllib.parse import parse_qs, urlparse
 from unittest.mock import patch
 
 import app as world_pulse
@@ -79,6 +80,63 @@ class SiteExperienceTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.get_data(as_text=True), "article rendered")
         pool.assert_called_once_with("en")
+
+    def test_google_news_rss_query_is_limited_to_recent_stories(self):
+        with patch.object(world_pulse, "_control_enabled", return_value=True):
+            with patch.object(world_pulse, "_parse_any_rss", return_value=("world", "ar", [])) as parser:
+                world_pulse._parse_feed_task("world", "ar")
+        feed_url = parser.call_args.args[0]
+        query = parse_qs(urlparse(feed_url).query).get("q", [""])[0]
+        self.assertIn("when:7d", query)
+
+    def test_source_language_story_with_no_rss_excerpt_gets_transparent_summary(self):
+        article = world_pulse._base_article({
+            "slug": "headline-only-fallback",
+            "source_url": "https://example.com/story",
+            "category": "world",
+            "source_name": "Example News",
+            "source_domain": "example.com",
+            "original_title": "New policy announced",
+            "original_summary": "",
+            "original_language": "en",
+            "published_at": datetime(2026, 10, 15, tzinfo=timezone.utc),
+        })
+        self.assertTrue(article["summary_en"])
+        self.assertIn("did not include an excerpt", article["summary_en"])
+        self.assertEqual(article["summary_ar"], "")
+
+    def test_shared_gemini_cooldown_is_respected_across_workers(self):
+        class FakeCursor:
+            def __init__(self, value):
+                self.value = value
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                return False
+            def execute(self, _sql, _params=None):
+                pass
+            def fetchone(self):
+                return self.value
+
+        class FakeConnection:
+            def __init__(self, value):
+                self.value = value
+                self.closed = False
+            def cursor(self):
+                return FakeCursor(self.value)
+            def close(self):
+                self.closed = True
+
+        connection = FakeConnection((
+            "rate_limited_429",
+            datetime.now(timezone.utc) - timedelta(minutes=5),
+        ))
+        with patch.object(world_pulse, "_ensure_schema", return_value=True):
+            with patch.object(world_pulse, "_connect_db", return_value=connection):
+                remaining, reason = world_pulse._shared_gemini_cooldown_remaining()
+        self.assertEqual(reason, "rate_limited_429")
+        self.assertGreater(remaining, 0)
+        self.assertTrue(connection.closed)
 
     def test_homepage_ticker_uses_latest_story_and_does_not_require_a_today_timestamp(self):
         latest = {
