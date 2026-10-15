@@ -29,7 +29,7 @@ import smtplib
 import ssl
 from typing import Any
 from urllib.error import URLError, HTTPError
-from urllib.parse import urlencode, quote, urlparse, parse_qsl
+from urllib.parse import urlencode, quote, unquote, urlparse, parse_qsl
 import sys
 from urllib.request import Request, urlopen
 from zoneinfo import ZoneInfo
@@ -487,6 +487,16 @@ def _database_url() -> str:
     # query parameter is not a valid libpq/psycopg2 option and prevents connecting.
     try:
         parsed = urlparse(dsn)
+        # Copy/paste into Render can leave an encoded trailing space after the database
+        # name (e.g. /postgres%20); libpq treats that as a different database name.
+        decoded_path = unquote(parsed.path)
+        if decoded_path.startswith("/"):
+            clean_path = "/" + decoded_path[1:].strip()
+        else:
+            clean_path = decoded_path.strip()
+        if clean_path != decoded_path:
+            parsed = parsed._replace(path=quote(clean_path, safe="/"))
+            dsn = parsed.geturl()
         query_items = parse_qsl(parsed.query, keep_blank_values=True)
         compatible_items = [(key, value) for key, value in query_items if key.casefold() != "pgbouncer"]
         if len(compatible_items) != len(query_items):
