@@ -553,5 +553,101 @@ class SourcePolicyTests(unittest.TestCase):
 
 
 
+    def test_nasa_image_search_returns_relevant_preview_and_blocks_explicit_copyright(self):
+        import io
+        import json
+        from unittest.mock import patch
+
+        payload = {
+            "collection": {
+                "items": [
+                    {
+                        "data": [{
+                            "title": "Artemis lunar rocket launch",
+                            "description": "NASA Artemis lunar mission rocket launch photography",
+                            "keywords": [{"name": "Artemis"}, {"name": "Moon"}],
+                            "nasa_id": "KSC-ARTEMIS-TEST",
+                            "center": "KSC",
+                            "photographer": "NASA/KSC",
+                        }],
+                        "links": [{
+                            "rel": "preview",
+                            "href": "https://images-assets.nasa.gov/image/KSC-ARTEMIS-TEST/KSC-ARTEMIS-TEST~thumb.jpg",
+                        }],
+                    },
+                    {
+                        "data": [{
+                            "title": "Artemis lunar rocket launch photo",
+                            "description": "NASA Artemis lunar mission rocket launch",
+                            "nasa_id": "KSC-RESTRICTED-TEST",
+                            "copyright": "Third-party copyrighted image; permission required",
+                        }],
+                        "links": [{
+                            "rel": "preview",
+                            "href": "https://images-assets.nasa.gov/image/KSC-RESTRICTED-TEST/KSC-RESTRICTED-TEST~thumb.jpg",
+                        }],
+                    },
+                ]
+            }
+        }
+        with patch.object(world_pulse, "urlopen", return_value=io.BytesIO(json.dumps(payload).encode("utf-8"))):
+            result = world_pulse._search_nasa_image("NASA Artemis lunar rocket launch", "en", "science")
+        self.assertEqual(result["image_source"], "nasa_images")
+        self.assertEqual(
+            result["image_url"],
+            "https://images-assets.nasa.gov/image/KSC-ARTEMIS-TEST/KSC-ARTEMIS-TEST~thumb.jpg",
+        )
+        self.assertIn("KSC-ARTEMIS-TEST", result["image_provider_url"])
+        self.assertIn("nasa.gov", result["image_license_url"])
+
+    def test_nasa_image_search_skips_irrelevant_categories_without_network_access(self):
+        from unittest.mock import patch
+
+        with patch.object(world_pulse, "urlopen", side_effect=AssertionError("network must not be called")):
+            result = world_pulse._search_nasa_image("Election results", "en", "politics")
+        self.assertEqual(result, {})
+
+    def test_commons_cc_by_sa_photo_is_allowed_with_creator_attribution(self):
+        import io
+        import json
+        from unittest.mock import patch
+
+        page = {
+            "title": "File:NASA Artemis moon rocket launch.jpg",
+            "imageinfo": [{
+                "mime": "image/jpeg",
+                "thumburl": "https://upload.wikimedia.org/wikipedia/commons/thumb/test.jpg",
+                "url": "https://upload.wikimedia.org/wikipedia/commons/test.jpg",
+                "extmetadata": {
+                    "LicenseShortName": {"value": "CC BY-SA 4.0"},
+                    "LicenseUrl": {"value": "https://creativecommons.org/licenses/by-sa/4.0/"},
+                    "Artist": {"value": "Example photographer"},
+                    "ImageDescription": {"value": "NASA Artemis lunar rocket launch"},
+                },
+            }],
+        }
+        payload = {"query": {"pages": [page]}}
+        raw = json.dumps(payload).encode("utf-8")
+        with patch.object(world_pulse, "urlopen", side_effect=[io.BytesIO(raw), io.BytesIO(raw)]):
+            result = world_pulse._search_commons_image("NASA Artemis lunar rocket launch", "en", "science")
+        self.assertEqual(result["image_source"], "wikimedia_relevant")
+        self.assertEqual(result["image_credit"], "Example photographer")
+        self.assertIn("by-sa/4.0", result["image_license_url"])
+
+    def test_active_image_search_does_not_call_discontinued_stock_apis(self):
+        from unittest.mock import patch
+
+        with patch.object(world_pulse, "_control_enabled", return_value=True):
+            with patch.object(world_pulse, "_search_commons_image", return_value={}):
+                with patch.object(world_pulse, "_search_loc_open_access_image", return_value={}):
+                    with patch.object(world_pulse, "_search_nasa_image", return_value={}):
+                        with patch.object(world_pulse, "_search_approved_presskit_image", return_value={}):
+                            with patch.object(world_pulse, "_search_pexels_image", side_effect=AssertionError("Pexels API is disabled")) as pexels:
+                                with patch.object(world_pulse, "_search_unsplash_image", side_effect=AssertionError("Unsplash API is disabled")) as unsplash:
+                                    self.assertEqual(world_pulse._search_any_reusable_image("NASA Artemis launch", "en", "science"), {})
+        pexels.assert_not_called()
+        unsplash.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()
