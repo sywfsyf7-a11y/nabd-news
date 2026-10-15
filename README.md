@@ -75,3 +75,6 @@ python -m unittest discover -s tests -v
 ```
 
 The automated test suite covers language/source enforcement, Openverse licence filtering (CC0/PDM/CC BY/CC BY-SA), attribution metadata, Pexels/Unsplash API request headers, title-keyword matching and attribution, image fallback rendering and NASA/Commons rights policy. Live credentials, the production database, external API quotas and the actual rights status of individual images cannot be certified by unit tests alone; monitor `/api/news-status`, `/admin/monitor` and Render logs.
+
+### Persistent storage versus temporary cache
+Article records and image URLs, source attribution, provider links, licence metadata, and image-check timestamps are stored in the Supabase PostgreSQL table `world_pulse_articles`. The short-lived in-process article cache is only a performance optimization and is invalidated after database writes. The image freshness window controls when the app repeats external image searches; it does not expire or delete the database records. The protected admin image-refresh action bypasses that freshness window for up to 12 recent articles, clears the current worker's short-lived display cache, and writes successful replacements back to Supabase while preserving the existing image if no suitable replacement is found.
