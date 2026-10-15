@@ -102,7 +102,7 @@ UNSPLASH_ACCESS_KEY = os.getenv("UNSPLASH_ACCESS_KEY", "").strip()
 PEXELS_API_KEY = os.getenv("PEXELS_API_KEY", "").strip()
 IMAGE_CACHE_MAX_AGE_SECONDS = max(3600, int(os.getenv("IMAGE_CACHE_MAX_AGE_HOURS", "168")) * 3600)
 TRUSTED_REUSABLE_IMAGE_SOURCES = {
-    "wikimedia_relevant", "loc_open_access", "nasa_images", "unsplash_api", "pexels_api", "presskit_approved", "gemini_generated"
+    "wikimedia_relevant", "openverse_licensed", "loc_open_access", "nasa_images", "presskit_approved", "unsplash_api", "pexels_api", "gemini_generated"
 }
 
 CATEGORY_NAMES = {
@@ -1017,27 +1017,27 @@ def _db_upsert_many(articles: list[dict[str, Any]]) -> bool:
             source_name = EXCLUDED.source_name,
             source_domain = CASE WHEN EXCLUDED.source_domain <> '' THEN EXCLUDED.source_domain ELSE world_pulse_articles.source_domain END,
             image_url = CASE
-                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'loc_open_access', 'nasa_images', 'unsplash_api', 'pexels_api', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
+                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'openverse_licensed', 'loc_open_access', 'nasa_images', 'unsplash_api', 'pexels_api', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
                     THEN world_pulse_articles.image_url
                 ELSE EXCLUDED.image_url END,
             image_source = CASE
-                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'loc_open_access', 'nasa_images', 'unsplash_api', 'pexels_api', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
+                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'openverse_licensed', 'loc_open_access', 'nasa_images', 'unsplash_api', 'pexels_api', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
                     THEN world_pulse_articles.image_source
                 ELSE EXCLUDED.image_source END,
             image_credit = CASE
-                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'loc_open_access', 'nasa_images', 'unsplash_api', 'pexels_api', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
+                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'openverse_licensed', 'loc_open_access', 'nasa_images', 'unsplash_api', 'pexels_api', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
                     THEN world_pulse_articles.image_credit
                 ELSE EXCLUDED.image_credit END,
             image_credit_url = CASE
-                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'loc_open_access', 'nasa_images', 'unsplash_api', 'pexels_api', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
+                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'openverse_licensed', 'loc_open_access', 'nasa_images', 'unsplash_api', 'pexels_api', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
                     THEN world_pulse_articles.image_credit_url
                 ELSE EXCLUDED.image_credit_url END,
             image_provider_url = CASE
-                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'loc_open_access', 'nasa_images', 'unsplash_api', 'pexels_api', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
+                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'openverse_licensed', 'loc_open_access', 'nasa_images', 'unsplash_api', 'pexels_api', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
                     THEN world_pulse_articles.image_provider_url
                 ELSE EXCLUDED.image_provider_url END,
             image_license_url = CASE
-                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'loc_open_access', 'nasa_images', 'unsplash_api', 'pexels_api', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
+                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'openverse_licensed', 'loc_open_access', 'nasa_images', 'unsplash_api', 'pexels_api', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
                     THEN world_pulse_articles.image_license_url
                 ELSE EXCLUDED.image_license_url END,
             image_checked_at = COALESCE(EXCLUDED.image_checked_at, world_pulse_articles.image_checked_at),
@@ -1756,9 +1756,132 @@ def _generate_gemini_article_image(raw: dict[str, Any]) -> dict[str, Any]:
             })
         return {}
 
+def _openverse_license_url_ok(license_code: str, license_url: str) -> bool:
+    """Accept only reusable public-domain/CC licenses that permit commercial reuse."""
+    code = (license_code or "").casefold().strip()
+    try:
+        parsed = urlparse(license_url)
+    except ValueError:
+        return False
+    if parsed.scheme != "https" or (parsed.hostname or "").casefold() not in {"creativecommons.org", "www.creativecommons.org"}:
+        return False
+    path = parsed.path.casefold().rstrip("/")
+    if code == "cc0":
+        return path == "/publicdomain/zero/1.0"
+    if code == "pdm":
+        return path == "/publicdomain/mark/1.0"
+    if code == "by":
+        return bool(re.fullmatch(r"/licenses/by/(?:2\.0|3\.0|4\.0)", path))
+    if code == "by-sa":
+        return bool(re.fullmatch(r"/licenses/by-sa/(?:2\.0|3\.0|4\.0)", path))
+    return False
+
+
+def _search_openverse_image(title: str, lang: str = "en", category: str = "world") -> dict[str, str]:
+    """Search openly-licensed images by the news headline without needing a stock-site API key.
+
+    Openverse provides anonymous search access; only CC0, public-domain, CC BY and CC BY-SA
+    records are considered. The item-level licence URL is checked and attribution is retained.
+    """
+    title = _clean_text(title, 200)
+    if not title:
+        return {}
+    query = _image_search_phrase(title, 6)
+    if not query:
+        query = title[:180]
+    params = urlencode({
+        "q": query,
+        "license": "cc0,pdm,by,by-sa",
+        "extension": "jpg,jpeg,png,webp",
+        "page_size": 20,
+        "page": 1,
+        "mature": "false",
+        "filter_dead": "true",
+    })
+    request_obj = Request(
+        "https://api.openverse.org/v1/images/?" + params,
+        headers={
+            "Accept": "application/json",
+            "User-Agent": "WorldPulseNews/2.0 (+licensed news image discovery)",
+        },
+    )
+    try:
+        with urlopen(request_obj, timeout=IMAGE_SEARCH_TIMEOUT_SECONDS) as response:
+            data = json.loads(response.read(2_000_000).decode("utf-8", errors="replace"))
+        best: tuple[float, dict[str, str]] | None = None
+        for item in (data.get("results") or [])[:20]:
+            if not isinstance(item, dict) or item.get("mature") is True:
+                continue
+            license_code = str(item.get("license") or "").casefold().strip()
+            license_url = _https_url(item.get("license_url"), {"creativecommons.org"})
+            if not _openverse_license_url_ok(license_code, license_url):
+                continue
+            image_url = _https_url(item.get("url"))
+            item_page = _https_url(item.get("foreign_landing_url"))
+            if not image_url or not item_page:
+                continue
+            try:
+                width = int(item.get("width") or 0)
+                height = int(item.get("height") or 0)
+            except (ValueError, TypeError):
+                width, height = 0, 0
+            if width and width < 500:
+                continue
+            if width and height and (height <= 0 or width / height < 0.8):
+                continue
+            creator = _clean_text(item.get("creator") or "", 180)
+            creator_url = _https_url(item.get("creator_url"))
+            if license_code in {"by", "by-sa"} and not creator:
+                continue
+            item_title = _clean_text(item.get("title") or "", 240)
+            tags = item.get("tags") or []
+            if isinstance(tags, list):
+                tag_text = " ".join(
+                    _clean_text(tag.get("name") if isinstance(tag, dict) else tag, 80)
+                    for tag in tags[:20]
+                )
+            else:
+                tag_text = _clean_text(tags, 500)
+            evidence = " ".join((item_title, tag_text, creator))
+            score = max(
+                _image_match_score(query, evidence),
+                _image_match_score(title, evidence),
+            )
+            if score <= 0:
+                continue
+            version = str(item.get("license_version") or "")
+            if license_code == "cc0" and "/publicdomain/zero/1.0" in license_url:
+                license_label = "CC0 1.0"
+            elif license_code == "pdm":
+                license_label = "Public Domain Mark 1.0"
+            elif license_code == "by-sa":
+                license_label = "CC BY-SA " + version if version else "CC BY-SA"
+            else:
+                license_label = "CC BY " + version if version else "CC BY"
+            result = {
+                "image_url": image_url,
+                "image_source": "openverse_licensed",
+                "image_credit": creator or "Creator not listed · see original item",
+                "image_credit_url": creator_url or item_page,
+                "image_provider_url": item_page,
+                "image_license_url": license_url,
+                "image_checked_at": datetime.now(timezone.utc),
+                "image_title": item_title,
+                "image_license_label": license_label,
+            }
+            if best is None or score > best[0]:
+                best = (score, result)
+        return best[1] if best else {}
+    except Exception as exc:
+        # Fail over to other providers without leaking upstream response bodies or URL details.
+        logger.debug("Openverse image lookup failed (%s)", type(exc).__name__)
+        return {}
+
+
 def _search_any_reusable_image(title: str, lang: str = "en", category: str = "world") -> dict[str, str]:
     finders = (
         ("image:wikimedia_relevant", lambda: _search_commons_image(title, lang, category)),
+        ("image:openverse_licensed", lambda: _search_openverse_image(title, lang, category)),
         ("image:loc_open_access", lambda: _search_loc_open_access_image(title, lang, category)),
         ("image:nasa_images", lambda: _search_nasa_image(title, lang, category)),
         ("image:presskit_approved", lambda: _search_approved_presskit_image(title, category)),
@@ -2504,6 +2627,8 @@ def _image_license_label(license_url: str, source: str = "") -> str:
     match = re.search(r"creativecommons\.org/licenses/by/(2\.0|3\.0|4\.0)", value)
     if match:
         return "CC BY " + match.group(1)
+    if source == "openverse_licensed":
+        return "Openverse item licence (CC0, public domain, CC BY or CC BY-SA)"
     if source == "nasa_images":
         return "NASA media (check the item page for third-party restrictions)"
     if source == "editorial_generated":
@@ -2523,6 +2648,7 @@ def _image_license_label(license_url: str, source: str = "") -> str:
 def _image_provider_label(source: str) -> str:
     return {
         "wikimedia_relevant": "Wikimedia Commons",
+        "openverse_licensed": "Openverse · openly licensed media",
         "loc_open_access": "Library of Congress (item marked reusable)",
         "nasa_images": "NASA Image and Video Library",
         "unsplash_api": "Unsplash",
