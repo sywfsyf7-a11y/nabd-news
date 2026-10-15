@@ -207,15 +207,15 @@ CATEGORY_QUERIES = {
 CATEGORY_SOURCE_DOMAINS = {
     "politics": {
         "ar": ["aljazeera.net","bbc.com","alarabiya.net","skynewsarabia.com","aawsat.com","alquds.co.uk","alghad.com","almamlakatv.com","roya.tv","arabic.rt.com","cnn.com","france24.com","dw.com","euronews.com","aa.com.tr","alhurra.com","independentarabia.com","wam.ae","petra.gov.jo"],
-        "en": ["bbc.com","bbc.co.uk","aljazeera.com","reuters.com","apnews.com","politico.com","thehill.com","axios.com","voanews.com","rferl.org","dw.com","france24.com","euronews.com","abc.net.au","cbc.ca","npr.org","theconversation.com","almonitor.com","foreignpolicy.com","defensenews.com","opendemocracy.net","chinadaily.com.cn"],
+        "en": ["bbc.com","bbc.co.uk","aljazeera.com","cnn.com","reuters.com","apnews.com","politico.com","thehill.com","axios.com","voanews.com","rferl.org","dw.com","france24.com","euronews.com","abc.net.au","cbc.ca","npr.org","theconversation.com","almonitor.com","foreignpolicy.com","defensenews.com","opendemocracy.net","chinadaily.com.cn"],
     },
     "economy": {
         "ar": ["asharqbusiness.com","cnbcarabia.com","mubasher.info","alarabiya.net","argaam.com","aleqt.com","zawya.com","almalnews.com","amwalalghad.com","almamlakatv.com","alghad.com","albayan.ae","alittihad.ae","wam.ae","petra.gov.jo"],
-        "en": ["bloomberg.com","ft.com","wsj.com","cnbc.com","marketwatch.com","fortune.com","businessinsider.com","investopedia.com","finance.yahoo.com","economist.com","economictimes.indiatimes.com","forbes.com","theinformation.com","techcrunch.com","axios.com","dw.com","reuters.com","apnews.com"],
+        "en": ["bloomberg.com","ft.com","wsj.com","cnbc.com","marketwatch.com","fortune.com","businessinsider.com","investopedia.com","finance.yahoo.com","economist.com","economictimes.indiatimes.com","forbes.com","theinformation.com","techcrunch.com","axios.com","cnn.com","dw.com","reuters.com","apnews.com"],
     },
     "technology": {
         "ar": ["aitnews.com","tech-wd.com","arabhardware.net","alarabiya.net","almamlakatv.com","france24.com","dw.com","cnn.com","aljazeera.net","arabic.rt.com"],
-        "en": ["theverge.com","techcrunch.com","wired.com","arstechnica.com","engadget.com","zdnet.com","cnet.com","techradar.com","androidauthority.com","tomshardware.com","venturebeat.com","9to5mac.com","thenextweb.com","digitaltrends.com","gizmodo.com","technologyreview.com","theregister.com","bloomberg.com","apnews.com"],
+        "en": ["theverge.com","techcrunch.com","wired.com","arstechnica.com","engadget.com","zdnet.com","cnet.com","techradar.com","androidauthority.com","tomshardware.com","venturebeat.com","9to5mac.com","thenextweb.com","digitaltrends.com","gizmodo.com","technologyreview.com","theregister.com","bloomberg.com","cnn.com","apnews.com"],
     },
     "gaming": {
         "ar": ["saudigamer.com","arabhardware.net","arabgamenews.com","vga4a.com","agdn-online.com","true-gaming.net","l3ab.co","gamers8.gg"],
@@ -227,15 +227,15 @@ CATEGORY_SOURCE_DOMAINS = {
     },
     "science": {
         "ar": ["ngalarabiya.com","aljazeera.net","alarabiya.net","dw.com","france24.com","euronews.com","cnn.com","aa.com.tr","alhurra.com","petra.gov.jo","wam.ae","almamlakatv.com","arabic.rt.com"],
-        "en": ["nasa.gov","space.com","scientificamerican.com","livescience.com","phys.org","sciencenews.org","eurekalert.org","noaa.gov","usgs.gov","nsf.gov","energy.gov","nih.gov","esa.int","nature.com","newscientist.com","sciencedaily.com","science.org","eos.org","apnews.com"],
+        "en": ["nasa.gov","space.com","scientificamerican.com","livescience.com","phys.org","sciencenews.org","eurekalert.org","noaa.gov","usgs.gov","nsf.gov","energy.gov","nih.gov","esa.int","nature.com","newscientist.com","sciencedaily.com","science.org","eos.org","cnn.com","apnews.com"],
     },
     "culture": {
         "ar": ["alqafilah.com","thifaf.com","aljazeera.net","alaraby.co.uk","alarab.co.uk","alarabiya.net","albayan.ae","alittihad.ae","masrawy.com","almasryalyoum.com","youm7.com","cairo24.com","alkhaleej.ae","cnn.com","france24.com","dw.com"],
-        "en": ["lithub.com","artsy.net","theguardian.com","smithsonianmag.com","artnews.com","hyperallergic.com","pitchfork.com","variety.com","hollywoodreporter.com","npr.org","theconversation.com","bfi.org.uk","literaryreview.co.uk","apnews.com","euronews.com"],
+        "en": ["lithub.com","artsy.net","theguardian.com","smithsonianmag.com","artnews.com","hyperallergic.com","pitchfork.com","variety.com","hollywoodreporter.com","npr.org","theconversation.com","bfi.org.uk","literaryreview.co.uk","cnn.com","apnews.com","euronews.com"],
     },
     "world": {
         "ar": ["aljazeera.net","bbc.com","dw.com","france24.com","euronews.com","alarabiya.net","skynewsarabia.com","alghad.com","almamlakatv.com","roya.tv","arabic.rt.com","alhurra.com","cnn.com","aa.com.tr","wam.ae","petra.gov.jo","independentarabia.com","alqabas.com","alain.com"],
-        "en": ["euronews.com","bbc.com","bbc.co.uk","aljazeera.com","apnews.com","reuters.com","voanews.com","rferl.org","axios.com","abc.net.au","cbc.ca","france24.com","dw.com","thehill.com","npr.org","theconversation.com","almonitor.com","chinadaily.com.cn","straitstimes.com","japantimes.co.jp","theafricareport.com","restofworld.org","foreignpolicy.com","opendemocracy.net","theguardian.com"],
+        "en": ["euronews.com","bbc.com","bbc.co.uk","aljazeera.com","cnn.com","apnews.com","reuters.com","voanews.com","rferl.org","axios.com","abc.net.au","cbc.ca","france24.com","dw.com","thehill.com","npr.org","theconversation.com","almonitor.com","chinadaily.com.cn","straitstimes.com","japantimes.co.jp","theafricareport.com","restofworld.org","foreignpolicy.com","opendemocracy.net","theguardian.com"],
     },
 }
 
