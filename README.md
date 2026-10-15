@@ -92,3 +92,7 @@ New RSS headlines and bilingual briefs are saved to Supabase before photo search
 
 ### Context-aware image search
 Photo discovery combines the most distinctive terms from a story headline with keywords from its source excerpt. This helps open-licence archives match photos whose metadata describes the subject rather than repeating the full headline, while retaining item-level licence checks and relevance filtering. The image-enrichment batch has an overall deadline so slow providers cannot hold the news refresh lock.
+
+
+### RSS discovery query performance
+Google News RSS requests use compact topic queries with a seven-day freshness filter. Results are still filtered against the site's enabled publisher/category/language allowlist after retrieval; no article from an unapproved domain is published. Avoiding a very large per-query `site:domain OR site:domain...` expression keeps individual category feeds shorter and more resilient.
