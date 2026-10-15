@@ -86,7 +86,7 @@ NEWS_RETRY_MINUTES = max(5, int(os.getenv("NEWS_RETRY_MINUTES", "10")))
 NEWS_AUTO_FETCH = os.getenv("NEWS_AUTO_FETCH", "true").lower() not in {"0", "false", "no"}
 RSS_TIMEOUT_SECONDS = max(2, int(os.getenv("RSS_TIMEOUT_SECONDS", "6")))
 RSS_BATCH_TIMEOUT_SECONDS = max(8, min(60, int(os.getenv("RSS_BATCH_TIMEOUT_SECONDS", "20"))))
-IMAGE_ENRICHMENT_BATCH_TIMEOUT_SECONDS = max(5, min(120, int(os.getenv("IMAGE_ENRICHMENT_BATCH_TIMEOUT_SECONDS", "35"))))
+IMAGE_ENRICHMENT_BATCH_TIMEOUT_SECONDS = max(5, min(120, int(os.getenv("IMAGE_ENRICHMENT_BATCH_TIMEOUT_SECONDS", "65"))))
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
 GEMINI_IMAGE_MODEL = os.getenv("GEMINI_IMAGE_MODEL", "gemini-nano-banana-2.1").strip()
 GEMINI_IMAGE_GENERATION_ENABLED = os.getenv("GEMINI_IMAGE_GENERATION_ENABLED", "true").lower() not in {"0", "false", "no"}
@@ -105,7 +105,7 @@ MAX_IMAGE_LOOKUPS_PER_REFRESH = max(0, min(32, int(os.getenv("MAX_IMAGE_LOOKUPS_
 IMAGE_RETRY_AFTER_HOURS = max(1, min(168, int(os.getenv("IMAGE_RETRY_AFTER_HOURS", "1"))))
 UNSPLASH_ACCESS_KEY = os.getenv("UNSPLASH_ACCESS_KEY", "").strip()
 PEXELS_API_KEY = os.getenv("PEXELS_API_KEY", "").strip()
-IMAGE_CACHE_MAX_AGE_SECONDS = max(3600, int(os.getenv("IMAGE_CACHE_MAX_AGE_HOURS", "168")) * 3600)
+IMAGE_CACHE_MAX_AGE_SECONDS = max(3600, int(os.getenv("IMAGE_CACHE_MAX_AGE_HOURS", "24")) * 3600)
 TRUSTED_REUSABLE_IMAGE_SOURCES = {
     "wikimedia_relevant", "openverse_licensed", "loc_open_access", "nasa_images", "presskit_approved", "unsplash_api", "pexels_api", "gemini_generated"
 }
@@ -908,7 +908,7 @@ def _db_fetch_all() -> list[dict[str, Any]]:
                 WHERE is_demo = FALSE
                   AND ((original_language = 'ar' AND LENGTH(TRIM(COALESCE(title_ar, ''))) > 0 AND LENGTH(TRIM(COALESCE(summary_ar, ''))) > 0)
                        OR (original_language = 'en' AND LENGTH(TRIM(COALESCE(title_en, ''))) > 0 AND LENGTH(TRIM(COALESCE(summary_en, ''))) > 0))
-                ORDER BY published_at DESC NULLS LAST, fetched_at DESC
+                ORDER BY COALESCE(published_at, fetched_at) DESC, fetched_at DESC
                 LIMIT 120
             """)
             rows = [dict(row) for row in cur.fetchall()]
@@ -947,7 +947,7 @@ def _db_search_articles(query: str, limit: int = 60) -> list[dict[str, Any]] | N
         WHERE is_demo = FALSE
           AND ((original_language = 'ar' AND LENGTH(TRIM(COALESCE(title_ar, ''))) > 0 AND LENGTH(TRIM(COALESCE(summary_ar, ''))) > 0)
                OR (original_language = 'en' AND LENGTH(TRIM(COALESCE(title_en, ''))) > 0 AND LENGTH(TRIM(COALESCE(summary_en, ''))) > 0))
-          AND """ + " AND ".join(conditions) + " ORDER BY published_at DESC NULLS LAST, fetched_at DESC LIMIT %s"
+          AND """ + " AND ".join(conditions) + " ORDER BY COALESCE(published_at, fetched_at) DESC, fetched_at DESC LIMIT %s"
     params.append(max(1, min(100, int(limit))))
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
@@ -982,7 +982,7 @@ def _db_fetch_articles_needing_editorial(limit: int = 4) -> list[dict[str, Any]]
                     OR TRIM(COALESCE(content_ar, '')) = TRIM(COALESCE(summary_ar, ''))
                     OR TRIM(COALESCE(content_en, '')) = TRIM(COALESCE(summary_en, ''))
                   )
-                ORDER BY published_at DESC NULLS LAST, fetched_at DESC
+                ORDER BY COALESCE(published_at, fetched_at) DESC, fetched_at DESC
                 LIMIT %s
             """, (max(1, min(8, int(limit))),))
             return [dict(row) for row in cur.fetchall()]
@@ -1019,7 +1019,7 @@ def _db_fetch_articles_needing_images(limit: int = 6) -> list[dict[str, Any]]:
                     )
                   )
                 ORDER BY image_checked_at ASC NULLS FIRST,
-                         published_at DESC NULLS LAST, fetched_at DESC
+                         COALESCE(published_at, fetched_at) DESC, fetched_at DESC
                 LIMIT %s
             """, (IMAGE_RETRY_AFTER_HOURS, IMAGE_CACHE_MAX_AGE_SECONDS, max(1, min(24, int(limit)))))
             return [dict(row) for row in cur.fetchall()]
@@ -1987,26 +1987,65 @@ def _search_openverse_image(title: str, lang: str = "en", category: str = "world
         logger=logger,
     )
 
+def _search_image_provider_group(
+    group_name: str,
+    finders: tuple[tuple[str, Any], ...],
+) -> dict[str, str]:
+    """Query a small group of image catalogues concurrently, then keep configured priority."""
+    active = [(key, finder) for key, finder in finders if _control_enabled(key, True)]
+    if not active:
+        return {}
+
+    executor = ThreadPoolExecutor(max_workers=min(4, len(active)))
+    futures = {executor.submit(finder): key for key, finder in active}
+    results: dict[str, dict[str, str]] = {}
+    try:
+        # Each adapter has a per-request timeout. A small group deadline bounds slow
+        # catalogues without forcing every provider to run in serial for each story.
+        for future in as_completed(futures, timeout=IMAGE_SEARCH_TIMEOUT_SECONDS + 1):
+            key = futures[future]
+            try:
+                result = future.result()
+            except Exception as exc:
+                logger.warning("Image provider failed: provider=%s error=%s", key.removeprefix("image:"), type(exc).__name__)
+                continue
+            if result:
+                results[key] = result
+    except FuturesTimeoutError:
+        logger.warning("Image provider group timed out: group=%s providers=%d", group_name, len(active))
+    finally:
+        for future in futures:
+            if not future.done():
+                future.cancel()
+        executor.shutdown(wait=False, cancel_futures=True)
+
+    for key, _finder in active:
+        if results.get(key):
+            logger.info("Image provider matched: provider=%s group=%s", key.removeprefix("image:"), group_name)
+            return results[key]
+    logger.info("Image provider group had no match: group=%s checked=%d", group_name, len(active))
+    return {}
+
+
 def _search_any_reusable_image(title: str, lang: str = "en", category: str = "world") -> dict[str, str]:
-    # Prefer sources with item-level open-reuse evidence and editorial archives first.
-    # Pexels/Unsplash are title-query-based licensed stock fallbacks; each is called only
-    # when its API key is configured and the corresponding admin control is enabled.
-    finders = (
+    # Sources in each group are searched concurrently to avoid spending one full
+    # timeout per provider. We still prefer openly licensed catalogues over stock sites.
+    open_catalogues = (
         ("image:wikimedia_relevant", lambda: _search_commons_image(title, lang, category)),
         ("image:openverse_licensed", lambda: _search_openverse_image(title, lang, category)),
         ("image:loc_open_access", lambda: _search_loc_open_access_image(title, lang, category)),
+    )
+    result = _search_image_provider_group("open_catalogues", open_catalogues)
+    if result:
+        return result
+
+    fallback_catalogues = (
         ("image:nasa_images", lambda: _search_nasa_image(title, lang, category)),
         ("image:presskit_approved", lambda: _search_approved_presskit_image(title, category)),
         ("image:pexels_api", lambda: _search_pexels_image(title)),
         ("image:unsplash_api", lambda: _search_unsplash_image(title)),
     )
-    for control_key, finder in finders:
-        if not _control_enabled(control_key, True):
-            continue
-        result = finder()
-        if result:
-            return result
-    return {}
+    return _search_image_provider_group("fallback_catalogues", fallback_catalogues)
 
 def _reserve_gemini_image_slots(pending_count: int) -> int:
     global _AI_IMAGE_REFRESH_MARKER, _AI_IMAGE_CALLS_THIS_REFRESH
@@ -3138,7 +3177,7 @@ def _refresh_news_job() -> None:
                 type(image_exc).__name__,
             )
 
-        backfilled = _backfill_missing_article_images(limit=min(4, MAX_IMAGE_LOOKUPS_PER_REFRESH)) if schema_available and MAX_IMAGE_LOOKUPS_PER_REFRESH > 0 else 0
+        backfilled = _backfill_missing_article_images(limit=min(8, MAX_IMAGE_LOOKUPS_PER_REFRESH)) if schema_available and MAX_IMAGE_LOOKUPS_PER_REFRESH > 0 else 0
         if backfilled:
             logger.info("Repaired/refreshed %d existing article image matches", backfilled)
         _LAST_REFRESH_SUCCESS = time.monotonic()
@@ -3575,6 +3614,10 @@ def article(slug: str):
 
 @app.get("/api/news-status")
 def news_status():
+    # The browser polls this endpoint while a page stays open. Check whether a
+    # scheduled refresh is due here too; status polling alone previously never
+    # started a new cycle until another homepage request arrived.
+    _maybe_start_refresh()
     persisted_at = _db_last_fetched_at()
     db_status = _probe_database()
     timestamps = [value for value in (persisted_at, _LAST_REFRESH_AT) if isinstance(value, datetime)]
