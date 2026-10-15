@@ -10,7 +10,7 @@
   <meta property="og:type" content="{% if page == 'article' %}article{% else %}website{% endif %}">
   <meta property="og:title" content="{% if page == 'article' and article %}{{ article.title }} — {% elif page == 'legal' %}{{ legal_title }} — {% endif %}{{ site_name }}">
   <meta property="og:description" content="{% if page == 'article' and article %}{{ article.summary|striptags|truncate(155, True, '…') }}{% else %}{{ ui.hero_text }}{% endif %}">
-  {% if page == 'article' and article %}<meta property="og:image" content="{{ public_image_url(article.image_url) or url_for('static', filename=('A.jpg' if article.original_language == 'ar' else 'E.jpg'), _external=True) }}">{% endif %}
+  {% if page == 'article' and article %}<meta property="og:image" content="{{ public_image_url(article.image_url) }}">{% endif %}
   {% if page == 'article' and article %}
     {% set canonical_url = url_for('article', slug=article.slug, lang=lang, _external=True) %}
   {% elif page == 'legal' and legal_slug == 'contact' %}
@@ -38,7 +38,7 @@
   <meta name="twitter:title" content="{% if page == 'article' and article %}{{ article.title }} — {% endif %}{{ site_name }}">
   <meta name="twitter:description" content="{% if page == 'article' and article %}{{ article.summary|striptags|truncate(155, True, '…') }}{% else %}{{ ui.hero_text }}{% endif %}">
   {% if page == 'article' and article %}
-    <meta name="twitter:image" content="{{ public_image_url(article.image_url) or url_for('static', filename=('A.jpg' if article.original_language == 'ar' else 'E.jpg'), _external=True) }}">
+    <meta name="twitter:image" content="{{ public_image_url(article.image_url) }}">
     <script type="application/ld+json">
       {{ {
         "@context": "https://schema.org",
@@ -47,7 +47,7 @@
         "description": article.summary|striptags|truncate(300, True, "…"),
         "datePublished": article.published_at.isoformat() if article.published_at and article.published_at.isoformat is defined else none,
         "dateModified": article.published_at.isoformat() if article.published_at and article.published_at.isoformat is defined else none,
-        "image": [public_image_url(article.image_url) or url_for('static', filename=('A.jpg' if article.original_language == 'ar' else 'E.jpg'), _external=True)],
+        "image": [public_image_url(article.image_url)],
         "mainEntityOfPage": canonical_url,
         "inLanguage": lang,
         "author": {"@type": "Organization", "name": site_name ~ " editorial desk"},
@@ -291,8 +291,7 @@
             {% for story in stories %}
               <article class="group flex h-full flex-col overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-sm transition duration-300 hover:-translate-y-1 hover:border-slate-300 hover:shadow-soft">
                 <a href="{{ url_for('article', slug=story.slug, lang=lang) }}" class="relative block aspect-[16/9] overflow-hidden bg-slate-200" tabindex="-1" aria-hidden="true">
-                  <!-- التعديل هنا: استخدام A.jpg أو E.jpg بدل البلايسهولدر القديم حسب لغة المتصفح/الموقع -->
-                  <img src="{{ url_for('static', filename=('A.jpg' if story.original_language == 'ar' else 'E.jpg')) }}" alt="World Pulse — {{ story.category_label }}" loading="lazy" decoding="async" class="absolute inset-0 z-0 h-full w-full object-cover" onerror="this.onerror=null;this.style.display='none';">
+                  <div aria-hidden="true" class="absolute inset-0 z-0 h-full w-full bg-gradient-to-br from-ink via-slate-800 to-slate-600"></div>
                   {% if story.image_url %}
                     <img src="{{ story.image_url }}" alt="{{ story.title }}" loading="lazy" decoding="async" class="absolute inset-0 z-[1] h-full w-full object-cover transition duration-700 group-hover:scale-105" onerror="this.onerror=null;this.style.display='none';">
                   {% endif %}
@@ -354,14 +353,13 @@
 
       <article class="overflow-hidden rounded-[2rem] border border-slate-200/80 bg-white shadow-soft">
         <div class="relative aspect-[16/8] max-h-[540px] overflow-hidden bg-slate-200 sm:aspect-[16/7]">
-          <!-- صورة المقال الافتراضية -->
-          <img src="{{ url_for('static', filename=('A.jpg' if article.original_language == 'ar' else 'E.jpg')) }}" alt="World Pulse — {{ article.category_label }}" decoding="async" class="absolute inset-0 z-0 h-full w-full object-cover" onerror="this.onerror=null;this.style.display='none';">
+          <div aria-hidden="true" class="absolute inset-0 z-0 h-full w-full bg-gradient-to-br from-ink via-slate-800 to-slate-600"></div>
           {% if article.image_url %}
             <img src="{{ article.image_url }}" alt="{{ article.title }}" decoding="async" class="absolute inset-0 z-[1] h-full w-full object-cover" onerror="this.onerror=null;this.style.display='none';">
           {% endif %}
           <div class="absolute inset-0 bg-gradient-to-t from-ink/75 via-ink/10 to-transparent"></div>
           {% if article.is_demo %}<span class="absolute {{ 'right-6' if lang == 'ar' else 'left-6' }} top-6 rounded-full bg-amber-100 px-3 py-1.5 text-[10px] font-extrabold text-amber-900">{{ ui.sample_badge }}</span>{% endif %}
-          {% if article.image_source == 'gemini_generated' %}<span class="absolute {{ 'left-6' if lang == 'ar' else 'right-6' }} top-6 rounded-full border border-white/30 bg-ink/65 px-3 py-1.5 text-[10px] font-extrabold text-white backdrop-blur">{{ ui.illustrative_image }}</span>{% endif %}
+          {% if article.image_source == 'gemini_generated' %}<span class="absolute {{ 'left-6' if lang == 'ar' else 'right-6' }} top-6 rounded-full border border-white/30 bg-ink/65 px-3 py-1.5 text-[10px] font-extrabold text-white backdrop-blur">{{ ui.illustrative_image }}</span>{% elif article.image_source == 'editorial_generated' %}<span class="absolute {{ 'left-6' if lang == 'ar' else 'right-6' }} top-6 rounded-full border border-white/30 bg-ink/65 px-3 py-1.5 text-[10px] font-extrabold text-white backdrop-blur">{{ 'رسم تحريري' if lang == 'ar' else 'Editorial illustration' }}</span>{% endif %}
           <div class="absolute inset-x-0 bottom-0 p-6 text-white sm:p-10 lg:p-12">
             <div class="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2 text-xs font-semibold text-white/80 sm:text-sm">
               <span class="inline-flex items-center gap-2"><span class="h-1.5 w-1.5 rounded-full bg-pulse"></span>{{ article.source_name or ui.source }}</span><span class="h-1 w-1 rounded-full bg-white/60"></span><time>{{ article.published_label }}</time><span class="h-1 w-1 rounded-full bg-white/60"></span><span>{{ article.read_minutes }} {{ ui.read_time }}</span>
@@ -435,7 +433,7 @@
               {% for story in related_stories %}
                 <a href="{{ url_for('article', slug=story.slug, lang=lang) }}" class="group flex gap-3">
                   <span class="relative block h-20 w-24 shrink-0 overflow-hidden rounded-xl bg-slate-200">
-                    <img src="{{ url_for('static', filename=('A.jpg' if story.original_language == 'ar' else 'E.jpg')) }}" alt="World Pulse — {{ story.category_label }}" loading="lazy" decoding="async" class="absolute inset-0 z-0 h-full w-full object-cover" onerror="this.onerror=null;this.style.display='none';">
+                    <div aria-hidden="true" class="absolute inset-0 z-0 h-full w-full bg-gradient-to-br from-ink via-slate-800 to-slate-600"></div>
                     {% if story.image_url %}
                       <img src="{{ story.image_url }}" alt="{{ story.title }}" loading="lazy" decoding="async" class="absolute inset-0 z-[1] h-full w-full object-cover" onerror="this.onerror=null;this.style.display='none';">
                     {% endif %}
