@@ -37,7 +37,7 @@ API access and a free-to-view website do not mean an image is universally copyri
 - `GEMINI_IMAGE_MODEL`: image model (default `gemini-nano-banana-2.1`).
 - `GEMINI_IMAGE_GENERATION_ENABLED=true`, `MAX_GEMINI_IMAGES_PER_REFRESH=2`, `MAX_GEMINI_IMAGES_PER_24H=8`, `GEMINI_429_COOLDOWN_MINUTES=60`: bounded image-generation caps and a circuit breaker after Gemini 429 responses; generation may require a paid/eligible API tier.
 - `NEWS_AUTO_FETCH=true`, `NEWS_REFRESH_MINUTES=30`, `NEWS_RETRY_MINUTES=10`, `MAX_ARTICLES_PER_REFRESH=24`, `MAX_ARTICLES_PER_CATEGORY=3`: news refresh cadence and ingestion caps. A shared worker lock prevents duplicate concurrent refreshes on the same Render instance.
-- `MAX_IMAGE_LOOKUPS_PER_REFRESH=16`, `IMAGE_RETRY_AFTER_HOURS=1`: per-refresh photo lookup budget and retry interval for articles that have no suitable image.
+- `MAX_IMAGE_LOOKUPS_PER_REFRESH=16`, `IMAGE_RETRY_AFTER_HOURS=1` (up to six older missing-image records are checked in each refresh cycle): per-refresh photo lookup budget and retry interval for articles that have no suitable image.
 - `UNSPLASH_ACCESS_KEY`, `PEXELS_API_KEY`: optional official image API credentials. These providers are skipped unless their keys are configured in Render.
 - `CONTENT_LICENSE_APPROVED_DOMAINS`: only after source-specific rights review, with permission evidence retained.
 - `ADMIN_PANEL_PASSWORD`: enables `/admin/login`, `/admin/monitor`, and `/admin/sources`; use a strong password. The protected monitoring page reports safe database state, Gemini cooldown and image search/storage probes without exposing secrets.
