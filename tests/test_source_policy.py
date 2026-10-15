@@ -666,20 +666,83 @@ class SourcePolicyTests(unittest.TestCase):
         self.assertEqual(result["image_credit"], "Example photographer")
         self.assertIn("by-sa/4.0", result["image_license_url"])
 
-    def test_active_image_search_does_not_call_discontinued_stock_apis(self):
+    def test_active_image_search_tries_stock_api_fallbacks_after_open_sources_fail(self):
         from unittest.mock import patch
 
+        headline = "NASA Artemis lunar mission launch"
+        unsplash_result = {
+            "image_url": "https://images.unsplash.com/photo-example",
+            "image_source": "unsplash_api",
+            "image_credit": "Example Photographer",
+            "image_credit_url": "https://unsplash.com/@example?utm_source=world_pulse&utm_medium=referral",
+            "image_provider_url": "https://unsplash.com/photos/example?utm_source=world_pulse&utm_medium=referral",
+            "image_license_url": "https://unsplash.com/license",
+        }
         with patch.object(world_pulse, "_control_enabled", return_value=True):
             with patch.object(world_pulse, "_search_commons_image", return_value={}):
                 with patch.object(world_pulse, "_search_openverse_image", return_value={}):
                     with patch.object(world_pulse, "_search_loc_open_access_image", return_value={}):
                         with patch.object(world_pulse, "_search_nasa_image", return_value={}):
                             with patch.object(world_pulse, "_search_approved_presskit_image", return_value={}):
-                                with patch.object(world_pulse, "_search_pexels_image", side_effect=AssertionError("Pexels API is disabled")) as pexels:
-                                    with patch.object(world_pulse, "_search_unsplash_image", side_effect=AssertionError("Unsplash API is disabled")) as unsplash:
-                                        self.assertEqual(world_pulse._search_any_reusable_image("NASA Artemis launch", "en", "science"), {})
-        pexels.assert_not_called()
-        unsplash.assert_not_called()
+                                with patch.object(world_pulse, "_search_pexels_image", return_value={}) as pexels:
+                                    with patch.object(world_pulse, "_search_unsplash_image", return_value=unsplash_result) as unsplash:
+                                        result = world_pulse._search_any_reusable_image(headline, "en", "science")
+        pexels.assert_called_once_with(headline)
+        unsplash.assert_called_once_with(headline)
+        self.assertEqual(result["image_source"], "unsplash_api")
+        self.assertEqual(result["image_credit"], "Example Photographer")
+
+    def test_pexels_search_uses_title_keywords_and_retains_attribution(self):
+        import io
+        import json
+        from unittest.mock import patch
+
+        payload = {
+            "photos": [{
+                "id": 123,
+                "url": "https://www.pexels.com/photo/trump-tariff-china-123/",
+                "src": {"large": "https://images.pexels.com/photos/123/landscape.jpeg"},
+                "photographer": "Example Photographer",
+                "photographer_url": "https://www.pexels.com/@example/",
+                "alt": "Trump tariff dispute with China and trade policy",
+            }]
+        }
+        with patch.object(world_pulse, "PEXELS_API_KEY", "test-pexels-key"):
+            with patch.object(world_pulse, "urlopen", return_value=io.BytesIO(json.dumps(payload).encode("utf-8"))) as opener:
+                result = world_pulse._search_pexels_image("Trump tariff China trade dispute")
+        request_obj = opener.call_args.args[0]
+        self.assertIn("Trump", request_obj.full_url)
+        self.assertEqual(request_obj.get_header("Authorization"), "test-pexels-key")
+        self.assertEqual(result["image_source"], "pexels_api")
+        self.assertEqual(result["image_credit"], "Example Photographer")
+        self.assertEqual(result["image_provider_url"], payload["photos"][0]["url"])
+        self.assertIn("license", result["image_license_url"])
+
+    def test_unsplash_search_uses_title_keywords_and_retains_attribution(self):
+        import io
+        import json
+        from unittest.mock import patch
+
+        payload = {
+            "results": [{
+                "urls": {"regular": "https://images.unsplash.com/photo-example?auto=format&fit=crop"},
+                "links": {"html": "https://unsplash.com/photos/example"},
+                "user": {"name": "Example Photographer", "links": {"html": "https://unsplash.com/@example"}},
+                "alt_description": "Trump tariff trade dispute with China",
+                "description": "International trade policy",
+                "tags": [{"title": "tariff"}, {"title": "China"}],
+            }]
+        }
+        with patch.object(world_pulse, "UNSPLASH_ACCESS_KEY", "test-unsplash-key"):
+            with patch.object(world_pulse, "urlopen", return_value=io.BytesIO(json.dumps(payload).encode("utf-8"))) as opener:
+                result = world_pulse._search_unsplash_image("Trump tariff China trade dispute")
+        request_obj = opener.call_args.args[0]
+        self.assertIn("query=Trump", request_obj.full_url)
+        self.assertEqual(request_obj.get_header("Authorization"), "Client-ID test-unsplash-key")
+        self.assertEqual(result["image_source"], "unsplash_api")
+        self.assertEqual(result["image_credit"], "Example Photographer")
+        self.assertIn("utm_source=world_pulse", result["image_provider_url"])
+        self.assertIn("unsplash.com/license", result["image_license_url"])
 
     def test_openverse_license_policy_only_accepts_commercially_reusable_cc_licenses(self):
         self.assertTrue(world_pulse._openverse_license_url_ok("cc0", "https://creativecommons.org/publicdomain/zero/1.0/"))
