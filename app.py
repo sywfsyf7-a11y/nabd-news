@@ -3752,15 +3752,19 @@ def admin_sources():
                 if _REFRESHING:
                     notice = "هناك تحديث آخر قيد التنفيذ. جرّب بعد انتهائه."
                 else:
+                    # Drop only the short-lived in-process article cache. The canonical
+                    # article/image metadata stays in Supabase and the forced refresh
+                    # bypasses the image freshness window before persisting any replacement.
+                    _invalidate_db_articles_cache()
                     _REFRESHING = True
                     thread = threading.Thread(
                         target=_refresh_existing_article_images_job,
-                        kwargs={"limit": min(8, MAX_IMAGE_LOOKUPS_PER_REFRESH)},
+                        kwargs={"limit": min(12, MAX_IMAGE_LOOKUPS_PER_REFRESH)},
                         name="world-pulse-admin-image-refresh",
                         daemon=True,
                     )
                     thread.start()
-                    notice = "بدأت إعادة البحث عن صور حتى 8 أخبار في الخلفية. افتح لوحة المراقبة وتحقق من إحصاءات البحث بعد انتهائها."
+                    notice = "تم مسح ذاكرة العرض المؤقتة وبدأ البحث الإجباري عن صور حتى 12 خبراً. تبقى البيانات الدائمة في Supabase، وتُحفظ أي صورة بديلة مناسبة هناك بعد انتهاء البحث."
         else:
             abort(400)
     return render_template(
