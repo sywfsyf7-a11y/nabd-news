@@ -10,9 +10,9 @@ A bilingual news portal that discovers real stories from publisher sources, crea
 - Health endpoint: `/healthz`; non-secret news/image readiness: `/api/news-status`.
 
 ## Global news coverage
-The catalog has 259 category/language assignments across 166 distinct source domains, arranged across politics, economy, technology, gaming, sports, science, culture and world news. It includes Arabic and English publisher sources separately, with additional Middle Eastern, European, North American, Asian and science/sports/game outlets. The catalog is curated and expandable; it cannot truthfully claim to include every news publisher worldwide.
+The catalog has 270 category/language assignments across 168 distinct publisher domains, arranged across politics, economy, technology, gaming, sports, science, culture and world news. It includes Arabic and English publisher sources separately, with additional Middle Eastern, European, North American, Asian and science/sports/game outlets. The catalog is curated and expandable; it cannot truthfully claim to include every news publisher worldwide.
 
-Google News RSS is used only to discover headlines, short excerpts and source links. The site verifies the discovered publisher host against the category/language allowlist and filters headline-language mismatches. Restricted publishers remain blocked unless a rights review supports enabling them. See `SOURCES.md` for the full list and rights policy.
+Google News RSS is used only to discover headlines, short excerpts and source links. The discovered publisher host is checked against the category/language allowlist. BBC (`bbc.com` / `bbc.co.uk`) and Al Jazeera Arabic/English (`aljazeera.net` / `aljazeera.com`) are present in headline-and-link-only mode by default: the site does not reuse their RSS descriptions or ask Gemini to rewrite their article body without a source-specific rights approval. CNN is included in regular category-based discovery. See `SOURCES.md` for the rights policy.
 
 ## Editorial briefs, not fabricated reporting
 Gemini receives the source headline and a short RSS excerpt to prepare a bilingual title, summary and brief. The prompt prohibits invented names, dates, places, numbers, quotes, causes, motives, outcomes and unsupported background. If an excerpt is thin, the correct output is a concise brief and a link to the source—not generic filler. AI summaries can still be wrong or incomplete, so readers should follow the original publisher for detail and verification.
@@ -21,11 +21,11 @@ The article-level Ask-Me AI question panel and `/api/ask` endpoint are removed. 
 
 ## Image sourcing
 
-The system first searches for a topic-relevant image from Wikimedia Commons (only Public Domain Mark / CC0 / CC BY records accepted by the rights filter), then Library of Congress photo records whose own item page explicitly marks them as public domain or having no known restrictions, then manually approved press-kit assets, and official Pexels/Unsplash APIs when their credentials are configured. Provider/item pages, photographer credit and licence details are retained where available.
+The system first searches for a topic-relevant image from Wikimedia Commons (Public Domain Mark, CC0, CC BY or CC BY-SA only, with required creator attribution), then Library of Congress photo records whose own item page explicitly marks them as public domain or having no known restrictions, then manually approved press-kit assets, and official Pexels/Unsplash APIs when their credentials are configured. Provider/item pages, photographer credit and licence details are retained where available.
 
 Only when no suitable sourced image is found, the site may generate a topic-specific 16:9 Gemini editorial illustration, within the configured limits. A generated illustration is labelled as illustrative content and is not documentary evidence.
 
-When no appropriate sourced or generated image is available, the fallback is `static/A.jpg` for Arabic-origin stories and `static/E.jpg` for English-origin stories, regardless of which language UI is open. Publisher page thumbnails, Google News thumbnails and generic image-search results are not treated as free-to-use assets.
+When no appropriate sourced or generated image is available, the site creates a distinct local 16:9 SVG editorial visual, with a category-specific palette and motif and the story headline rendered safely into the image. This is clearly labelled as editorial art, not documentary photography. Failed image searches are retried after 12 hours by default rather than waiting a week. The old `static/A.jpg` and `static/E.jpg` placeholders are no longer the news-card or article-hero fallback. Publisher page thumbnails, Google News thumbnails and generic image-search results are not treated as free-to-use assets.
 
 API access and a free-to-view website do not mean an image is universally copyright-free. Follow each provider's current terms, item-level licence, attribution rules, hotlinking requirements and any third-party privacy, publicity, trademark or copyright rights. Human review is still required for commercial publication.
 
@@ -35,9 +35,10 @@ API access and a free-to-view website do not mean an image is universally copyri
 - `GEMINI_API_KEY`: private key for editorial summaries and optional images; never commit it to GitHub.
 - `GEMINI_MODEL`: text model (default `gemini-3.8-flash`).
 - `GEMINI_IMAGE_MODEL`: image model (default `gemini-nano-banana-2.1`).
-- `GEMINI_IMAGE_GENERATION_ENABLED=true`, `MAX_GEMINI_IMAGES_PER_REFRESH=1`, `MAX_GEMINI_IMAGES_PER_24H=4`, `GEMINI_429_COOLDOWN_MINUTES=60`: conservative image-generation caps and a circuit breaker after Gemini 429 responses; generation may require a paid/eligible API tier.
+- `GEMINI_IMAGE_GENERATION_ENABLED=true`, `MAX_GEMINI_IMAGES_PER_REFRESH=2`, `MAX_GEMINI_IMAGES_PER_24H=8`, `GEMINI_429_COOLDOWN_MINUTES=60`: bounded image-generation caps and a circuit breaker after Gemini 429 responses; generation may require a paid/eligible API tier.
 - `NEWS_AUTO_FETCH=true`, `NEWS_REFRESH_MINUTES=30`, `NEWS_RETRY_MINUTES=10`, `MAX_ARTICLES_PER_REFRESH=24`, `MAX_ARTICLES_PER_CATEGORY=3`: news refresh cadence and ingestion caps. A shared worker lock prevents duplicate concurrent refreshes on the same Render instance.
-- `UNSPLASH_ACCESS_KEY`, `PEXELS_API_KEY`: optional official image API credentials.
+- `MAX_IMAGE_LOOKUPS_PER_REFRESH=16`, `IMAGE_RETRY_AFTER_HOURS=12`: per-refresh photo lookup budget and retry interval for articles that have no suitable image.
+- `UNSPLASH_ACCESS_KEY`, `PEXELS_API_KEY`: optional official image API credentials. These providers are skipped unless their keys are configured in Render.
 - `CONTENT_LICENSE_APPROVED_DOMAINS`: only after source-specific rights review, with permission evidence retained.
 - `ADMIN_PANEL_PASSWORD`: enables `/admin/login`, `/admin/monitor`, and `/admin/sources`; use a strong password. The protected monitoring page reports safe database state, Gemini cooldown and image search/storage probes without exposing secrets.
 - `CONTACT_EMAIL`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM_EMAIL`: optional contact delivery.
