@@ -381,6 +381,38 @@ class SourcePolicyTests(unittest.TestCase):
                         self.assertEqual(fake_client.models.generate_content.call_count, 1)
                         self.assertGreater(world_pulse._GEMINI_RATE_LIMIT_UNTIL, world_pulse.time.monotonic())
 
+    def test_gemini_503_or_504_trips_short_circuit_breaker_and_stops_batches(self):
+        from unittest.mock import MagicMock, patch
+
+        fake_client = MagicMock()
+        fake_client.models.generate_content.side_effect = RuntimeError("HTTP/1.1 504 Gateway Timeout")
+        articles = [
+            {
+                "source_url": f"https://example.test/server-error-{i}",
+                "source_name": "Example News",
+                "category": "world",
+                "original_title": f"Headline {i}",
+                "original_summary": f"Short source excerpt for story {i}",
+                "original_language": "en",
+            }
+            for i in range(12)
+        ]
+        with patch.object(world_pulse.genai, "Client", return_value=fake_client):
+            with patch.object(world_pulse, "GEMINI_API_KEY", "test-key"):
+                with patch.object(world_pulse, "_GEMINI_RATE_LIMIT_UNTIL", 0.0):
+                    with patch.object(world_pulse, "_GEMINI_TRANSIENT_ERROR_UNTIL", 0.0):
+                        with patch.object(world_pulse, "GEMINI_TRANSIENT_ERROR_COOLDOWN_MINUTES", 10):
+                            result = world_pulse._translate_batch(articles)
+                            self.assertEqual(result, {})
+                            self.assertEqual(fake_client.models.generate_content.call_count, 1)
+                            self.assertGreater(
+                                world_pulse._GEMINI_TRANSIENT_ERROR_UNTIL,
+                                world_pulse.time.monotonic(),
+                            )
+        self.assertTrue(world_pulse._is_gemini_transient_server_error(RuntimeError("503 Service Unavailable")))
+        self.assertTrue(world_pulse._is_gemini_transient_server_error(RuntimeError("504 Gateway Timeout")))
+        self.assertFalse(world_pulse._is_gemini_transient_server_error(RuntimeError("invalid JSON")))
+
     def test_database_source_language_brief_remains_displayable_without_bilingual_body(self):
         from unittest.mock import patch
 
