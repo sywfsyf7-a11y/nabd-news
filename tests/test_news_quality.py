@@ -104,5 +104,15 @@ class NewsQualityTests(unittest.TestCase):
         )
 
 
+    def test_configured_sources_include_requested_publishers(self):
+        self.assertIn("reuters.com", world_pulse.CATEGORY_SOURCE_DOMAINS["politics"]["en"])
+        self.assertIn("aitnews.com", world_pulse.CATEGORY_SOURCE_DOMAINS["technology"]["ar"])
+        self.assertIn("ign.com", world_pulse.CATEGORY_SOURCE_DOMAINS["gaming"]["en"])
+        self.assertIn("nasa.gov", world_pulse.CATEGORY_SOURCE_DOMAINS["science"]["en"])
+
+    def test_gemini_image_generation_is_disabled_by_default(self):
+        self.assertFalse(world_pulse.GEMINI_IMAGE_GENERATION_ENABLED)
+
+
 if __name__ == "__main__":
     unittest.main()
