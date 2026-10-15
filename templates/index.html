@@ -264,19 +264,17 @@
         </div>
       </section>
 
-      <section class="mb-9 flex items-stretch gap-3 rounded-2xl border border-rose-100 bg-white p-3 shadow-sm sm:items-center sm:p-4" aria-label="{{ ui.breaking }}">
-        <div class="flex shrink-0 items-center gap-2 rounded-xl bg-pulse px-3 py-2.5 text-xs font-extrabold text-white sm:px-4 sm:text-sm">
-          <span class="h-2 w-2 rounded-full bg-white"></span>{{ ui.breaking }}
-        </div>
-        {% if breaking_story %}
+      {% if breaking_story %}
+        <section class="mb-9 flex items-stretch gap-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm sm:items-center sm:p-4" aria-label="{{ ui.latest }}">
+          <div class="flex shrink-0 items-center gap-2 rounded-xl bg-pulse px-3 py-2.5 text-xs font-extrabold text-white sm:px-4 sm:text-sm">
+            <span class="h-2 w-2 rounded-full bg-white"></span>{{ ui.latest }}
+          </div>
           <a href="{{ url_for('article', slug=breaking_story.slug, lang=lang) }}" class="ticker-track flex min-w-0 flex-1 items-center justify-between gap-3 px-1 py-1 text-sm font-semibold leading-6 transition hover:text-pulse sm:text-base">
             <span class="line-clamp-2">{{ breaking_story.title }}</span>
             <span class="hidden shrink-0 text-xs font-medium text-slate-400 sm:inline">{{ breaking_story.published_label }}</span>
           </a>
-        {% else %}
-          <p class="ticker-track flex min-w-0 flex-1 items-center px-1 text-sm leading-6 text-slate-500">{{ ui.no_breaking }}</p>
-        {% endif %}
-      </section>
+        </section>
+      {% endif %}
 
       <section id="latest-stories" class="scroll-mt-40">
         <div class="mb-6 flex flex-wrap items-end justify-between gap-3">
@@ -297,7 +295,7 @@
                     <img src="{{ story.image_url }}" alt="{{ story.title }}" loading="lazy" decoding="async" class="absolute inset-0 z-[1] h-full w-full object-cover transition duration-700 group-hover:scale-105" onerror="this.onerror=null;this.style.display='none';">
                   {% endif %}
                   <span class="absolute {{ 'right-4' if lang == 'ar' else 'left-4' }} top-4 rounded-full border border-white/25 bg-ink/80 px-3 py-1.5 text-xs font-bold text-white backdrop-blur">{{ story.category_label }}</span>
-                  {% if story.image_source == 'editorial_generated' %}<span class="absolute {{ 'left-4' if lang == 'ar' else 'right-4' }} top-4 rounded-full border border-white/25 bg-ink/80 px-3 py-1.5 text-[10px] font-extrabold text-white backdrop-blur">{{ 'رسم تحريري' if lang == 'ar' else 'Editorial art' }}</span>{% endif %}
+                  {% if story.image_source in ['editorial_generated', 'gemini_generated'] %}<span class="absolute {{ 'left-4' if lang == 'ar' else 'right-4' }} top-4 rounded-full border border-white/25 bg-ink/80 px-3 py-1.5 text-[10px] font-extrabold text-white backdrop-blur">{{ 'رسم تحريري' if lang == 'ar' else 'Editorial illustration' }}</span>{% endif %}
                   {% if story.is_demo %}<span class="absolute bottom-3 {{ 'right-3' if lang == 'ar' else 'left-3' }} rounded-md bg-amber-100 px-2 py-1 text-[9px] font-extrabold text-amber-900">{{ ui.sample_badge }}</span>{% endif %}
                 </a>
                 <div class="flex flex-1 flex-col p-5 sm:p-6">
