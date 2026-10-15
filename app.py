@@ -2509,14 +2509,31 @@ def _avoid_repeated_news_photos(raw_articles: list[dict[str, Any]]) -> None:
                 "image_checked_at": datetime.now(timezone.utc),
             })
 
+def _image_check_timestamp(row: dict[str, Any]) -> float:
+    checked = row.get("image_checked_at")
+    if isinstance(checked, str):
+        try:
+            checked = datetime.fromisoformat(checked.replace("Z", "+00:00"))
+        except ValueError:
+            checked = None
+    if not isinstance(checked, datetime):
+        return 0.0
+    if checked.tzinfo is None:
+        checked = checked.replace(tzinfo=timezone.utc)
+    return checked.timestamp()
+
+
 def _prioritise_missing_image_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Try newer stories without a persisted image before spending lookups on existing images."""
+    """Try unchecked/missing-photo stories first and rotate past previous unsuccessful checks."""
     recent_first = sorted(
         rows,
         key=lambda row: row.get("published_at") or row.get("fetched_at") or datetime(1970, 1, 1, tzinfo=timezone.utc),
         reverse=True,
     )
     missing = [row for row in recent_first if not str(row.get("image_url") or "").strip()]
+    # Stable sort keeps newer stories first when no image search has ever been attempted,
+    # but lets previously checked failures move behind untried/older checks on the next batch.
+    missing.sort(key=_image_check_timestamp)
     present = [row for row in recent_first if str(row.get("image_url") or "").strip()]
     return missing + present
 
