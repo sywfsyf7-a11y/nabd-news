@@ -2129,10 +2129,6 @@ def _stories_are_near_duplicates(left: dict[str, Any], right: dict[str, Any]) ->
     right_title = _story_title_key(right.get("original_title") or right.get("title") or right.get("title_ar") or right.get("title_en"))
     if not left_title or not right_title:
         return False
-    if left_title == right_title:
-        return True
-    if min(len(left_title), len(right_title)) < 30:
-        return False
     left_date = left.get("published_at")
     right_date = right.get("published_at")
     if left_date and right_date:
@@ -2141,6 +2137,10 @@ def _stories_are_near_duplicates(left: dict[str, Any], right: dict[str, Any]) ->
                 return False
         except (TypeError, AttributeError):
             pass
+    if left_title == right_title:
+        return True
+    if min(len(left_title), len(right_title)) < 30:
+        return False
     return difflib.SequenceMatcher(None, left_title, right_title).ratio() >= 0.94
 
 
