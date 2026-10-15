@@ -3041,6 +3041,9 @@ def inject_shared_template_data() -> dict[str, Any]:
     }
 
 @app.get("/")
+HOME_STORIES_PER_PAGE = max(12, min(36, int(os.getenv("HOME_STORIES_PER_PAGE", "24"))))
+
+
 def index():
     _maybe_start_refresh()
     lang = current_language()
@@ -3048,12 +3051,25 @@ def index():
     if category not in CATEGORY_NAMES and category != "all":
         category = "all"
     all_stories = _get_display_stories(lang)
-    stories = all_stories if category == "all" else [s for s in all_stories if s["category"] == category]
+    filtered_stories = all_stories if category == "all" else [story for story in all_stories if story["category"] == category]
+    total_stories = len(filtered_stories)
+    total_pages = max(1, (total_stories + HOME_STORIES_PER_PAGE - 1) // HOME_STORIES_PER_PAGE)
+    try:
+        page_number = int(request.args.get("page", "1"))
+    except (TypeError, ValueError):
+        page_number = 1
+    page_number = max(1, min(page_number, total_pages))
+    offset = (page_number - 1) * HOME_STORIES_PER_PAGE
+    stories = filtered_stories[offset:offset + HOME_STORIES_PER_PAGE]
     return render_template(
         "index.html",
         page="home",
         stories=stories,
         all_story_count=len(all_stories),
+        home_total_stories=total_stories,
+        home_page=page_number,
+        home_pages=total_pages,
+        home_page_size=HOME_STORIES_PER_PAGE,
         active_category=category,
         breaking_story=_today_breaking(all_stories, lang),
         related_stories=[],
