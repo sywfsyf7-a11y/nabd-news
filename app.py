@@ -91,6 +91,7 @@ GEMINI_IMAGE_GENERATION_ENABLED = os.getenv("GEMINI_IMAGE_GENERATION_ENABLED", "
 MAX_GEMINI_IMAGES_PER_REFRESH = max(0, min(4, int(os.getenv("MAX_GEMINI_IMAGES_PER_REFRESH", "1"))))
 MAX_GEMINI_IMAGES_PER_24H = max(0, min(100, int(os.getenv("MAX_GEMINI_IMAGES_PER_24H", "4"))))
 GEMINI_429_COOLDOWN_MINUTES = max(5, min(1440, int(os.getenv("GEMINI_429_COOLDOWN_MINUTES", "60"))))
+GEMINI_TRANSIENT_ERROR_COOLDOWN_MINUTES = max(1, min(60, int(os.getenv("GEMINI_TRANSIENT_ERROR_COOLDOWN_MINUTES", "10"))))
 GEMINI_IMAGE_TIMEOUT_SECONDS = max(15, min(120, int(os.getenv("GEMINI_IMAGE_TIMEOUT_SECONDS", "75"))))
 GEMINI_TIMEOUT_SECONDS = max(8, min(45, int(os.getenv("GEMINI_TIMEOUT_SECONDS", "20"))))
 CONTACT_EMAIL = os.getenv("CONTACT_EMAIL", "syfsywf86@gmail.com").strip() or "syfsywf86@gmail.com"
@@ -1082,6 +1083,7 @@ _LAST_IMAGE_STATUS: dict[str, Any] = {"attempted": 0, "found": 0, "errors": 0, "
 _GEMINI_STATUS_LOCK = threading.Lock()
 _LAST_GEMINI_ERROR = {"stage": "", "type": "", "at": None, "cooldown_until": None}
 _GEMINI_RATE_LIMIT_UNTIL = 0.0
+_GEMINI_TRANSIENT_ERROR_UNTIL = 0.0
 _LAST_REFRESH_AT: datetime | None = None
 _LAST_REFRESH_STATE = "idle"
 _LAST_REFRESH_ERROR = ""
@@ -2199,12 +2201,32 @@ def _is_gemini_rate_limit_error(exc: Exception) -> bool:
         or "quota exceeded" in detail
     )
 
+def _is_gemini_transient_server_error(exc: Exception) -> bool:
+    """Identify upstream 5xx failures that should not trigger more calls in the same refresh."""
+    detail = str(exc or "").casefold()
+    status = getattr(exc, "status_code", None)
+    code = getattr(exc, "code", None)
+    try:
+        numeric_status = int(status or code or 0)
+    except (TypeError, ValueError):
+        numeric_status = 0
+    return (
+        numeric_status in {500, 502, 503, 504, 520, 522, 524}
+        or any(marker in detail for marker in (
+            "500 internal server error", "502 bad gateway", "503 service unavailable",
+            "504 gateway timeout", "servererror", "service unavailable", "gateway timeout",
+        ))
+    )
+
 def _translate_batch(raw_articles: list[dict[str, Any]]) -> dict[int, dict[str, str]]:
-    global _GEMINI_RATE_LIMIT_UNTIL
+    global _GEMINI_RATE_LIMIT_UNTIL, _GEMINI_TRANSIENT_ERROR_UNTIL
     if not raw_articles or not GEMINI_API_KEY or genai is None or types is None:
         return {}
     with _GEMINI_STATUS_LOCK:
-        if time.monotonic() < _GEMINI_RATE_LIMIT_UNTIL:
+        now = time.monotonic()
+        if now < _GEMINI_RATE_LIMIT_UNTIL:
+            return {}
+        if now < _GEMINI_TRANSIENT_ERROR_UNTIL:
             return {}
 
     result: dict[int, dict[str, str]] = {}
@@ -2271,6 +2293,7 @@ def _translate_batch(raw_articles: list[dict[str, Any]]) -> dict[int, dict[str, 
                     result[index] = fields
         except Exception as exc:
             rate_limited = _is_gemini_rate_limit_error(exc)
+            transient_server_error = _is_gemini_transient_server_error(exc)
             cooldown_until = None
             if rate_limited:
                 _GEMINI_RATE_LIMIT_UNTIL = max(
@@ -2278,21 +2301,34 @@ def _translate_batch(raw_articles: list[dict[str, Any]]) -> dict[int, dict[str, 
                     time.monotonic() + GEMINI_429_COOLDOWN_MINUTES * 60,
                 )
                 cooldown_until = (datetime.now(timezone.utc) + timedelta(minutes=GEMINI_429_COOLDOWN_MINUTES)).isoformat()
+            elif transient_server_error:
+                _GEMINI_TRANSIENT_ERROR_UNTIL = max(
+                    _GEMINI_TRANSIENT_ERROR_UNTIL,
+                    time.monotonic() + GEMINI_TRANSIENT_ERROR_COOLDOWN_MINUTES * 60,
+                )
+                cooldown_until = (datetime.now(timezone.utc) + timedelta(minutes=GEMINI_TRANSIENT_ERROR_COOLDOWN_MINUTES)).isoformat()
+            error_type = (
+                "rate_limited_429" if rate_limited
+                else "transient_server_error" if transient_server_error
+                else type(exc).__name__
+            )
             logger.warning(
-                "Gemini editorial enrichment failed (model=%s batch=%d-%d error=%s rate_limited=%s)",
-                GEMINI_MODEL, batch_start, batch_end - 1, type(exc).__name__, rate_limited,
+                "Gemini editorial enrichment failed (model=%s batch=%d-%d error=%s rate_limited=%s transient_server_error=%s)",
+                GEMINI_MODEL, batch_start, batch_end - 1, type(exc).__name__, rate_limited, transient_server_error,
             )
             with _GEMINI_STATUS_LOCK:
                 _LAST_GEMINI_ERROR.update({
                     "stage": "editorial",
-                    "type": "rate_limited_429" if rate_limited else type(exc).__name__,
+                    "type": error_type,
                     "at": datetime.now(timezone.utc).isoformat(),
-                    "cooldown_until": cooldown_until if rate_limited else _LAST_GEMINI_ERROR.get("cooldown_until"),
+                    "cooldown_until": cooldown_until if (rate_limited or transient_server_error) else _LAST_GEMINI_ERROR.get("cooldown_until"),
                 })
-            if rate_limited:
+            if rate_limited or transient_server_error:
+                cooldown_minutes = GEMINI_429_COOLDOWN_MINUTES if rate_limited else GEMINI_TRANSIENT_ERROR_COOLDOWN_MINUTES
+                reason = "429 quota/rate limit" if rate_limited else "temporary 5xx server error"
                 logger.warning(
-                    "Gemini 429 circuit breaker enabled for %d minutes; remaining news will be retained as source-language briefs",
-                    GEMINI_429_COOLDOWN_MINUTES,
+                    "Gemini request circuit breaker enabled for %d minutes after %s; source-language news and image search will continue",
+                    cooldown_minutes, reason,
                 )
                 break
     return result
@@ -2800,9 +2836,10 @@ def news_status():
             "checked_at": db_status.get("checked_at"),
         },
         "gemini_rate_limit": {
-            "paused": time.monotonic() < _GEMINI_RATE_LIMIT_UNTIL,
-            "remaining_minutes": max(0, int((_GEMINI_RATE_LIMIT_UNTIL - time.monotonic() + 59) // 60)),
+            "paused": max(_GEMINI_RATE_LIMIT_UNTIL, _GEMINI_TRANSIENT_ERROR_UNTIL) > time.monotonic(),
+            "remaining_minutes": max(0, int((max(_GEMINI_RATE_LIMIT_UNTIL, _GEMINI_TRANSIENT_ERROR_UNTIL) - time.monotonic() + 59) // 60)),
             "cooldown_minutes": GEMINI_429_COOLDOWN_MINUTES,
+            "transient_server_cooldown_minutes": GEMINI_TRANSIENT_ERROR_COOLDOWN_MINUTES,
         },
         "gemini_api_key_configured": bool(GEMINI_API_KEY),
         "gemini_sdk_loaded": genai is not None and types is not None,
@@ -3336,7 +3373,7 @@ def admin_monitor():
         "checked_at": db_status.get("checked_at"),
         "configured": bool(_database_url()),
     }
-    gemini_remaining = max(0, int((_GEMINI_RATE_LIMIT_UNTIL - time.monotonic() + 59) // 60))
+    gemini_remaining = max(0, int((max(_GEMINI_RATE_LIMIT_UNTIL, _GEMINI_TRANSIENT_ERROR_UNTIL) - time.monotonic() + 59) // 60))
     return render_template(
         "admin_monitor.html",
         csrf_token=session.get("wp_admin_csrf", ""),
