@@ -301,6 +301,8 @@ LICENSE_REQUIRED_DOMAINS = {
     "espn.com", "sciencedaily.com", "theguardian.com", "aljazeera.net",
     "aljazeera.com",
 }
+# BBC and Al Jazeera use headline/link-only mode by default until broader rights are reviewed.
+HEADLINE_ONLY_DOMAINS = {"bbc.com", "bbc.co.uk", "aljazeera.net", "aljazeera.com"}
 CONTENT_LICENSE_APPROVED_DOMAINS = {
     part.strip().lower().removeprefix("www.")
     for part in os.getenv("CONTENT_LICENSE_APPROVED_DOMAINS", "").split(",")
@@ -318,6 +320,9 @@ def _domain_is_approved(domain: str) -> bool:
 def _domain_needs_license(domain: str) -> bool:
     return any(_domain_matches(domain, restricted) for restricted in LICENSE_REQUIRED_DOMAINS) and not _domain_is_approved(domain)
 
+def _is_headline_only_domain(domain: str) -> bool:
+    return any(_domain_matches(domain, publisher) for publisher in HEADLINE_ONLY_DOMAINS) and not _domain_is_approved(domain)
+
 def _source_domain_for_category(category: str, lang: str, host: str) -> str:
     """Return the configured allowlisted domain matching a publisher host, or empty."""
     for domain in CATEGORY_SOURCE_DOMAINS.get(category, {}).get(lang, []):
@@ -326,6 +331,7 @@ def _source_domain_for_category(category: str, lang: str, host: str) -> str:
     return ""
 
 _SOURCE_NAME_ALIASES = {
+    "aljazeera.com": ("al jazeera", "al-jazeera", "aljazeera", "الجزيرة"),
     "aljazeera.net": ("al jazeera", "al-jazeera", "aljazeera", "الجزيرة"),
     "alarabiya.net": ("al arabiya", "alarabiya", "العربية"),
     "skynewsarabia.com": ("sky news arabia", "سكاي نيوز عربية", "سكاي نيوز عربي"),
@@ -396,7 +402,10 @@ def _row_allowed_on_language_site(row: dict[str, Any], lang: str) -> bool:
         host = _infer_source_domain_from_name(category, lang, str(row.get("source_name") or ""))
     if not host:
         return False
-    return bool(_source_domain_for_category(category, lang, host) and not _domain_needs_license(host))
+    return bool(
+        _source_domain_for_category(category, lang, host)
+        and (not _domain_needs_license(host) or _is_headline_only_domain(host))
+    )
 
 
 LICENSE_REQUIRED_SOURCE_NAMES = (
@@ -1890,22 +1899,34 @@ def _parse_any_rss(feed_url: str, category: str, lang: str, default_source: str)
                 continue
             if not _control_enabled(f"news:{category}:{lang}:{matched_domain}", True):
                 continue
-            if _domain_needs_license(publisher_host) or _publisher_requires_license(publisher, (url, source_href)):
+            headline_only = _is_headline_only_domain(publisher_host)
+            if (
+                _domain_needs_license(publisher_host) or _publisher_requires_license(publisher, (url, source_href))
+            ) and not headline_only:
                 continue
             if lang == "ar" and not _looks_arabic(title):
                 continue
             if lang == "en" and _looks_arabic(title):
                 continue
 
-            summary_raw = entry.get("summary", "") or entry.get("description", "")
-            if not summary_raw and entry.get("content"):
-                summary_raw = entry.get("content", [{}])[0].get("value", "")
+            if headline_only:
+                # Headlines and source links only: do not reuse RSS descriptions or article body.
+                summary_raw = (
+                    "يعرض نبض العالم العنوان ورابط الناشر فقط لهذا المصدر. افتح المصدر الأصلي لقراءة التفاصيل والسياق وآخر التحديثات."
+                    if lang == "ar"
+                    else "Headline and source link only. Open the publisher's original page for full details, context, and updates."
+                )
+            else:
+                summary_raw = entry.get("summary", "") or entry.get("description", "")
+                if not summary_raw and entry.get("content"):
+                    summary_raw = entry.get("content", [{}])[0].get("value", "")
             items.append({
                 "category": category, "source_url": url, "source_name": publisher, "source_domain": publisher_host,
                 "image_url": "", "image_source": "none", "image_credit": "",
                 "image_credit_url": "", "image_provider_url": "", "image_license_url": "", "image_checked_at": None,
                 "original_title": title, "original_summary": _clean_text(summary_raw, 900),
                 "published_at": _parse_published(entry), "original_language": lang,
+                "headline_only": headline_only,
             })
         return category, lang, items
     except Exception:
@@ -1917,7 +1938,7 @@ def _parse_feed_task(category: str, lang: str) -> tuple[str, str, list[dict[str,
     domains = [
         domain for domain in CATEGORY_SOURCE_DOMAINS.get(category, {}).get(lang, [])
         if _control_enabled(f"news:{category}:{lang}:{domain}", True)
-        and not _domain_needs_license(domain)
+        and (not _domain_needs_license(domain) or _is_headline_only_domain(domain))
     ]
     # Never fall back to an unrestricted Google News search when no sources are eligible.
     if not domains:
@@ -2239,7 +2260,13 @@ def _refresh_news_job() -> None:
                 _backfill_missing_article_images(limit=min(6, MAX_IMAGE_LOOKUPS_PER_REFRESH))
             raise RuntimeError("No eligible RSS stories were returned.")
 
-        translations = _translate_batch(raw_articles)
+        translatable_indices = [i for i, raw in enumerate(raw_articles) if not raw.get("headline_only")]
+        translated_subset = _translate_batch([raw_articles[i] for i in translatable_indices])
+        translations = {
+            translatable_indices[i]: value
+            for i, value in translated_subset.items()
+            if 0 <= i < len(translatable_indices)
+        }
         existing_urls = {str(row.get("source_url", "")) for row in _db_fetch_all()} if schema_available else set()
         existing_urls.update(str(row.get("source_url", "")) for row in _MEMORY_ARTICLES.values())
         raw_to_publish: list[tuple[int, dict[str, Any]]] = []
@@ -2416,6 +2443,14 @@ def _normalise_story(row: dict[str, Any], lang: str) -> dict[str, Any]:
     story["summary"] = story.get(f"summary_{lang}") or ""
     raw_content = story.get(f"content_{lang}") or ""
     story["content"] = _normalise_summary_body(story["summary"], raw_content)
+    story["headline_only"] = _is_headline_only_domain(str(story.get("source_domain") or ""))
+    if story["headline_only"]:
+        story["summary"] = (
+            "يعرض نبض العالم العنوان ورابط الناشر فقط لهذا المصدر. افتح المصدر الأصلي لقراءة التفاصيل والسياق وآخر التحديثات."
+            if lang == "ar"
+            else "Headline and source link only. Open the publisher's original page for full details, context, and updates."
+        )
+        story["content"] = ""
     if not story.get("image_url"):
         story["image_url"] = "/media/editorial.svg?" + urlencode({
             "title": story["title"] or story.get("source_name") or story.get("category") or "News",
