@@ -35,11 +35,11 @@ API access and a free-to-view website do not mean an image is universally copyri
 - `GEMINI_API_KEY`: private key for editorial summaries and optional images; never commit it to GitHub.
 - `GEMINI_MODEL`: text model (default `gemini-3.8-flash`).
 - `GEMINI_IMAGE_MODEL`: image model (default `gemini-nano-banana-2.1`).
-- `GEMINI_IMAGE_GENERATION_ENABLED=true`, `MAX_GEMINI_IMAGES_PER_REFRESH=3`, `MAX_GEMINI_IMAGES_PER_24H=8`: image-generation controls; generation may require a paid/eligible API tier.
-- `NEWS_AUTO_FETCH=true`, `NEWS_REFRESH_MINUTES=15`, `MAX_ARTICLES_PER_REFRESH=32`, `MAX_ARTICLES_PER_CATEGORY=5`: news ingestion controls.
+- `GEMINI_IMAGE_GENERATION_ENABLED=true`, `MAX_GEMINI_IMAGES_PER_REFRESH=1`, `MAX_GEMINI_IMAGES_PER_24H=4`, `GEMINI_429_COOLDOWN_MINUTES=60`: conservative image-generation caps and a circuit breaker after Gemini 429 responses; generation may require a paid/eligible API tier.
+- `NEWS_AUTO_FETCH=true`, `NEWS_REFRESH_MINUTES=30`, `NEWS_RETRY_MINUTES=10`, `MAX_ARTICLES_PER_REFRESH=24`, `MAX_ARTICLES_PER_CATEGORY=3`: news refresh cadence and ingestion caps. A shared worker lock prevents duplicate concurrent refreshes on the same Render instance.
 - `UNSPLASH_ACCESS_KEY`, `PEXELS_API_KEY`: optional official image API credentials.
 - `CONTENT_LICENSE_APPROVED_DOMAINS`: only after source-specific rights review, with permission evidence retained.
-- `ADMIN_PANEL_PASSWORD`: enables `/admin/login` and `/admin/sources`; use a strong password.
+- `ADMIN_PANEL_PASSWORD`: enables `/admin/login`, `/admin/monitor`, and `/admin/sources`; use a strong password. The protected monitoring page reports safe database state, Gemini cooldown and image search/storage probes without exposing secrets.
 - `CONTACT_EMAIL`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM_EMAIL`: optional contact delivery.
 
 ## Routes
@@ -50,6 +50,7 @@ API access and a free-to-view website do not mean an image is universally copyri
 - `/api/news-status`, `/api/refresh`, `/healthz`
 - `/robots.txt`, `/sitemap.xml`, `/news-sitemap.xml`
 - `/media/generated/<image_id>`
+- `/admin/monitor` (admin login required; safe database, Gemini and image diagnostic dashboard)
 - `/admin/sources` (admin login required)
 
 ## Run locally and test

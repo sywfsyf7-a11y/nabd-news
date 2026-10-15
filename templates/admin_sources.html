@@ -16,7 +16,8 @@
 </head>
 <body><main>
   <div class="top"><div><h1>إدارة المصادر والصور</h1><p class="muted">World Pulse — مصادر الأخبار والصور. لا يمكن تجاوز بوابة الحقوق للمصادر المقيّدة من هذه الصفحة.</p></div>
-    <form method="post" action="{{ url_for('admin_logout') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="off" type="submit">تسجيل الخروج</button></form>
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><a href="{{ url_for('admin_monitor') }}" style="display:inline-block;border-radius:9px;padding:9px 13px;background:#253047;color:#fff;text-decoration:none;font-weight:750">لوحة المراقبة</a>
+    <form method="post" action="{{ url_for('admin_logout') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="off" type="submit">تسجيل الخروج</button></form></div>
   </div>
   {% if notice %}<p class="notice" role="status">{{ notice }}</p>{% endif %}
   <section class="card"><h2>مصادر الأخبار حسب القسم واللغة</h2><p class="muted">المصادر التي تحتاج إذناً لا تُجلب حتى تراجع شروطها وتضيف الموافقة المناسبة إلى إعداد الخادم. إيقاف المصدر يمنع جلب أخبار جديدة منه.</p>

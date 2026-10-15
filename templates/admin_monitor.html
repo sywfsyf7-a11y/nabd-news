@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>لوحة المراقبة — نبض العالم</title>
+  <style>
+    :root{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;color:#172033;background:#f3f6fb;font-synthesis:none}
+    *{box-sizing:border-box}
+    body{margin:0;padding:24px}
+    main{max-width:1180px;margin:auto}
+    h1{font-size:clamp(1.6rem,3vw,2.25rem);margin:0}
+    h2{font-size:1.12rem;margin:0 0 14px}
+    p{line-height:1.8}
+    a{color:#b42332;text-underline-offset:3px}
+    .top{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:18px}
+    .top p{margin:6px 0 0;color:#64748b}
+    .actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+    .button,button{display:inline-block;border:0;border-radius:10px;padding:10px 14px;background:#d73545;color:#fff;font-weight:750;text-decoration:none;cursor:pointer;font:inherit;font-weight:700}
+    .button.secondary,button.secondary{background:#e6ebf2;color:#243047}
+    form{margin:0}
+    .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+    .card{background:#fff;border:1px solid #e1e7f0;border-radius:18px;padding:20px;box-shadow:0 8px 30px #15254409;min-width:0}
+    .card.wide{grid-column:1/-1}
+    .muted{color:#64748b;font-size:.9rem;line-height:1.8}
+    .status{display:inline-flex;align-items:center;gap:7px;border-radius:100px;padding:6px 10px;font-size:.84rem;font-weight:750;background:#e8edf4;color:#344054}
+    .status.good{background:#e9f8ef;color:#166534}
+    .status.warn{background:#fff2df;color:#92400e}
+    .status.bad{background:#fff0f0;color:#a61b29}
+    .metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:16px}
+    .metric{background:#f7f9fc;border:1px solid #e7edf4;border-radius:13px;padding:12px}
+    .metric strong{display:block;font-size:1.4rem;letter-spacing:-.03em}
+    .metric span{display:block;color:#64748b;font-size:.83rem;margin-top:4px}
+    .row{display:flex;justify-content:space-between;align-items:start;gap:14px;border-top:1px solid #e8edf4;padding:11px 0}
+    .row:first-of-type{border-top:0}
+    .value{font-weight:700;text-align:left;overflow-wrap:anywhere}
+    label{display:block;font-weight:750;margin:14px 0 7px}
+    input[type=text]{width:100%;border:1px solid #cbd5e1;border-radius:10px;padding:12px;font:inherit;background:#fff;color:#172033}
+    .form-row{display:flex;gap:10px;align-items:end}
+    .form-row .field{flex:1;min-width:0}
+    .notice{padding:12px 14px;border-radius:12px;background:#e9f8ef;color:#166534;border:1px solid #bbebcc;margin:16px 0;line-height:1.8}
+    .preview{display:block;width:min(100%,440px);max-height:250px;object-fit:contain;object-position:right;background:#edf1f6;border:1px solid #e2e8f0;border-radius:12px;margin:14px 0}
+    .url{direction:ltr;text-align:left;overflow-wrap:anywhere;font-size:.84rem}
+    .foot{font-size:.85rem;color:#64748b;line-height:1.8;margin:18px 2px}
+    code{background:#f1f5f9;border-radius:5px;padding:2px 5px;direction:ltr;unicode-bidi:plaintext}
+    @media(max-width:760px){body{padding:14px}.grid{grid-template-columns:1fr}.card.wide{grid-column:auto}.metrics{grid-template-columns:repeat(3,minmax(0,1fr))}.metric{padding:9px}.metric strong{font-size:1.2rem}.form-row{align-items:stretch;flex-direction:column}.row{gap:8px}}
+  </style>
+</head>
+<body>
+<main>
+  <header class="top">
+    <div>
+      <h1>لوحة المراقبة</h1>
+      <p>نبض العالم — حالة قاعدة البيانات، تحديث الأخبار، واختبارات الصور.</p>
+    </div>
+    <div class="actions">
+      <a class="button secondary" href="{{ url_for('admin_sources') }}">إدارة المصادر والصور</a>
+      <form method="post" action="{{ url_for('admin_logout') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button class="secondary" type="submit">تسجيل الخروج</button>
+      </form>
+    </div>
+  </header>
+
+  {% if notice %}<div class="notice" role="status">{{ notice }}</div>{% endif %}
+
+  <div class="grid">
+    <section class="card">
+      <h2>قاعدة البيانات — Supabase</h2>
+      {% if database.state == 'connected' %}
+        <span class="status good">● اتصال ناجح</span>
+      {% elif database.state == 'not_configured' %}
+        <span class="status bad">● متغير الاتصال غير مضبوط</span>
+      {% elif database.error_code == 'max_clients_reached' %}
+        <span class="status warn">● تجاوز حد الاتصالات</span>
+      {% elif database.error_code == 'authentication_failed' %}
+        <span class="status bad">● فشل المصادقة</span>
+      {% else %}
+        <span class="status warn">● الاتصال غير مؤكد</span>
+      {% endif %}
+      <div class="row"><span>متغير الاتصال موجود</span><span class="value">{{ 'نعم' if database.configured else 'لا' }}</span></div>
+      <div class="row"><span>رمز الحالة</span><span class="value">{{ database.error_code or '—' }}</span></div>
+      <div class="row"><span>آخر فحص</span><span class="value">{{ database.checked_at or 'لم يُفحص بعد' }}</span></div>
+      <p class="muted">لا تعرض هذه الصفحة رابط قاعدة البيانات أو كلمة المرور. إذا ظهر حدّ الاتصالات، فافحص إعداد الـ Pooler واتصالات الخدمة قبل تغيير كلمة المرور.</p>
+    </section>
+
+    <section class="card">
+      <h2>تحديث الأخبار</h2>
+      {% if refresh.running %}
+        <span class="status warn">● جارٍ التحديث</span>
+      {% elif refresh.state == 'success' %}
+        <span class="status good">● آخر تحديث ناجح</span>
+      {% elif refresh.state == 'error' %}
+        <span class="status bad">● آخر تحديث واجه خطأ</span>
+      {% else %}
+        <span class="status">{{ refresh.state }}</span>
+      {% endif %}
+      <div class="row"><span>الفاصل التلقائي</span><span class="value">{{ refresh.interval }} دقيقة</span></div>
+      <div class="row"><span>آخر بداية معروفة</span><span class="value">{{ refresh.at or 'لا توجد بيانات بعد' }}</span></div>
+      {% if refresh.error %}<p class="muted">ملاحظة: {{ refresh.error }}</p>{% endif %}
+      <p class="muted">إذا تعطل Gemini مؤقتًا بسبب 429، يحتفظ الموقع بالعنوان والملخص الأصليين ولا يعيد إرسال دفعات متتالية خلال فترة الإيقاف المؤقت.</p>
+    </section>
+
+    <section class="card">
+      <h2>Gemini وحدود الطلبات</h2>
+      <span class="status {{ 'good' if gemini.configured and gemini.sdk and gemini.cooldown_minutes == 0 else 'warn' }}">{{ 'جاهز للطلب' if gemini.configured and gemini.sdk and gemini.cooldown_minutes == 0 else 'إعداد أو تهدئة مطلوبة' }}</span>
+      <div class="row"><span>النموذج</span><span class="value">{{ gemini.model }}</span></div>
+      <div class="row"><span>المفتاح مضبوط</span><span class="value">{{ 'نعم' if gemini.configured else 'لا' }}</span></div>
+      <div class="row"><span>مكتبة SDK</span><span class="value">{{ 'متاحة' if gemini.sdk else 'غير متاحة' }}</span></div>
+      <div class="row"><span>الانتظار المتبقي بعد 429</span><span class="value">{{ gemini.cooldown_minutes }} دقيقة</span></div>
+      <div class="row"><span>مدة الانتظار عند 429</span><span class="value">{{ gemini.configured_cooldown }} دقيقة</span></div>
+      {% if gemini.last_error.type %}<p class="muted">آخر تصنيف خطأ: <code>{{ gemini.last_error.type }}</code> — {{ gemini.last_error.at or '' }}</p>{% endif %}
+      <p class="muted">المفتاح نفسه لا يظهر هنا أبدًا.</p>
+    </section>
+
+    <section class="card">
+      <h2>حالة البحث عن الصور</h2>
+      <div class="metrics">
+        <div class="metric"><strong>{{ images.status.attempted or 0 }}</strong><span>محاولات بحث</span></div>
+        <div class="metric"><strong>{{ images.status.found or 0 }}</strong><span>صور مؤهلة</span></div>
+        <div class="metric"><strong>{{ images.status.errors or 0 }}</strong><span>أخطاء بحث</span></div>
+      </div>
+      <div class="row"><span>آخر تشغيل</span><span class="value">{{ images.status.updated_at or 'لا توجد بيانات بعد' }}</span></div>
+      <div class="row"><span>أماكن الصور المستخدمة</span><span class="value">{{ images.status.providers or {} }}</span></div>
+      <div class="row"><span>أقصى بحث في التحديث</span><span class="value">{{ images.limits_per_refresh }}</span></div>
+      <div class="row"><span>رسوم Gemini لكل تحديث</span><span class="value">{{ images.generation_per_refresh }}</span></div>
+      <div class="row"><span>رسوم Gemini يوميًا</span><span class="value">{{ images.generation_per_day }}</span></div>
+      <p class="muted">الإحصاءات تخص آخر دورة بحث على هذه العملية منذ إعادة تشغيلها، ولا تعني أن جميع الصور السابقة اختُبرت مجددًا.</p>
+    </section>
+
+    <section class="card">
+      <h2>اختبار البحث عن صورة حقيقية</h2>
+      <p class="muted">يختبر مزودي الصور المفعّلين فقط. لا يستدعي توليد الصور بالذكاء الاصطناعي، ويعرض بيانات المصدر والترخيص عند العثور على صورة مؤهلة.</p>
+      <form method="post">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="action" value="test_image_search">
+        <label for="image_query">موضوع الخبر بالإنجليزية</label>
+        <div class="form-row">
+          <div class="field"><input id="image_query" name="image_query" type="text" maxlength="180" value="{{ image_test.query if image_test else 'NASA Artemis lunar mission' }}" required></div>
+          <button type="submit">اختبار البحث</button>
+        </div>
+      </form>
+      {% if image_test %}
+        {% if image_test.found %}
+          <span class="status good">عُثر على صورة</span>
+          <img class="preview" src="{{ image_test.image_url }}" alt="معاينة الصورة التي عثر عليها البحث" loading="lazy">
+          <div class="row"><span>المزوّد</span><span class="value">{{ image_test.provider }} (<code>{{ image_test.source }}</code>)</span></div>
+          {% if image_test.credit %}<div class="row"><span>الإسناد</span><span class="value">{{ image_test.credit }}</span></div>{% endif %}
+          {% if image_test.provider_url %}<p><a href="{{ image_test.provider_url }}" target="_blank" rel="noopener noreferrer">فتح صفحة الصورة الأصلية</a></p>{% endif %}
+          {% if image_test.license_url %}<p><a href="{{ image_test.license_url }}" target="_blank" rel="noopener noreferrer">مراجعة صفحة الترخيص</a></p>{% endif %}
+          <p class="muted url">{{ image_test.image_url }}</p>
+        {% else %}
+          <p class="muted">لم يُعثر على صورة ملائمة للعبارة: {{ image_test.query }}. تحقّق من حالة مزودي الصور والمفاتيح الاختيارية.</p>
+        {% endif %}
+      {% endif %}
+    </section>
+
+    <section class="card">
+      <h2>اختبار حفظ الصورة وعرضها</h2>
+      <p class="muted">ينشئ صورة اختبار محلية صغيرة، يحفظها داخل جدول الصور في قاعدة البيانات، ثم يقرأها مجددًا من المسار الفعلي للموقع. لا يستهلك طلب Gemini.</p>
+      <form method="post">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="action" value="test_image_storage">
+        <button type="submit">اختبار الحفظ والقراءة</button>
+      </form>
+      {% if storage_test %}
+        {% if storage_test.ok %}
+          <span class="status good">نجح الحفظ والقراءة</span>
+          <img class="preview" src="{{ storage_test.image_url }}" alt="صورة فحص تخزين نبض العالم" loading="lazy">
+          <div class="row"><span>نوع الملف</span><span class="value">{{ storage_test.mime_type }}</span></div>
+          <div class="row"><span>حجم الملف</span><span class="value">{{ storage_test.bytes }} بايت</span></div>
+          <p><a href="{{ storage_test.image_url }}" target="_blank" rel="noopener noreferrer">فتح الصورة المحفوظة في تبويب جديد</a></p>
+        {% else %}
+          <span class="status bad">فشل الاختبار</span>
+          <p class="muted">سبب التشخيص: <code>{{ storage_test.error }}</code>. راجع اتصال قاعدة البيانات وحدود الاتصالات.</p>
+        {% endif %}
+      {% endif %}
+    </section>
+  </div>
+  <p class="foot">هذه لوحة خاصة بعد تسجيل الدخول. لا ترسل لقطات شاشة تحتوي على متغيرات بيئة أو مفاتيح API. لا تختبر الصورة على قاعدة البيانات عندما يظهر تنبيه تجاوز الاتصالات؛ أصلح Pooler أولًا لتجنّب زيادة الضغط.</p>
+</main>
+</body>
+</html>
