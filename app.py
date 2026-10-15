@@ -2952,17 +2952,21 @@ def editorial_fallback_image():
         category = "world"
     lang = "ar" if request.args.get("lang") == "ar" else "en"
     title = _clean_text(request.args.get("title") or ("نبض العالم" if lang == "ar" else "World Pulse"), 150)
-    palettes = {
-        "politics": ("#101f3a", "#4d7fc8", "#f3bd57"),
-        "economy": ("#092e2b", "#23a88b", "#d7d78a"),
-        "technology": ("#101b3d", "#637ef7", "#4ce0dc"),
-        "gaming": ("#25133f", "#9066ed", "#fa77b5"),
-        "sports": ("#3b1a17", "#ed713b", "#f5ce63"),
-        "science": ("#072c3b", "#2cb7c8", "#9ce8da"),
-        "culture": ("#3b1938", "#d45a9a", "#f0c17d"),
-        "world": ("#101f3c", "#428ac2", "#55d2c2"),
+    seed = _clean_text(request.args.get("seed") or title, 100)
+    variant = int(hashlib.sha256(seed.encode("utf-8")).hexdigest()[:2], 16) % 4
+    palette_options = {
+        "politics": [("#101f3a", "#4d7fc8", "#f3bd57"), ("#261a3e", "#9a75dd", "#f4b35e"), ("#112a35", "#3a9b9e", "#ef896b"), ("#2b1d24", "#c45b67", "#e4c576")],
+        "economy": [("#092e2b", "#23a88b", "#d7d78a"), ("#0d2943", "#3981b3", "#f1be66"), ("#1e3023", "#7ea44e", "#f5c96b"), ("#21304f", "#51b8a6", "#f29876")],
+        "technology": [("#101b3d", "#637ef7", "#4ce0dc"), ("#0f293d", "#1ca6c6", "#93ecb1"), ("#221c48", "#9f77eb", "#f07cb4"), ("#122a35", "#5cc4b7", "#f2bb68")],
+        "gaming": [("#25133f", "#9066ed", "#fa77b5"), ("#151d45", "#4b80ee", "#ffd064"), ("#33152d", "#d45298", "#66e2dd"), ("#211c4e", "#7c5de8", "#8fe1b4")],
+        "sports": [("#3b1a17", "#ed713b", "#f5ce63"), ("#142b3b", "#39a9b7", "#e0e85b"), ("#3a1934", "#cb526e", "#f1c26b"), ("#1e342a", "#69b363", "#ff9966")],
+        "science": [("#072c3b", "#2cb7c8", "#9ce8da"), ("#1e2447", "#727ddd", "#f1ce68"), ("#1b382b", "#6bbd96", "#b2e3f5"), ("#2a233c", "#aa7bcb", "#76e0d0")],
+        "culture": [("#3b1938", "#d45a9a", "#f0c17d"), ("#193548", "#4c9ab8", "#f5d18b"), ("#4a2437", "#bd754e", "#d8c37a"), ("#29234a", "#9e7bea", "#55d5c0")],
+        "world": [("#101f3c", "#428ac2", "#55d2c2"), ("#20304c", "#b86a57", "#f0c779"), ("#102e32", "#2da48f", "#e6d780"), ("#30203b", "#8c78b4", "#ec9a79")],
     }
-    base, accent, highlight = palettes[category]
+    base, accent, highlight = palette_options[category][variant]
+    motif_rotation = (-8, -3, 3, 8)[variant]
+    motif_scale = (0.9, 0.96, 1.03, 1.08)[variant]
     words, lines, current = title.split(), [], ""
     max_chars = 31 if lang == "ar" else 34
     for word in words:
@@ -2997,6 +3001,12 @@ def editorial_fallback_image():
     }[category]
     category_text = html.escape(CATEGORY_NAMES[category][lang], quote=False)
     brand = html.escape("نبض العالم" if lang == "ar" else "WORLD PULSE", quote=False)
+    decorations = [
+        f'<circle cx="1040" cy="145" r="78" fill="{highlight}" opacity=".15"/><circle cx="1040" cy="145" r="48" fill="none" stroke="#fff" stroke-opacity=".3" stroke-width="2"/>',
+        f'<path d="M720 85 L1180 355 M770 45 L1230 315 M820 5 L1280 275" fill="none" stroke="{highlight}" stroke-width="18" stroke-linecap="round" opacity=".12"/>',
+        f'<path d="M740 130 h320 v16 H740z M790 168 h260 v12 H790z M840 197 h210 v10 H840z" fill="{highlight}" opacity=".22"/><circle cx="1060" cy="212" r="22" fill="{accent}" stroke="#fff" stroke-opacity=".35" stroke-width="3"/>',
+        f'<circle cx="805" cy="160" r="13" fill="{highlight}"/><circle cx="875" cy="225" r="8" fill="#fff" opacity=".6"/><circle cx="1100" cy="110" r="20" fill="{accent}"/><path d="M750 260 Q880 190 1000 280 T1240 245" fill="none" stroke="{highlight}" stroke-width="5" opacity=".3"/>',
+    ][variant]
     svg = f'''<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="675" viewBox="0 0 1200 675" role="img" aria-label="{html.escape(title, quote=True)}">
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="{base}"/><stop offset="1" stop-color="{accent}" stop-opacity=".85"/></linearGradient>
@@ -3004,9 +3014,10 @@ def editorial_fallback_image():
     <pattern id="grid" width="44" height="44" patternUnits="userSpaceOnUse"><path d="M44 0H0V44" fill="none" stroke="#fff" stroke-opacity=".055"/></pattern>
   </defs>
   <rect width="1200" height="675" fill="url(#bg)"/><rect width="1200" height="675" fill="url(#grid)"/>
+  {decorations}
   <circle cx="{motif_x}" cy="325" r="265" fill="url(#glow)"/>
   <path d="M0 560 Q250 455 475 570 T1200 520 V675 H0Z" fill="#020817" opacity=".28"/>
-  <g transform="translate({motif_x} 300)">{motifs}</g>
+  <g transform="translate({motif_x} 300) rotate({motif_rotation}) scale({motif_scale})">{motifs}</g>
   <rect x="{pill_x}" y="82" width="220" height="44" rx="22" fill="#fff" fill-opacity=".13" stroke="#fff" stroke-opacity=".3"/>
   <circle cx="{pill_x+22}" cy="104" r="5" fill="{highlight}"/>
   <text x="{pill_x+38}" y="111" font-size="16" font-weight="700" fill="#fff">{category_text}</text>
