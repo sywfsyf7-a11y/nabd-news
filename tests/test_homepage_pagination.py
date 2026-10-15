@@ -44,8 +44,9 @@ class HomepagePaginationTests(unittest.TestCase):
         self.assertEqual(len(kwargs["stories"]), 5)
 
     def test_pagination_controls_are_present_in_the_home_template(self):
-        template = world_pulse.app.jinja_env.get_template("index.html")
-        source = template.source
+        source, _filename, _uptodate = world_pulse.app.jinja_env.loader.get_source(
+            world_pulse.app.jinja_env, "index.html"
+        )
         self.assertIn("News pagination", source)
         self.assertIn("home_page + 1", source)
         self.assertIn("home_page - 1", source)
