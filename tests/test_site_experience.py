@@ -424,6 +424,25 @@ class SiteExperienceTests(unittest.TestCase):
             ["older-unchecked", "older-failed", "recent-failed", "existing-photo"],
         )
 
+    def test_image_search_query_uses_headline_and_source_excerpt_context(self):
+        query = world_pulse._image_search_query(
+            "Nvidia chip launched",
+            "A new semiconductor prototype for artificial intelligence data centers.",
+        )
+        tokens = world_pulse._image_tokens(query)
+        self.assertIn("nvidia", tokens)
+        self.assertIn("chip", tokens)
+        self.assertIn("semiconductor", tokens)
+        self.assertLessEqual(len(tokens), 6)
+
+    def test_image_search_query_falls_back_to_title_when_source_excerpt_is_empty(self):
+        query = world_pulse._image_search_query(
+            "New interest rate decision by central bank",
+            "",
+        )
+        self.assertTrue(query)
+        self.assertLessEqual(len(world_pulse._image_tokens(query)), 5)
+
     def test_image_enrichment_deadline_preserves_previous_safe_image_and_returns(self):
         now = datetime.now(timezone.utc)
         stale_checked = now - timedelta(days=10)
