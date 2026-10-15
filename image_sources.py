@@ -30,9 +30,9 @@ def openverse_license_url_ok(license_code: str, license_url: str) -> bool:
     if code == "pdm":
         return path == "/publicdomain/mark/1.0"
     if code == "by":
-        return bool(re.fullmatch(r"/licenses/by/(?:2\\.0|3\\.0|4\\.0)", path))
+        return bool(re.fullmatch(r"/licenses/by/(?:2\.0|3\.0|4\.0)", path))
     if code == "by-sa":
-        return bool(re.fullmatch(r"/licenses/by-sa/(?:2\\.0|3\\.0|4\\.0)", path))
+        return bool(re.fullmatch(r"/licenses/by-sa/(?:2\.0|3\.0|4\.0)", path))
     return False
 
 
