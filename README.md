@@ -72,4 +72,4 @@ python app.py
 python -m unittest discover -s tests -v
 ```
 
-The automated test suite covers language/source enforcement and key image-sourcing logic. Live credentials, the production database, external API quotas and actual image rights cannot be certified by unit tests alone; monitor `/api/news-status` and Render logs.
+The automated test suite covers language/source enforcement, Openverse licence filtering (CC0/PDM/CC BY/CC BY-SA), attribution metadata, the decision not to call disabled Unsplash/Pexels APIs, image fallback rendering and NASA/Commons rights policy. Live credentials, the production database, external API quotas and the actual rights status of individual images cannot be certified by unit tests alone; monitor `/api/news-status`, `/admin/monitor` and Render logs.
