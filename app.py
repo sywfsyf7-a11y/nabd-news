@@ -99,7 +99,7 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 MAX_ARTICLES_PER_REFRESH = max(8, min(32, int(os.getenv("MAX_ARTICLES_PER_REFRESH", "24"))))
 MAX_ARTICLES_PER_CATEGORY = max(1, min(5, int(os.getenv("MAX_ARTICLES_PER_CATEGORY", "3"))))
 IMAGE_SEARCH_TIMEOUT_SECONDS = max(3, min(12, int(os.getenv("IMAGE_SEARCH_TIMEOUT_SECONDS", "5"))))
-MAX_IMAGE_LOOKUPS_PER_REFRESH = max(0, min(24, int(os.getenv("MAX_IMAGE_LOOKUPS_PER_REFRESH", "16"))))
+MAX_IMAGE_LOOKUPS_PER_REFRESH = max(0, min(32, int(os.getenv("MAX_IMAGE_LOOKUPS_PER_REFRESH", "24"))))
 IMAGE_RETRY_AFTER_HOURS = max(1, min(168, int(os.getenv("IMAGE_RETRY_AFTER_HOURS", "1"))))
 UNSPLASH_ACCESS_KEY = os.getenv("UNSPLASH_ACCESS_KEY", "").strip()
 PEXELS_API_KEY = os.getenv("PEXELS_API_KEY", "").strip()
@@ -247,7 +247,7 @@ CATEGORY_MATCH_TERMS = {
         "سياسة", "سياسي", "الحكومة", "حكوم", "الانتخابات", "انتخاب", "برلمان", "رئيس الوزراء", "دبلوماس", "وزير", "عقوبات", "سفارة", "politics", "political", "election", "government", "parliament", "diplomacy", "minister", "president", "sanctions", "senate", "congress", "policy",
     ],
     "economy": [
-        "اقتصاد", "اقتصادي", "أسهم", "اسهم", "أسواق", "اسواق", "سوق", "بنك", "مصرف", "شركة", "شركات", "أرباح", "ارباح", "استثمار", "استثمارات", "تضخم", "نفط", "تداول", "مالية", "اقتصادية", "الطاقة", "تكاليف", "ميزان تجاري", "فائض", "عجز", "صادرات", "واردات", "economy", "economic", "market", "markets", "stock", "stocks", "shares", "finance", "business", "investor", "company", "earnings", "investment", "inflation", "interest rate", "oil prices", "energy", "trade balance", "trade deficit", "exports", "imports", "banking", "revenue",
+        "اقتصاد", "اقتصادي", "أسهم", "اسهم", "أسواق", "اسواق", "سوق", "بنك", "مصرف", "شركة", "شركات", "أرباح", "ارباح", "استثمار", "استثمارات", "تضخم", "نفط", "تداول", "مالية", "اقتصادية", "الطاقة", "تكاليف", "ميزان تجاري", "فائض", "عجز", "صادرات", "واردات", "وقود", "محروقات", "أزمة الوقود", "أزمة الطاقة", "أسعار الوقود", "أسعار الطاقة", "سعر البنزين", "أسعار النفط", "fuel", "fuel crisis", "fuel prices", "gas prices", "gasoline", "petrol", "diesel", "energy crisis", "energy prices", "oil price", "economy", "economic", "market", "markets", "stock", "stocks", "shares", "finance", "business", "investor", "company", "earnings", "investment", "inflation", "interest rate", "oil prices", "energy", "trade balance", "trade deficit", "exports", "imports", "banking", "revenue",
     ],
     "technology": [
         "تكنولوجيا", "تقنية", "الذكاء الاصطناعي", "ذكاء اصطناعي", "هاتف", "آيفون", "ايفون", "أندرويد", "اندرويد", "برمجيات", "سيبراني", "اختراق", "رقائق", "معالج", "حاسوب", "تطبيق", "شبكة", "technology", "tech", "artificial intelligence", " AI ", "software", "hardware", "smartphone", "cybersecurity", "chip", "processor", "app launch", "startup", "cloud computing",
@@ -293,7 +293,7 @@ def _classify_story(title: str, summary: str, fallback_category: str, source_dom
             break
     best = max(scores, key=scores.get)
     fallback_score = scores.get(fallback_category, 0.0)
-    if best != fallback_category and scores[best] >= 1.8 and scores[best] >= fallback_score + 1.2:
+    if best != fallback_category and scores[best] >= 1.4 and scores[best] >= fallback_score + 0.8:
         return best
     if fallback_category in CATEGORY_NAMES:
         return fallback_category
@@ -739,7 +739,9 @@ def _known_source_controls() -> list[dict[str, Any]]:
                 })
     image_providers = [
         ("wikimedia_relevant", "Wikimedia Commons", True),
+        ("openverse_licensed", "Openverse openly licensed images", True),
         ("loc_open_access", "Library of Congress open-access photos", True),
+        ("nasa_images", "NASA Image and Video Library", True),
         ("presskit_approved", "صور صحفية معتمدة", _presskit_provider_configured()),
         ("pexels_api", "Pexels API", bool(PEXELS_API_KEY)),
         ("unsplash_api", "Unsplash API", bool(UNSPLASH_ACCESS_KEY)),
@@ -1130,9 +1132,9 @@ def _image_match_score(title: str, description: str) -> float:
         return 0.0
     image_tokens = _image_tokens(description)
     overlap_count = len(title_tokens & image_tokens)
-    required = 1 if len(title_tokens) <= 6 else 2
+    required = 1 if len(title_tokens) <= 2 else 2
     overlap_ratio = overlap_count / max(1, len(title_tokens))
-    if overlap_count < required or overlap_ratio < 0.08:
+    if overlap_count < required or overlap_ratio < 0.12:
         return 0.0
     return overlap_ratio + min(overlap_count, 4) * 0.025
 
@@ -2078,6 +2080,71 @@ def _parse_feed_task(category: str, lang: str) -> tuple[str, str, list[dict[str,
 def _slug_for_url(url: str) -> str:
     return "story-" + hashlib.sha256(url.encode("utf-8")).hexdigest()[:18]
 
+def _canonical_story_url(value: Any) -> str:
+    """Build a stable deduplication key without changing the publisher URL we display."""
+    try:
+        parsed = urlparse(str(value or "").strip())
+        if parsed.scheme.casefold() not in {"http", "https"} or not parsed.hostname:
+            return str(value or "").strip()
+        host = parsed.hostname.casefold().rstrip(".").removeprefix("www.")
+        try:
+            port = parsed.port
+        except ValueError:
+            return ""
+        if port and not ((parsed.scheme.casefold() == "https" and port == 443)
+                         or (parsed.scheme.casefold() == "http" and port == 80)):
+            host = f"{host}:{port}"
+        path = re.sub(r"/{2,}", "/", parsed.path or "/").rstrip("/") or "/"
+        tracking_keys = {
+            "fbclid", "gclid", "dclid", "mc_cid", "mc_eid", "ref_src",
+            "igshid", "ocid", "cmpid", "campaign", "guccounter",
+        }
+        query = [
+            (key, val) for key, val in parse_qsl(parsed.query, keep_blank_values=True)
+            if not key.casefold().startswith("utm_") and key.casefold() not in tracking_keys
+        ]
+        query.sort(key=lambda pair: (pair[0].casefold(), pair[1]))
+        return host + path + (("?" + urlencode(query, doseq=True)) if query else "")
+    except (TypeError, ValueError):
+        return str(value or "").strip()
+
+
+def _story_title_key(value: Any) -> str:
+    text = _clean_text(value, 350).casefold()
+    text = re.sub(r"[^\w\u0600-\u06ff]+", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _stories_are_near_duplicates(left: dict[str, Any], right: dict[str, Any]) -> bool:
+    """Conservatively collapse syndicated copies while keeping distinct stories about one topic."""
+    left_url = _canonical_story_url(left.get("source_url"))
+    right_url = _canonical_story_url(right.get("source_url"))
+    if left_url and left_url == right_url:
+        return True
+    left_lang = str(left.get("original_language") or "").casefold()
+    right_lang = str(right.get("original_language") or "").casefold()
+    if left_lang and right_lang and left_lang != right_lang:
+        return False
+    left_title = _story_title_key(left.get("original_title") or left.get("title") or left.get("title_ar") or left.get("title_en"))
+    right_title = _story_title_key(right.get("original_title") or right.get("title") or right.get("title_ar") or right.get("title_en"))
+    if not left_title or not right_title:
+        return False
+    left_date = left.get("published_at")
+    right_date = right.get("published_at")
+    if left_date and right_date:
+        try:
+            if abs((left_date - right_date).total_seconds()) > 48 * 60 * 60:
+                return False
+        except (TypeError, AttributeError):
+            pass
+    if left_title == right_title:
+        return True
+    if min(len(left_title), len(right_title)) < 30:
+        return False
+    return difflib.SequenceMatcher(None, left_title, right_title).ratio() >= 0.94
+
+
+
 def _collect_rss_articles() -> list[dict[str, Any]]:
     tasks = [
         (category, lang)
@@ -2105,24 +2172,22 @@ def _collect_rss_articles() -> list[dict[str, Any]]:
 
     cleaned: dict[str, list[dict[str, Any]]] = {key: [] for key in CATEGORY_NAMES}
     seen_urls: set[str] = set()
-    fingerprints: list[str] = []
+    accepted_stories: list[dict[str, Any]] = []
     for category in CATEGORY_NAMES:
         candidates = sorted(by_category[category],
                             key=lambda item: item.get("published_at") or datetime(1970, 1, 1, tzinfo=timezone.utc),
                             reverse=True)
         for item in candidates:
-            url = item["source_url"]
-            if url in seen_urls:
+            url = str(item.get("source_url") or "")
+            url_key = _canonical_story_url(url)
+            if not url_key or url_key in seen_urls:
                 continue
-            title_key = re.sub(r"[^\w\u0600-\u06ff]+", " ", item.get("original_title", "").casefold()).strip()
-            title_key = re.sub(r"\s+", " ", title_key)
-            if len(title_key) > 25 and any(difflib.SequenceMatcher(None, title_key, old).ratio() >= 0.91 for old in fingerprints[-160:]):
+            if any(_stories_are_near_duplicates(item, old) for old in accepted_stories[-160:]):
                 continue
-            seen_urls.add(url)
-            if title_key:
-                fingerprints.append(title_key)
+            seen_urls.add(url_key)
             item["slug"] = _slug_for_url(url)
             cleaned[category].append(item)
+            accepted_stories.append(item)
 
     selected: list[dict[str, Any]] = []
     for round_index in range(MAX_ARTICLES_PER_CATEGORY):
@@ -2663,7 +2728,17 @@ def _get_display_stories(lang: str) -> list[dict[str, Any]]:
         key=lambda item: item.get("published_at") or item.get("fetched_at") or datetime(1970, 1, 1, tzinfo=timezone.utc),
         reverse=True,
     )
-    return [_normalise_story(row, lang) for row in live]
+    unique: list[dict[str, Any]] = []
+    seen_urls: set[str] = set()
+    for row in live:
+        url_key = _canonical_story_url(row.get("source_url"))
+        if not url_key or url_key in seen_urls:
+            continue
+        if any(_stories_are_near_duplicates(row, old) for old in unique[-100:]):
+            continue
+        seen_urls.add(url_key)
+        unique.append(row)
+    return [_normalise_story(row, lang) for row in unique]
 
 def _find_article(slug: str, lang: str) -> dict[str, Any] | None:
     for row in _all_live_articles():
