@@ -564,23 +564,27 @@
         statusText.textContent = value;
       }
 
-      let knownRefreshAt = null;
+      let statusLoading = false;
       async function loadStatus() {
+        if (statusLoading) return;
+        statusLoading = true;
         try {
           const response = await fetch('/api/news-status', { cache: 'no-store' });
           if (!response.ok) return;
           const status = await response.json();
-          if (knownRefreshAt !== null && status.last_refresh_at && status.last_refresh_at !== knownRefreshAt) {
-            window.location.reload();
-            return;
-          }
-          if (knownRefreshAt === null && status.last_refresh_at) knownRefreshAt = status.last_refresh_at;
-          else if (knownRefreshAt === null) knownRefreshAt = '';
+          // Status polling must never reload an article the visitor is reading.
           formatStatus(status);
         } catch (_) { /* Status display is optional; the news page stays usable. */ }
+        finally { statusLoading = false; }
       }
       loadStatus();
-      window.setInterval(loadStatus, 60000);
+      // Poll less often and skip background tabs to avoid needless network/render churn.
+      window.setInterval(() => {
+        if (!document.hidden) loadStatus();
+      }, 120000);
+      document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) loadStatus();
+      });
 
       refreshButton?.addEventListener('click', async () => {
         if (refreshButton.disabled) return;
