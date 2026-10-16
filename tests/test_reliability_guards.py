@@ -91,5 +91,69 @@ class StructuredEditorialResponseTests(unittest.TestCase):
         )
 
 
+
+class PersistentArchiveStabilityTests(unittest.TestCase):
+    def test_database_outage_uses_last_successful_archive_snapshot(self):
+        snapshot = [
+            {"slug": "saved-story", "source_url": "https://example.test/saved-story"}
+        ]
+        with patch.object(world_pulse, "_DB_ARTICLES_CACHE", snapshot):
+            with patch.object(world_pulse, "_DB_ARTICLES_CACHE_AT", 0.0):
+                with patch.object(world_pulse, "_ensure_schema", return_value=False):
+                    result = world_pulse._db_fetch_all()
+
+        self.assertEqual(result, snapshot)
+        self.assertIsNot(result, snapshot)
+
+    def test_display_list_uses_shared_database_rows_not_worker_local_memory(self):
+        persisted = {
+            "slug": "persisted-story",
+            "source_url": "https://example.test/persisted",
+            "published_at": None,
+            "fetched_at": None,
+        }
+        worker_only = {
+            "slug": "worker-only-story",
+            "source_url": "https://example.test/worker-only",
+            "published_at": None,
+            "fetched_at": None,
+        }
+        with patch.object(world_pulse, "_db_fetch_all", return_value=[persisted]):
+            with patch.dict(world_pulse._MEMORY_ARTICLES, {"https://example.test/worker-only": worker_only}, clear=True):
+                rows = world_pulse._all_live_articles()
+
+        self.assertEqual([row["slug"] for row in rows], ["persisted-story"])
+
+    def test_archived_story_permalink_falls_back_to_direct_database_lookup(self):
+        archived = {
+            "slug": "older-saved-story",
+            "source_url": "https://example.test/older-saved-story",
+            "source_name": "Example News",
+            "source_domain": "example.test",
+            "category": "world",
+            "original_language": "en",
+            "title_en": "An archived story",
+            "title_ar": "",
+            "summary_en": "A saved story summary.",
+            "summary_ar": "",
+            "content_en": "The saved story details.",
+            "content_ar": "",
+        }
+        with patch.object(world_pulse, "_ensure_background_scheduler"):
+            with patch.object(world_pulse, "current_language", return_value="en"):
+                with patch.object(world_pulse, "_get_display_stories", return_value=[]):
+                    with patch.object(world_pulse, "_db_fetch_article_by_slug", return_value=archived) as lookup:
+                        with patch.object(world_pulse, "_row_allowed_on_language_site", return_value=True):
+                            with patch.object(world_pulse, "_display_category", return_value="world"):
+                                with patch.object(world_pulse, "_normalise_story", side_effect=lambda row, lang: dict(row)):
+                                    with patch.object(world_pulse, "render_template", return_value="article rendered") as render:
+                                        response = world_pulse.app.test_client().get("/article/older-saved-story?lang=en")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_data(as_text=True), "article rendered")
+        lookup.assert_called_once_with("older-saved-story")
+        self.assertEqual(render.call_args.kwargs["article"]["slug"], "older-saved-story")
+
+
 if __name__ == "__main__":
     unittest.main()
