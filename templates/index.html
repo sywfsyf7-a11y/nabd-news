@@ -419,6 +419,9 @@
             <h2 class="mb-4 text-xl font-extrabold tracking-tight sm:text-2xl">{{ ui.article_details }}</h2>
             {% if article.content %}
               <div class="article-copy text-base leading-8 text-slate-700 sm:text-lg">{{ article.content }}</div>
+              {% if article.details_from_source_excerpt %}
+                <p class="mt-4 text-xs leading-6 text-slate-500">{{ 'التفاصيل المعروضة هنا مقتطف الناشر المتاح في موجز الأخبار، وليست نسخة كاملة من التقرير. افتح المصدر الأصلي لمتابعة التفاصيل والتحديثات.' if lang == 'ar' else 'The details shown here are the publisher excerpt available in the news feed, not a full copy of the report. Open the original source for further details and updates.' }}</p>
+              {% endif %}
             {% elif not article.is_demo %}
               <p class="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm leading-7 text-slate-500">{{ ('التغطية الكاملة متاحة لدى الناشر الأصلي؛ يعرض هذا الموقع العنوان والرابط فقط.' if lang == 'ar' else 'Full coverage remains on the original publisher; this page displays its headline and source link only.') if article.headline_only else ui.body_unavailable }}</p>
             {% else %}
