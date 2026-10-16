@@ -2729,30 +2729,40 @@ def _collect_rss_articles() -> list[dict[str, Any]]:
     completed = 0
     failed = 0
     timed_out = False
+    observed_futures: set[Any] = set()
+    collected_results: list[tuple[str, str, list[dict[str, Any]]]] = []
+
+    def collect_feed_result(future: Any) -> None:
+        nonlocal completed, failed
+        if future in observed_futures:
+            return
+        observed_futures.add(future)
+        requested, requested_lang = futures[future]
+        completed += 1
+        try:
+            collected_results.append(future.result())
+        except Exception as exc:
+            failed += 1
+            logger.warning(
+                "RSS feed task failed: category=%s lang=%s error=%s",
+                requested, requested_lang, type(exc).__name__,
+            )
+
+    # Keep the timeout loop limited to collecting completed I/O results. CPU-heavy
+    # category classification and deduplication happen after the deadline is handled,
+    # otherwise processing one large feed can expire the wait loop and discard results
+    # from other feeds that have already completed.
     try:
         for future in as_completed(futures, timeout=RSS_BATCH_TIMEOUT_SECONDS):
-            requested, requested_lang = futures[future]
-            completed += 1
-            try:
-                requested_category, _lang, items = future.result()
-                for item in items:
-                    actual_category = _classify_story(
-                        item.get("original_title", ""), item.get("original_summary", ""), requested_category,
-                        item.get("source_domain", "")
-                    )
-                    if not _source_domain_for_category(actual_category, item.get("original_language", "en"), item.get("source_domain", "")):
-                        actual_category = requested_category
-                    item["category"] = actual_category
-                    by_category[actual_category].append(item)
-            except Exception as exc:
-                failed += 1
-                logger.warning(
-                    "RSS feed task failed: category=%s lang=%s error=%s",
-                    requested, requested_lang, type(exc).__name__,
-                )
+            collect_feed_result(future)
     except FuturesTimeoutError:
         timed_out = True
     finally:
+        # Include any future that completed at the deadline but was not yielded by
+        # as_completed before its timeout exception.
+        for future in futures:
+            if future not in observed_futures and future.done() and not future.cancelled():
+                collect_feed_result(future)
         pending = [future for future in futures if not future.done()]
         for future in pending:
             future.cancel()
@@ -2771,6 +2781,23 @@ def _collect_rss_articles() -> list[dict[str, Any]]:
             "RSS batch completed in %.1fs: completed=%d/%d failed=%d",
             elapsed, completed, len(tasks), failed,
         )
+
+    classification_started = time.monotonic()
+    parsed_entry_count = sum(len(items) for _category, _lang, items in collected_results)
+    for requested_category, _requested_lang, items in collected_results:
+        for item in items:
+            actual_category = _classify_story(
+                item.get("original_title", ""), item.get("original_summary", ""), requested_category,
+                item.get("source_domain", "")
+            )
+            if not _source_domain_for_category(actual_category, item.get("original_language", "en"), item.get("source_domain", "")):
+                actual_category = requested_category
+            item["category"] = actual_category
+            by_category[actual_category].append(item)
+    logger.info(
+        "RSS candidate classification complete: feed_results=%d entries=%d elapsed=%.1fs",
+        len(collected_results), parsed_entry_count, time.monotonic() - classification_started,
+    )
 
     cleaned: dict[str, list[dict[str, Any]]] = {key: [] for key in CATEGORY_NAMES}
     seen_urls: set[str] = set()
