@@ -3448,7 +3448,31 @@ def _parse_editorial_response_text(response_text: Any) -> list[dict[str, Any]]:
     stories = parsed.get("stories") if isinstance(parsed, dict) else parsed
     if not isinstance(stories, list) or not stories:
         raise _InvalidEditorialResponse("Gemini response has no stories array")
-    return [story for story in stories if isinstance(story, dict)]
+    valid_stories = [story for story in stories if isinstance(story, dict)]
+    if not valid_stories:
+        raise _InvalidEditorialResponse("Gemini response contains no story objects")
+    return valid_stories
+
+
+def _editorial_batch_response_complete(
+    stories: list[dict[str, Any]], batch_start: int, batch_end: int
+) -> bool:
+    """Reject incomplete/empty model batches so a fallback model can try the same stories."""
+    valid_indices: set[int] = set()
+    required = ("title_ar", "title_en", "summary_ar", "summary_en")
+    for story in stories:
+        try:
+            index = int(story.get("index"))
+        except (TypeError, ValueError):
+            continue
+        if not batch_start <= index < batch_end:
+            continue
+        fields = {key: _clean_text(story.get(key, ""), 1800) for key in required}
+        content_ar = _clean_text(story.get("content_ar", ""), 12000)
+        content_en = _clean_text(story.get("content_en", ""), 12000)
+        if all(fields.values()) and len(content_ar) >= 25 and len(content_en) >= 25:
+            valid_indices.add(index)
+    return valid_indices == set(range(batch_start, batch_end))
 
 
 def _translate_batch(raw_articles: list[dict[str, Any]]) -> dict[int, dict[str, str]]:
@@ -3561,7 +3585,10 @@ def _translate_batch(raw_articles: list[dict[str, Any]]) -> dict[int, dict[str, 
                         contents=prompt,
                         config=generation_config,
                     )
-                    stories = _parse_editorial_response_text(getattr(response, "text", ""))
+                    candidate_stories = _parse_editorial_response_text(getattr(response, "text", ""))
+                    if not _editorial_batch_response_complete(candidate_stories, batch_start, batch_end):
+                        raise _InvalidEditorialResponse("Gemini response omitted or emptied one or more stories")
+                    stories = candidate_stories
                     last_model_error = None
                     if active_model != primary_model:
                         # Reuse the model that produced a valid response for remaining batches.
@@ -4322,8 +4349,8 @@ def _normalise_story(row: dict[str, Any], lang: str) -> dict[str, Any]:
     story["ai_enriched"] = bool(
         len(str(story.get("title_ar") or "").strip()) > 0
         and len(str(story.get("title_en") or "").strip()) > 0
-        and len(str(story.get("content_ar") or "").strip()) >= 100
-        and len(str(story.get("content_en") or "").strip()) >= 100
+        and len(str(story.get("content_ar") or "").strip()) >= 25
+        and len(str(story.get("content_en") or "").strip()) >= 25
     )
     story["details_from_source_excerpt"] = bool(
         not story["headline_only"] and not story["ai_enriched"] and raw_content.strip()
