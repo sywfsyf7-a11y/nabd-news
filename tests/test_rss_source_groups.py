@@ -53,6 +53,17 @@ class RSSPublisherGroupTests(unittest.TestCase):
         self.assertEqual(result, ("politics", "en", []))
         parse.assert_not_called()
 
+    def test_collection_returns_cleanly_when_no_sources_are_enabled(self):
+        with (
+            patch.object(world_pulse, "_prime_source_control_cache"),
+            patch.object(world_pulse, "_control_enabled", return_value=False),
+            patch.object(world_pulse, "_parse_feed_task") as parse,
+        ):
+            result = world_pulse._collect_rss_articles()
+
+        self.assertEqual(result, [])
+        parse.assert_not_called()
+
     def test_collection_rotates_two_small_groups_per_category_and_language(self):
         calls = []
 
