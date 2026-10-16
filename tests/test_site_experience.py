@@ -77,11 +77,11 @@ class SiteExperienceTests(unittest.TestCase):
         english = world_pulse._normalise_story(dict(common, original_language="en"), "en")
         arabic = world_pulse._normalise_story(dict(common, original_language="ar"), "ar")
 
-        self.assertEqual(english["image_url"], "/static/E.jpg")
-        self.assertEqual(english["image_fallback_url"], "/static/E.jpg")
+        self.assertEqual(english["image_url"], "/static/images/fallback-en.svg")
+        self.assertEqual(english["image_fallback_url"], "/static/images/fallback-en.svg")
         self.assertEqual(english["image_source"], "fallback_en")
-        self.assertEqual(arabic["image_url"], "/static/A.jpg")
-        self.assertEqual(arabic["image_fallback_url"], "/static/A.jpg")
+        self.assertEqual(arabic["image_url"], "/static/images/fallback-ar.svg")
+        self.assertEqual(arabic["image_fallback_url"], "/static/images/fallback-ar.svg")
         self.assertEqual(arabic["image_source"], "fallback_ar")
 
 
