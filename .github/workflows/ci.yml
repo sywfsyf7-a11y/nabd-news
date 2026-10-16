@@ -41,12 +41,30 @@ jobs:
       - name: Commit compiled stylesheet on feature branch
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/world-pulse/')
         run: |
+          set -e
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin "${GITHUB_REF_NAME}"
+          if git cat-file -e "origin/${GITHUB_REF_NAME}:static/css/site.css" 2>/dev/null; then
+            echo "Compiled stylesheet already exists on the branch."
+            exit 0
+          fi
           git add -f static/css/site.css
           if git diff --cached --quiet; then
             echo "Compiled stylesheet is already current."
-          else
-            git commit -m "Build production stylesheet"
-            git push origin "HEAD:${GITHUB_REF_NAME}"
+            exit 0
           fi
+          git commit -m "Build production stylesheet"
+          for attempt in 1 2 3; do
+            if git push origin "HEAD:${GITHUB_REF_NAME}"; then
+              exit 0
+            fi
+            git fetch origin "${GITHUB_REF_NAME}"
+            if git cat-file -e "origin/${GITHUB_REF_NAME}:static/css/site.css" 2>/dev/null; then
+              echo "Another CI run committed the same compiled stylesheet."
+              exit 0
+            fi
+            git rebase "origin/${GITHUB_REF_NAME}"
+          done
+          echo "Could not push compiled stylesheet after three attempts."
+          exit 1
