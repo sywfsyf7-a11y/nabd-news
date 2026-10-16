@@ -7,6 +7,7 @@ A bilingual news portal that discovers real stories from publisher sources, crea
 - Hosting: Render Python web service, connected to the `main` branch with automatic deploys.
 - Build command: `pip install -r requirements.txt`
 - Start command: `gunicorn --workers 2 --threads 4 --timeout 90 --bind 0.0.0.0:$PORT app:app`
+- Frontend styles: built once during deployment with `npm run build:css`; pages load the generated local `static/css/site.css` instead of Tailwind's browser-side Play CDN.
 - Health endpoint: `/healthz`; non-secret news/image readiness: `/api/news-status`.
 
 ## Global news coverage
@@ -50,7 +51,7 @@ The application normalizes the configured shared Supabase pooler URL before pass
 
 
 ## Image sourcing
-Images are selected by searching headline keywords plus source-excerpt context. Wikimedia Commons and Openverse are tried first with item-level licence checks; if no image matches, shorter headline queries are retried against open catalogues. Library of Congress, NASA, and explicitly approved press-kit sources follow when relevant. A found photo is validated, optimized and cached in Supabase so article cards do not depend on third-party hotlink availability. The original source, creator and licence link are retained. When no suitable photo is found, each story receives a topic/category-specific SVG editorial illustration in its site language; the news UI no longer falls back to the fixed A.jpg/E.jpg assets.
+Images are selected by searching headline keywords plus source-excerpt context. Wikimedia Commons and Openverse are tried first with item-level licence checks; if no image matches, shorter headline queries are retried against open catalogues. Library of Congress, NASA, and explicitly approved press-kit sources follow when relevant. A found photo is validated, optimized and cached in Supabase so article cards do not depend on third-party hotlink availability. The original source, creator and licence link are retained. When no suitable photo is found, the UI uses a lightweight language-specific SVG brand fallback; these placeholders are not represented as documentary photographs.
 
 ## Article reading experience
 Article pages include a prominent original-source link, an optional Arabic/English edition switch when both versions exist, clear labeling for AI-generated illustrative images, a compact source/timestamp/language metadata panel, and a sticky related-stories column on wide screens. Source attribution and licence links remain visible when provided.
@@ -80,7 +81,7 @@ The automated test suite covers language/source enforcement, Openverse licence f
 
 The web service has a per-worker PostgreSQL connection concurrency cap (`DB_MAX_CONCURRENT_CONNECTIONS`, default 3; maximum 6) and a bounded wait (`DB_CONNECTION_WAIT_SECONDS`, default 2). With two Gunicorn workers and the default cap, application code opens at most six DB connections concurrently in that web-service instance. Every checked-out connection is closed in a `finally` block and releases its slot. This is a concurrency guard, not a substitute for using the Supabase Transaction Pooler URL on the configured pooler port.
 
-The public `/api/news-status` endpoint reports cached database health instead of issuing a separate `SELECT 1` connection on every poll. The protected admin monitor keeps an active database probe for diagnostics.
+The public `/api/news-status` endpoint reports cached database health instead of issuing a separate `SELECT 1` connection on every poll. The protected admin monitor keeps an active database probe for diagnostics. The shared template polls status every two minutes only while the tab is visible and never reloads a page just because a background refresh completed; the manual refresh button still reloads when the visitor explicitly requests a refresh.
 
 The GitHub Actions workflow `.github/workflows/world-pulse-automation.yml` runs regression tests after relevant code changes and wakes the live homepage twice an hour (at minutes 7 and 37 UTC). The request initializes the guarded in-process scheduler, and the workflow reads `/api/news-status` to report a safe runtime snapshot. This is a no-extra-service-cost wake-up path, not a direct authenticated refresh command; keep `NEWS_SCHEDULER_ENABLED=true` for it to work. Scheduled GitHub Actions can be delayed, so this complements rather than replaces the application scheduler.
 
@@ -98,7 +99,7 @@ Once the Cron Job is created and verified, set `NEWS_SCHEDULER_ENABLED=false` on
 
 ### Fast article navigation
 
-The sorted and deduplicated display pool is cached per language for a short period to avoid repeating a full article-list scan on every article click. Database writes invalidate both the database-row cache and display-pool cache. This is a performance cache only; article records remain in Supabase.
+The sorted and deduplicated display pool is cached per language for up to 60 seconds to avoid repeating a full article-list scan on every article click. The process-memory article working set is capped at 180 recent rows and uses copy-on-write updates so concurrent page requests are not disrupted; Supabase remains the permanent archive. Database writes invalidate the database-row cache and display-pool cache in the current worker. These are performance caches only; they do not delete persisted article records.
 
 ### Persistent storage versus temporary cache
 Article records and image URLs, source attribution, provider links, licence metadata, and image-check timestamps are stored in the Supabase PostgreSQL table `world_pulse_articles`. The short-lived in-process article cache is only a performance optimization and is invalidated after database writes. The image freshness window controls when the app repeats external image searches; it does not expire or delete the database records. The protected admin image-refresh action bypasses that freshness window for up to 24 existing articles, prioritizes missing/legacy placeholder images, clears the current worker's short-lived display cache, and writes successful replacements and their cached image bytes back to Supabase while preserving any safe, reusable prior image if no better match is found.
