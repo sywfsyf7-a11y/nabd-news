@@ -858,7 +858,7 @@ class SourcePolicyTests(unittest.TestCase):
             "image_license_url": "",
         }
         story = world_pulse._normalise_story(row, "ar")
-        self.assertEqual(story["image_url"], "/static/A.jpg")
+        self.assertEqual(story["image_url"], "/static/images/fallback-ar.svg")
         self.assertEqual(story["image_source"], "fallback_ar")
         self.assertEqual(story["image_credit"], "")
         self.assertEqual(story["image_license_url"], "")
