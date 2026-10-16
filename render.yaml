@@ -27,7 +27,7 @@ services:
       - key: GEMINI_FALLBACK_MODEL
         value: "gemini-3.8-flash"
       - key: MAX_GEMINI_API_CALLS_PER_REFRESH
-        value: "2"
+        value: "3"
       - key: GEMINI_IMAGE_MODEL
         value: "gemini-nano-banana-2.1"
       - key: GEMINI_IMAGE_GENERATION_ENABLED
