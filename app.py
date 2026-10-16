@@ -2091,6 +2091,28 @@ def _search_any_reusable_image(
     )
     return _search_image_provider_group("fallback_catalogues", fallback_catalogues)
 
+def _search_article_image_with_variants(
+    title: str,
+    context: str,
+    lang: str = "en",
+    category: str = "world",
+) -> dict[str, Any]:
+    """Try a context-rich title query, then a shorter headline-only query."""
+    variants = _image_search_query_variants(title, context)
+    for index, query in enumerate(variants):
+        if index == 0:
+            result = _search_any_reusable_image(query, lang, category)
+        else:
+            # The context query already tried NASA/approved press kits; use the
+            # shorter alternate only with open catalogues to keep requests bounded.
+            result = _search_any_reusable_image(query, lang, category, open_only=True)
+        if result:
+            if index:
+                logger.info("Image search matched on shorter headline query (source=%s)", result.get("image_source", "unknown"))
+            return result
+    return {}
+
+
 def _reserve_gemini_image_slots(pending_count: int) -> int:
     global _AI_IMAGE_REFRESH_MARKER, _AI_IMAGE_CALLS_THIS_REFRESH
     if (
@@ -2154,21 +2176,16 @@ def _resolve_article_image(raw: dict[str, Any]) -> dict[str, Any]:
     search_context = _clean_text(
         raw.get("image_search_context") or raw.get("original_summary") or "", 600
     )
-    search_queries = _image_search_query_variants(search_title, search_context)
-    # Search once with headline + excerpt context, then retry open catalogues using
-    # just the headline. This improves discovery without repeatedly calling stock APIs.
-    image_lang = str(raw.get("original_language") or "en")
-    image_category = str(raw.get("category") or "world")
-    for variant_index, search_query in enumerate(search_queries):
-        if variant_index == 0:
-            result = _search_any_reusable_image(search_query, image_lang, image_category)
-        else:
-            result = _search_any_reusable_image(search_query, image_lang, image_category, open_only=True)
-        if result:
-            result["image_checked_at"] = datetime.now(timezone.utc)
-            if variant_index:
-                logger.info("Image search matched on headline-only retry (source=%s)", result.get("image_source", "unknown"))
-            return result
+    # Search context + headline first, then fall back to a concise headline search.
+    result = _search_article_image_with_variants(
+        search_title,
+        search_context,
+        str(raw.get("original_language") or "en"),
+        str(raw.get("category") or "world"),
+    )
+    if result:
+        result["image_checked_at"] = datetime.now(timezone.utc)
+        return result
     # Only use the separately budgeted Gemini feature when no eligible sourced image was found.
     if search_title and raw.get("_allow_ai_image_generation"):
         generated = _generate_gemini_article_image(raw)
@@ -4212,7 +4229,7 @@ def admin_monitor():
         action = str(request.form.get("action") or "")
         if action == "test_image_search":
             query = _clean_text(request.form.get("image_query") or "NASA Artemis lunar mission", 180)
-            result = _search_any_reusable_image(query, "en", "science")
+            result = _search_article_image_with_variants(query, "", "en", "science")
             image_test = {
                 "query": query,
                 "found": bool(result.get("image_url")),
