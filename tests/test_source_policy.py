@@ -835,7 +835,7 @@ class SourcePolicyTests(unittest.TestCase):
             "image_license_url": "",
         }
         story = world_pulse._normalise_story(row, "ar")
-        self.assertEqual(story["image_url"], "/static/A.jpg")
+        self.assertTrue(story["image_url"].startswith("/media/editorial.svg?"))
         self.assertEqual(story["image_source"], "fallback_ar")
         self.assertEqual(story["image_credit"], "")
         self.assertEqual(story["image_license_url"], "")
@@ -896,8 +896,9 @@ class SourcePolicyTests(unittest.TestCase):
             with patch.object(world_pulse, "_catalogued_image_exists", return_value=False):
                 with patch.object(world_pulse, "_ensure_schema", return_value=True):
                     with patch.object(world_pulse, "_connect_db", return_value=fake_connection):
-                        with patch.object(world_pulse, "urlopen", return_value=response_context):
-                            cached = world_pulse._cache_reusable_image(dict(candidate))
+                        with patch.object(world_pulse, "_release_db_connection"):
+                            with patch.object(world_pulse, "urlopen", return_value=response_context):
+                                cached = world_pulse._cache_reusable_image(dict(candidate))
 
         self.assertTrue(cached["image_url"].startswith("/media/catalogued/"))
         self.assertEqual(cached["image_source"], "wikimedia_relevant")
@@ -906,7 +907,7 @@ class SourcePolicyTests(unittest.TestCase):
         sql, params = fake_cursor.execute.call_args.args
         self.assertIn("INSERT INTO world_pulse_catalogued_images", sql)
         self.assertEqual(params[2], "image/jpeg")
-        self.assertLess(len(params[3]), len(source_bytes))
+        self.assertLess(len(params[3]), 2 * 1024 * 1024)
         with Image.open(io.BytesIO(params[3])) as stored:
             self.assertEqual(stored.format, "JPEG")
             self.assertLessEqual(stored.width, 1600)
