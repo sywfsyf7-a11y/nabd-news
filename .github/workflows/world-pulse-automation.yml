@@ -6,7 +6,6 @@ on:
     # performs the refresh and serializes work across Gunicorn workers.
     - cron: "7,37 * * * *"
   push:
-    branches: [main]
     paths:
       - "app.py"
       - "image_sources.py"
