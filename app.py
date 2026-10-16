@@ -1444,7 +1444,6 @@ def _image_search_query_variants(title: str, context: str = "") -> list[str]:
     candidates = (
         _image_search_query(title, context),
         _image_search_phrase(title, 4),
-        _image_search_phrase(title, 2),
         _image_search_phrase(context, 4) if context else "",
     )
     variants: list[str] = []
@@ -1455,7 +1454,7 @@ def _image_search_query_variants(title: str, context: str = "") -> list[str]:
         if candidate and key not in seen:
             seen.add(key)
             variants.append(candidate)
-    return variants[:4]
+    return variants[:3]
 
 
 def _https_url(value: Any, allowed_hosts: set[str] | None = None) -> str:
