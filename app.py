@@ -3229,32 +3229,33 @@ def _translate_batch(raw_articles: list[dict[str, Any]]) -> dict[int, dict[str, 
     global _GEMINI_RATE_LIMIT_UNTIL, _GEMINI_TRANSIENT_ERROR_UNTIL
     if not raw_articles or not GEMINI_API_KEY or genai is None or types is None:
         return {}
-    with _GEMINI_STATUS_LOCK:
-        now = time.monotonic()
-        if now < _GEMINI_RATE_LIMIT_UNTIL:
-            return {}
-        if now < _GEMINI_TRANSIENT_ERROR_UNTIL:
-            return {}
+    primary_model = GEMINI_MODEL
+    fallback_model = GEMINI_FALLBACK_MODEL
+    primary_cooldown_key = f"gemini_cooldown:{primary_model}"
+    fallback_cooldown_key = f"gemini_cooldown:{fallback_model}" if fallback_model else ""
+    initial_model = primary_model
 
-    shared_remaining, shared_reason = _shared_gemini_cooldown_remaining()
+    # Cool down only the model that received the 429/5xx. If another configured
+    # Gemini model remains available, use it directly instead of pausing the whole
+    # newsroom for an unrelated model-specific limit.
+    shared_remaining, shared_reason = _shared_gemini_cooldown_remaining(primary_cooldown_key)
     if shared_remaining > 0:
-        deadline = time.monotonic() + shared_remaining
-        with _GEMINI_STATUS_LOCK:
-            if shared_reason == "rate_limited_429":
-                _GEMINI_RATE_LIMIT_UNTIL = max(_GEMINI_RATE_LIMIT_UNTIL, deadline)
-            else:
-                _GEMINI_TRANSIENT_ERROR_UNTIL = max(_GEMINI_TRANSIENT_ERROR_UNTIL, deadline)
-            _LAST_GEMINI_ERROR.update({
-                "stage": "editorial",
-                "type": shared_reason,
-                "at": datetime.now(timezone.utc).isoformat(),
-                "cooldown_until": (datetime.now(timezone.utc) + timedelta(seconds=shared_remaining)).isoformat(),
-            })
-        logger.info(
-            "Gemini editorial enrichment skipped due to shared cooldown (%s, about %d seconds remaining)",
-            shared_reason, shared_remaining,
+        fallback_remaining, fallback_reason = (
+            _shared_gemini_cooldown_remaining(fallback_cooldown_key)
+            if fallback_cooldown_key and fallback_model != primary_model else (0, "")
         )
-        return {}
+        if fallback_model and fallback_model != primary_model and fallback_remaining <= 0:
+            initial_model = fallback_model
+            logger.info(
+                "Gemini primary model cooldown active (%s, about %d seconds remaining); trying alternate model=%s",
+                shared_reason, shared_remaining, initial_model,
+            )
+        else:
+            logger.info(
+                "Gemini models are in cooldown (primary=%s remaining=%ds fallback=%s remaining=%ds); source-language articles continue",
+                primary_model, shared_remaining, fallback_model or "none", fallback_remaining,
+            )
+            return {}
 
     result: dict[int, dict[str, str]] = {}
     batch_size = 4
@@ -3282,10 +3283,19 @@ def _translate_batch(raw_articles: list[dict[str, Any]]) -> dict[int, dict[str, 
             for i in range(batch_start, batch_end)
         ]
         prompt = _build_editorial_prompt(payload)
-        active_model = GEMINI_MODEL
+        active_model = initial_model
+        primary_error: Exception | None = None
         try:
             if client is None:
-                client = genai.Client(api_key=GEMINI_API_KEY, http_options=types.HttpOptions(timeout=GEMINI_TIMEOUT_SECONDS * 1000))
+                # The SDK otherwise retries 429/5xx responses several times internally.
+                # Set attempts=1 so the app's explicit two-call budget is the real request budget.
+                client = genai.Client(
+                    api_key=GEMINI_API_KEY,
+                    http_options=types.HttpOptions(
+                        timeout=GEMINI_TIMEOUT_SECONDS * 1000,
+                        retry_options=types.HttpRetryOptions(attempts=1),
+                    ),
+                )
             generation_config = types.GenerateContentConfig(
                 response_mime_type="application/json",
                 temperature=0.25,
@@ -3299,24 +3309,42 @@ def _translate_batch(raw_articles: list[dict[str, Any]]) -> dict[int, dict[str, 
                     config=generation_config,
                 )
             except Exception as primary_exc:
-                # A single alternative model attempt is reserved for upstream 5xx errors.
-                # Do not retry a 429 with a second model; that can worsen quota pressure.
-                if (
-                    not _is_gemini_transient_server_error(primary_exc)
-                    or not GEMINI_FALLBACK_MODEL
-                    or GEMINI_FALLBACK_MODEL == GEMINI_MODEL
-                ):
+                primary_error = primary_exc
+                primary_was_rate_limited = _is_gemini_rate_limit_error(primary_exc)
+                primary_was_transient = _is_gemini_transient_server_error(primary_exc)
+                can_fail_over = (
+                    (primary_was_rate_limited or primary_was_transient)
+                    and fallback_model
+                    and fallback_model != active_model
+                )
+                if not can_fail_over:
                     raise
+
+                # Persist this model's cooldown, not a project-wide lock, then try the
+                # alternate model once. This is bounded failover, not a retry loop.
+                primary_reason = "rate_limited_429" if primary_was_rate_limited else "transient_server_error"
+                _persist_shared_gemini_cooldown(primary_reason, state_key=f"gemini_cooldown:{active_model}")
+
                 if api_calls_used >= MAX_GEMINI_API_CALLS_PER_REFRESH:
                     logger.warning(
                         "Gemini fallback skipped: per-refresh API-call budget reached after primary failure"
                     )
                     raise primary_exc
+                fallback_remaining, fallback_reason = _shared_gemini_cooldown_remaining(fallback_cooldown_key)
+                if fallback_remaining > 0:
+                    logger.warning(
+                        "Gemini alternate model is also cooling down (%s, about %d seconds); retaining source-language article",
+                        fallback_reason, fallback_remaining,
+                    )
+                    raise primary_exc
+
                 api_calls_used += 1
-                active_model = GEMINI_FALLBACK_MODEL
+                failed_model = active_model
+                active_model = fallback_model
                 logger.warning(
-                    "Gemini primary model unavailable (model=%s); trying configured fallback model=%s once",
-                    GEMINI_MODEL,
+                    "Gemini primary model unavailable (model=%s error=%s); trying alternate model=%s once",
+                    failed_model,
+                    "429" if primary_was_rate_limited else "5xx",
                     active_model,
                 )
                 response = client.models.generate_content(
@@ -3390,9 +3418,13 @@ def _translate_batch(raw_articles: list[dict[str, Any]]) -> dict[int, dict[str, 
             if rate_limited or transient_server_error:
                 cooldown_minutes = GEMINI_429_COOLDOWN_MINUTES if rate_limited else GEMINI_TRANSIENT_ERROR_COOLDOWN_MINUTES
                 reason = "429 quota/rate limit" if rate_limited else "temporary 5xx server error"
-                _persist_shared_gemini_cooldown(
-                    "rate_limited_429" if rate_limited else "transient_server_error"
-                )
+                failed_reason = "rate_limited_429" if rate_limited else "transient_server_error"
+                _persist_shared_gemini_cooldown(failed_reason, state_key=f"gemini_cooldown:{active_model}")
+                if primary_error is not None and (
+                    _is_gemini_rate_limit_error(primary_error) or _is_gemini_transient_server_error(primary_error)
+                ):
+                    primary_reason = "rate_limited_429" if _is_gemini_rate_limit_error(primary_error) else "transient_server_error"
+                    _persist_shared_gemini_cooldown(primary_reason, state_key=primary_cooldown_key)
                 logger.warning(
                     "Gemini request circuit breaker enabled for %d minutes after %s; shared cooldown saved for all workers; source-language news and image search will continue",
                     cooldown_minutes, reason,
