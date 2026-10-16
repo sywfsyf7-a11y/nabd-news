@@ -2584,9 +2584,23 @@ def _parse_any_rss(feed_url: str, category: str, lang: str, default_source: str)
                     else "Headline and source link only. Open the publisher's original page for full details, context, and updates."
                 )
             else:
-                summary_raw = entry.get("summary", "") or entry.get("description", "")
-                if not summary_raw and entry.get("content"):
-                    summary_raw = entry.get("content", [{}])[0].get("value", "")
+                # Feeds may provide a short summary and a richer description/content.
+                # Use the longest short excerpt (still capped at 900 chars) as evidence,
+                # rather than silently discarding the publisher's more useful excerpt.
+                excerpt_candidates = [
+                    entry.get("summary", ""),
+                    entry.get("description", ""),
+                ]
+                content_entries = entry.get("content") or []
+                if content_entries and isinstance(content_entries, list):
+                    excerpt_candidates.extend(
+                        item.get("value", "") for item in content_entries[:2] if isinstance(item, dict)
+                    )
+                summary_raw = max(
+                    (_clean_text(value, 900) for value in excerpt_candidates),
+                    key=len,
+                    default="",
+                )
             items.append({
                 "category": category, "source_url": url, "source_name": publisher, "source_domain": publisher_host,
                 "image_url": "", "image_source": "none", "image_credit": "",
@@ -3811,9 +3825,9 @@ def _refresh_news_job() -> None:
                 type(image_exc).__name__,
             )
 
-        backfilled = _backfill_missing_article_images(limit=min(8, MAX_IMAGE_LOOKUPS_PER_REFRESH)) if schema_available and MAX_IMAGE_LOOKUPS_PER_REFRESH > 0 else 0
-        if backfilled:
-            logger.info("Repaired/refreshed %d existing article image matches", backfilled)
+        # New stories have priority in this refresh. Backfill is intentionally deferred
+        # to the next idle/no-new-story cycle so a second image batch cannot double the
+        # time before the newly published news becomes fully responsive.
         _LAST_REFRESH_SUCCESS = time.monotonic()
         _LAST_REFRESH_AT = datetime.now(timezone.utc)
         _LAST_REFRESH_STATE = "success" if saved else "memory_only"
@@ -4068,9 +4082,9 @@ def _normalise_story(row: dict[str, Any], lang: str) -> dict[str, Any]:
     story["content"] = _normalise_summary_body(raw_summary, raw_content)
     # A one-sentence RSS excerpt can be identical to its executive summary. Keep the
     # clearly source-attributed excerpt visible in Details instead of rendering an empty block.
-    if not story["content"] and raw_content.strip() and not _is_headline_only_domain(str(story.get("source_domain") or "")):
+    source_headline_only = _is_headline_only_domain(str(story.get("source_domain") or ""))
+    if not story["content"] and raw_content.strip() and not source_headline_only:
         story["content"] = _clean_text(raw_content, 1200)
-        story["details_from_source_excerpt"] = True
     story["title"] = _compact_display_title(raw_title, lang)
     story["summary"] = _distinct_executive_summary(raw_title, raw_summary, story["content"], lang)
     story["headline_only"] = _is_headline_only_domain(str(story.get("source_domain") or ""))
@@ -4094,6 +4108,9 @@ def _normalise_story(row: dict[str, Any], lang: str) -> dict[str, Any]:
         and len(str(story.get("title_en") or "").strip()) > 0
         and len(str(story.get("content_ar") or "").strip()) >= 100
         and len(str(story.get("content_en") or "").strip()) >= 100
+    )
+    story["details_from_source_excerpt"] = bool(
+        not story["headline_only"] and not story["ai_enriched"] and raw_content.strip()
     )
     story["category_label"] = CATEGORY_NAMES.get(story.get("category", "world"), CATEGORY_NAMES["world"])[lang]
     story["published_label"] = _format_date(story.get("published_at"), lang)
