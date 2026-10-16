@@ -645,6 +645,28 @@ class SiteExperienceTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         maybe_refresh.assert_not_called()
 
+    def test_image_provider_group_prefers_higher_relevance_over_provider_order(self):
+        low_relevance = {
+            "image_url": "https://images.example.com/weak-match.jpg",
+            "image_source": "wikimedia_relevant",
+            "_image_relevance_score": 0.18,
+        }
+        high_relevance = {
+            "image_url": "https://images.example.com/topic-match.jpg",
+            "image_source": "openverse_licensed",
+            "_image_relevance_score": 0.86,
+        }
+        finders = (
+            ("image:wikimedia_relevant", lambda: low_relevance),
+            ("image:openverse_licensed", lambda: high_relevance),
+        )
+
+        with patch.object(world_pulse, "_control_enabled", return_value=True):
+            result = world_pulse._search_image_provider_group("test", finders)
+
+        self.assertEqual(result["image_url"], high_relevance["image_url"])
+        self.assertNotIn("_image_relevance_score", result)
+
     def test_image_provider_group_returns_first_configured_priority_match(self):
         first = {"image_url": "https://images.example.com/commons.jpg", "image_source": "wikimedia_relevant"}
         second = {"image_url": "https://images.example.com/openverse.jpg", "image_source": "openverse_licensed"}
