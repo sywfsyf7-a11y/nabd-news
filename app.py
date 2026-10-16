@@ -84,7 +84,8 @@ TIMEZONE = ZoneInfo(os.getenv("SITE_TIMEZONE", "Asia/Amman"))
 NEWS_REFRESH_MINUTES = max(5, int(os.getenv("NEWS_REFRESH_MINUTES", "5")))
 NEWS_RETRY_MINUTES = max(5, int(os.getenv("NEWS_RETRY_MINUTES", "5")))
 NEWS_DISCOVERY_REFRESH_MINUTES = max(15, int(os.getenv("NEWS_DISCOVERY_REFRESH_MINUTES", "30")))
-MAX_PENDING_NEWS_CANDIDATES = max(24, min(160, int(os.getenv("MAX_PENDING_NEWS_CANDIDATES", "60")))
+MAX_PENDING_NEWS_CANDIDATES = max(24, min(160, int(os.getenv("MAX_PENDING_NEWS_CANDIDATES", "60"))))
+MAX_QUEUE_ADDITIONS_PER_DISCOVERY = max(1, min(12, int(os.getenv("MAX_QUEUE_ADDITIONS_PER_DISCOVERY", "6"))))
 NEWS_AUTO_FETCH = os.getenv("NEWS_AUTO_FETCH", "true").lower() not in {"0", "false", "no"}
 NEWS_SCHEDULER_ENABLED = os.getenv("NEWS_SCHEDULER_ENABLED", "true").lower() not in {"0", "false", "no"}
 NEWS_SCHEDULER_POLL_SECONDS = max(15, min(120, int(os.getenv("NEWS_SCHEDULER_POLL_SECONDS", "30"))))
@@ -4189,7 +4190,12 @@ def _refresh_news_job() -> None:
                     continue
                 queued_keys.add(key)
                 additions.append(candidate)
+                if len(additions) >= MAX_QUEUE_ADDITIONS_PER_DISCOVERY:
+                    break
 
+            # Keep intake close to publishing capacity: six new stories per 30 minutes
+            # matches one publication every five minutes. Do not evict older unsent queue
+            # entries just because one RSS scan found a burst of headlines.
             queue_items.extend(additions)
             queue_items.sort(key=_memory_article_timestamp, reverse=True)
             queue_items = queue_items[:MAX_PENDING_NEWS_CANDIDATES]
