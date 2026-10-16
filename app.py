@@ -103,14 +103,14 @@ MAX_GEMINI_API_CALLS_PER_REFRESH = max(1, min(4, int(os.getenv("MAX_GEMINI_API_C
 CONTACT_EMAIL = os.getenv("CONTACT_EMAIL", "syfsywf86@gmail.com").strip() or "syfsywf86@gmail.com"
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 NEWS_REFRESH_WEBHOOK_TOKEN = os.getenv("NEWS_REFRESH_WEBHOOK_TOKEN", "").strip()
-MAX_ARTICLES_PER_REFRESH = max(8, min(32, int(os.getenv("MAX_ARTICLES_PER_REFRESH", "24"))))
+MAX_ARTICLES_PER_REFRESH = max(8, min(32, int(os.getenv("MAX_ARTICLES_PER_REFRESH", "12"))))
 MAX_ARTICLES_PER_CATEGORY = max(1, min(5, int(os.getenv("MAX_ARTICLES_PER_CATEGORY", "3"))))
 RSS_CANDIDATES_PER_CATEGORY = max(3, min(8, int(os.getenv("RSS_CANDIDATES_PER_CATEGORY", "6"))))
 MAX_RSS_CANDIDATES = max(32, min(96, MAX_ARTICLES_PER_REFRESH * 4))
 RSS_ENTRIES_PER_FEED = max(24, min(60, int(os.getenv("RSS_ENTRIES_PER_FEED", "24"))))
 IMAGE_SEARCH_TIMEOUT_SECONDS = max(3, min(12, int(os.getenv("IMAGE_SEARCH_TIMEOUT_SECONDS", "5"))))
 IMAGE_DOWNLOAD_TIMEOUT_SECONDS = max(5, min(20, int(os.getenv("IMAGE_DOWNLOAD_TIMEOUT_SECONDS", "10"))))
-MAX_IMAGE_LOOKUPS_PER_REFRESH = max(0, min(32, int(os.getenv("MAX_IMAGE_LOOKUPS_PER_REFRESH", "24"))))
+MAX_IMAGE_LOOKUPS_PER_REFRESH = max(0, min(32, int(os.getenv("MAX_IMAGE_LOOKUPS_PER_REFRESH", "12"))))
 IMAGE_RETRY_AFTER_HOURS = max(1, min(168, int(os.getenv("IMAGE_RETRY_AFTER_HOURS", "1"))))
 IMAGE_CACHE_MAX_AGE_SECONDS = max(3600, int(os.getenv("IMAGE_CACHE_MAX_AGE_HOURS", "24")) * 3600)
 TRUSTED_REUSABLE_IMAGE_SOURCES = {
@@ -3316,6 +3316,7 @@ def _translate_batch(raw_articles: list[dict[str, Any]]) -> dict[int, dict[str, 
         prompt = _build_editorial_prompt(payload)
         active_model = initial_model
         primary_error: Exception | None = None
+        primary_error_model: str | None = None
         try:
             if client is None:
                 # The SDK otherwise retries 429/5xx responses several times internally.
@@ -3341,6 +3342,7 @@ def _translate_batch(raw_articles: list[dict[str, Any]]) -> dict[int, dict[str, 
                 )
             except Exception as primary_exc:
                 primary_error = primary_exc
+                primary_error_model = active_model
                 primary_was_rate_limited = _is_gemini_rate_limit_error(primary_exc)
                 primary_was_transient = _is_gemini_transient_server_error(primary_exc)
                 can_fail_over = (
@@ -3451,7 +3453,7 @@ def _translate_batch(raw_articles: list[dict[str, Any]]) -> dict[int, dict[str, 
                 reason = "429 quota/rate limit" if rate_limited else "temporary 5xx server error"
                 failed_reason = "rate_limited_429" if rate_limited else "transient_server_error"
                 _persist_shared_gemini_cooldown(failed_reason, state_key=f"gemini_cooldown:{active_model}")
-                if primary_error is not None and (
+                if primary_error_model == primary_model and primary_error is not None and (
                     _is_gemini_rate_limit_error(primary_error) or _is_gemini_transient_server_error(primary_error)
                 ):
                     primary_reason = "rate_limited_429" if _is_gemini_rate_limit_error(primary_error) else "transient_server_error"
