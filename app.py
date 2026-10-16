@@ -98,6 +98,7 @@ MAX_GEMINI_IMAGES_PER_REFRESH = max(0, min(4, int(os.getenv("MAX_GEMINI_IMAGES_P
 MAX_GEMINI_IMAGES_PER_24H = max(0, min(100, int(os.getenv("MAX_GEMINI_IMAGES_PER_24H", "4"))))
 GEMINI_429_COOLDOWN_MINUTES = max(5, min(1440, int(os.getenv("GEMINI_429_COOLDOWN_MINUTES", "60"))))
 GEMINI_TRANSIENT_ERROR_COOLDOWN_MINUTES = max(1, min(60, int(os.getenv("GEMINI_TRANSIENT_ERROR_COOLDOWN_MINUTES", "10"))))
+GEMINI_INVALID_RESPONSE_COOLDOWN_MINUTES = max(1, min(60, int(os.getenv("GEMINI_INVALID_RESPONSE_COOLDOWN_MINUTES", "5"))))
 GEMINI_IMAGE_TIMEOUT_SECONDS = max(15, min(120, int(os.getenv("GEMINI_IMAGE_TIMEOUT_SECONDS", "75"))))
 GEMINI_TIMEOUT_SECONDS = max(8, min(45, int(os.getenv("GEMINI_TIMEOUT_SECONDS", "20"))))
 MAX_GEMINI_API_CALLS_PER_REFRESH = max(1, min(4, int(os.getenv("MAX_GEMINI_API_CALLS_PER_REFRESH", "4"))))
@@ -1377,18 +1378,26 @@ def _image_tokens(value: str) -> set[str]:
     return {t.casefold() for t in re.findall(r"[\w\u0600-\u06ff]{3,}", value or "") if t.casefold() not in _IMAGE_STOPWORDS}
 
 def _image_match_score(title: str, description: str) -> float:
-    """Score a rights-filtered catalogue result without demanding exact headline wording."""
+    """Score rights-filtered catalogue results while tolerating title/metadata wording differences."""
     title_tokens = _image_tokens(title)
     if not title_tokens:
         return 0.0
     image_tokens = _image_tokens(description)
-    overlap_count = len(title_tokens & image_tokens)
-    # Open photo records often name the person/place but not the full news headline.
-    # For short API queries, one distinctive overlapping token is enough because
-    # each provider has already searched the supplied query and its item licence is checked.
+    overlap = title_tokens & image_tokens
+    overlap_count = len(overlap)
+    # A long news headline contains many low-value words. A single capitalized entity
+    # can still identify a relevant photo, but a three-word query such as "Trump tariff
+    # China" must not pass on "China" alone. Keep the stricter rule for short queries.
+    capitalized_title_tokens = {
+        token.casefold()
+        for token in re.findall(r"(?<![A-Za-z])[A-Z][A-Za-z0-9'’-]{2,}", title)
+    }
+    named_entity_match = len(title_tokens) >= 5 and bool(overlap & capitalized_title_tokens)
     required = 1 if len(title_tokens) <= 2 else 2
     overlap_ratio = overlap_count / max(1, len(title_tokens))
-    if overlap_count < required or overlap_ratio < 0.08:
+    if overlap_count < required and not named_entity_match:
+        return 0.0
+    if overlap_ratio < 0.08 and not named_entity_match:
         return 0.0
     return overlap_ratio + min(overlap_count, 4) * 0.025
 
@@ -1440,11 +1449,93 @@ def _image_search_query(title: str, context: str = "") -> str:
     return _clean_text(query or headline_phrase or title, 180)
 
 
+_ARABIC_IMAGE_ENTITY_TRANSLATIONS = (
+    ("الولايات المتحدة", "United States"),
+    ("الأمم المتحدة", "United Nations"),
+    ("شي جين بينغ", "Xi Jinping"),
+    ("إيلون ماسك", "Elon Musk"),
+    ("ريال مدريد", "Real Madrid"),
+    ("بلاي ستيشن", "PlayStation"),
+    ("بلايستيشن", "PlayStation"),
+    ("إكس بوكس", "Xbox"),
+    ("فورمولا 1", "Formula 1"),
+    ("الفورمولا 1", "Formula 1"),
+    ("أوبن إيه آي", "OpenAI"),
+    ("السعودية", "Saudi Arabia"),
+    ("زيلينسكي", "Zelenskyy"),
+    ("مايكروسوفت", "Microsoft"),
+    ("نينتندو", "Nintendo"),
+    ("ماينكرافت", "Minecraft"),
+    ("فورتنايت", "Fortnite"),
+    ("برشلونة", "Barcelona"),
+    ("ليفربول", "Liverpool"),
+    ("أرسنال", "Arsenal"),
+    ("نتنياهو", "Netanyahu"),
+    ("رونالدو", "Ronaldo"),
+    ("ترامب", "Trump"),
+    ("بايدن", "Biden"),
+    ("بوتين", "Putin"),
+    ("ماكرون", "Macron"),
+    ("ميسي", "Messi"),
+    ("ناسا", "NASA"),
+    ("سبيس إكس", "SpaceX"),
+    ("أوكرانيا", "Ukraine"),
+    ("روسيا", "Russia"),
+    ("الصين", "China"),
+    ("تايوان", "Taiwan"),
+    ("إسرائيل", "Israel"),
+    ("اسرائيل", "Israel"),
+    ("فلسطين", "Palestine"),
+    ("غزة", "Gaza"),
+    ("إيران", "Iran"),
+    ("ايران", "Iran"),
+    ("الأردن", "Jordan"),
+    ("الاردن", "Jordan"),
+    ("مصر", "Egypt"),
+    ("اليمن", "Yemen"),
+    ("السودان", "Sudan"),
+    ("سوريا", "Syria"),
+    ("لبنان", "Lebanon"),
+    ("العراق", "Iraq"),
+    ("تركيا", "Turkey"),
+    ("بريطانيا", "United Kingdom"),
+    ("فرنسا", "France"),
+    ("ألمانيا", "Germany"),
+    ("المانيا", "Germany"),
+    ("الهند", "India"),
+    ("باكستان", "Pakistan"),
+    ("اليابان", "Japan"),
+    ("كوريا", "Korea"),
+    ("الناتو", "NATO"),
+    ("آبل", "Apple"),
+    ("أبل", "Apple"),
+    ("جوجل", "Google"),
+    ("غوغل", "Google"),
+    ("ميتا", "Meta"),
+    ("إنفيديا", "Nvidia"),
+    ("تسلا", "Tesla"),
+)
+
+def _english_image_anchor_query(title: str, context: str = "") -> str:
+    """Translate known Arabic entities only for image search, never for published article text."""
+    source = _clean_text(f"{title} {context}", 1000).casefold()
+    matches: list[str] = []
+    seen: set[str] = set()
+    for arabic, english in _ARABIC_IMAGE_ENTITY_TRANSLATIONS:
+        key = arabic.casefold()
+        if key in source and english.casefold() not in seen:
+            seen.add(english.casefold())
+            matches.append(english)
+        if len(matches) >= 4:
+            break
+    return " ".join(matches)
+
 def _image_search_query_variants(title: str, context: str = "") -> list[str]:
-    """Use context-rich, headline, and source-context queries for topic-specific photos."""
+    """Try contextual, bilingual entity, headline and source-context queries."""
+    anchor_query = _english_image_anchor_query(title, context)
     candidates = (
         _image_search_query(title, context),
-        _image_search_phrase(title, 4),
+        anchor_query or _image_search_phrase(title, 4),
         _image_search_phrase(context, 4) if context else "",
     )
     variants: list[str] = []
@@ -2541,6 +2632,7 @@ def _enrich_article_images(raw_articles: list[dict[str, Any]], *, force_refresh:
     with _IMAGE_STATUS_LOCK:
         _LAST_IMAGE_STATUS.update({
             "attempted": len(pending), "found": found, "errors": errors,
+            "match_rate_percent": round((found / max(1, len(pending))) * 100, 1),
             "ai_generation_reserved": ai_slots,
             "providers": dict(providers), "updated_at": datetime.now(timezone.utc).isoformat(),
         })
@@ -3171,6 +3263,7 @@ Strict editorial rules:
 - Keep claims and uncertainty exactly as expressed by the source. Do not turn forecasts, allegations, rumours, or analysis into confirmed facts.
 - Use original wording. Do not reproduce a publisher's full article, long phrases, or fabricate quotes or citations.
 - If the excerpt is too thin for a detailed report, write a concise brief that says further details are available at the original source. Do not pad the article with generic filler to reach a target length.
+- Keep each body language to 1–3 short paragraphs and no more than 80 words. A shorter source must produce a shorter brief, not filler.
 - Write concise Arabic and English headlines, ideally no more than 70 characters in Arabic and 90 in English. Keep the title as a headline, not a sentence-length summary.
 - The executive summary must be distinct from the title, specific to the story, and limited to 1–2 sentences. Never copy the headline into the summary or merely restate it with minor wording changes.
 - The body should use short readable paragraphs and add supported details that are not just repetitions of the title or summary. If the excerpt supports only a short account, keep the details concise and say more information is at the original source instead of inventing or padding. Every factual detail must be traceable to the supplied source text. Do not claim the full publisher article was independently checked.
@@ -3258,6 +3351,7 @@ def _shared_gemini_cooldown_remaining(state_key: str = "gemini_cooldown") -> tup
         cooldown_minutes = (
             GEMINI_429_COOLDOWN_MINUTES if reason == "rate_limited_429"
             else GEMINI_TRANSIENT_ERROR_COOLDOWN_MINUTES if reason == "transient_server_error"
+            else GEMINI_INVALID_RESPONSE_COOLDOWN_MINUTES if reason == "invalid_response"
             else 0
         )
         remaining = cooldown_minutes * 60 - (
@@ -3269,6 +3363,116 @@ def _shared_gemini_cooldown_remaining(state_key: str = "gemini_cooldown") -> tup
         return 0, ""
     finally:
         _release_db_connection(conn)
+
+
+EDITORIAL_RESPONSE_SCHEMA = {
+    "type": "OBJECT",
+    "properties": {
+        "stories": {
+            "type": "ARRAY",
+            "items": {
+                "type": "OBJECT",
+                "properties": {
+                    "index": {"type": "INTEGER"},
+                    "title_ar": {"type": "STRING"},
+                    "title_en": {"type": "STRING"},
+                    "summary_ar": {"type": "STRING"},
+                    "summary_en": {"type": "STRING"},
+                    "content_ar": {"type": "STRING"},
+                    "content_en": {"type": "STRING"},
+                },
+                "required": [
+                    "index", "title_ar", "title_en", "summary_ar", "summary_en",
+                    "content_ar", "content_en",
+                ],
+            },
+        },
+    },
+    "required": ["stories"],
+}
+
+
+class _InvalidEditorialResponse(ValueError):
+    """A model completed its request but returned no usable structured editorial JSON."""
+
+
+def _parse_editorial_response_text(response_text: Any) -> list[dict[str, Any]]:
+    """Parse Gemini JSON strictly, while tolerating code fences or surrounding prose."""
+    text = str(response_text or "").strip()
+    text = re.sub(r"(?is)^\s*```(?:json)?\s*|\s*```\s*$", "", text).strip()
+    if not text:
+        raise _InvalidEditorialResponse("empty Gemini response")
+
+    parsed: Any = None
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError as original_error:
+        # Some model/proxy responses include a short preamble despite JSON mode.
+        # Walk balanced objects rather than using a greedy brace regex, which breaks on
+        # braces inside quoted strings and nested story objects.
+        for start, char in enumerate(text):
+            if char != "{":
+                continue
+            depth = 0
+            in_string = False
+            escaped = False
+            for end in range(start, len(text)):
+                current = text[end]
+                if in_string:
+                    if escaped:
+                        escaped = False
+                    elif current == "\\":
+                        escaped = True
+                    elif current == '"':
+                        in_string = False
+                    continue
+                if current == '"':
+                    in_string = True
+                elif current == "{":
+                    depth += 1
+                elif current == "}":
+                    depth -= 1
+                    if depth == 0:
+                        try:
+                            candidate = json.loads(text[start:end + 1])
+                        except json.JSONDecodeError:
+                            break
+                        if isinstance(candidate, dict) and isinstance(candidate.get("stories"), list):
+                            parsed = candidate
+                        break
+            if parsed is not None:
+                break
+        if parsed is None:
+            raise _InvalidEditorialResponse("invalid Gemini JSON response") from original_error
+
+    stories = parsed.get("stories") if isinstance(parsed, dict) else parsed
+    if not isinstance(stories, list) or not stories:
+        raise _InvalidEditorialResponse("Gemini response has no stories array")
+    valid_stories = [story for story in stories if isinstance(story, dict)]
+    if not valid_stories:
+        raise _InvalidEditorialResponse("Gemini response contains no story objects")
+    return valid_stories
+
+
+def _editorial_batch_response_complete(
+    stories: list[dict[str, Any]], batch_start: int, batch_end: int
+) -> bool:
+    """Reject incomplete/empty model batches so a fallback model can try the same stories."""
+    valid_indices: set[int] = set()
+    required = ("title_ar", "title_en", "summary_ar", "summary_en")
+    for story in stories:
+        try:
+            index = int(story.get("index"))
+        except (TypeError, ValueError):
+            continue
+        if not batch_start <= index < batch_end:
+            continue
+        fields = {key: _clean_text(story.get(key, ""), 1800) for key in required}
+        content_ar = _clean_text(story.get("content_ar", ""), 12000)
+        content_en = _clean_text(story.get("content_en", ""), 12000)
+        if all(fields.values()) and len(content_ar) >= 25 and len(content_en) >= 25:
+            valid_indices.add(index)
+    return valid_indices == set(range(batch_start, batch_end))
 
 
 def _translate_batch(raw_articles: list[dict[str, Any]]) -> dict[int, dict[str, str]]:
@@ -3304,8 +3508,8 @@ def _translate_batch(raw_articles: list[dict[str, Any]]) -> dict[int, dict[str, 
         )
 
     result: dict[int, dict[str, str]] = {}
-    # Six stories per request lets the two-call refresh budget cover all twelve new
-    # stories when no backlog is waiting, without returning to the old retry storm.
+    # Six stories per request keeps twelve-story refreshes within the existing bounded
+    # API budget. Structured outputs plus concise bodies reduce truncation and malformed JSON.
     batch_size = 6
     client = None
     api_calls_used = 0
@@ -3334,10 +3538,11 @@ def _translate_batch(raw_articles: list[dict[str, Any]]) -> dict[int, dict[str, 
         active_model = initial_model
         primary_error: Exception | None = None
         primary_error_model: str | None = None
+        stories: list[dict[str, Any]] | None = None
+        last_model_error: Exception | None = None
         try:
             if client is None:
-                # The SDK otherwise retries 429/5xx responses several times internally.
-                # Set attempts=1 so the app's explicit two-call budget is the real request budget.
+                # SDK retries are disabled so the explicit per-refresh API-call budget is real.
                 client = genai.Client(
                     api_key=GEMINI_API_KEY,
                     http_options=types.HttpOptions(
@@ -3347,15 +3552,12 @@ def _translate_batch(raw_articles: list[dict[str, Any]]) -> dict[int, dict[str, 
                 )
             generation_config = types.GenerateContentConfig(
                 response_mime_type="application/json",
-                temperature=0.25,
-                max_output_tokens=6144,
+                response_schema=EDITORIAL_RESPONSE_SCHEMA,
+                temperature=0.2,
+                max_output_tokens=4096,
             )
-            response = None
-            last_model_error: Exception | None = None
-            # Each model is tried no more than once per batch, and every physical API
-            # call consumes the same hard refresh budget. 429/5xx responses set that
-            # model's cooldown and move to the next configured model; there is no SDK
-            # retry loop and no unbounded retry storm.
+            # A syntactically invalid response is treated like a failed model attempt:
+            # cool that model briefly, then try a different configured model if budget permits.
             batch_models = [active_model] + [model for model in configured_models if model != active_model]
             for candidate_model in batch_models:
                 if api_calls_used >= MAX_GEMINI_API_CALLS_PER_REFRESH:
@@ -3382,21 +3584,36 @@ def _translate_batch(raw_articles: list[dict[str, Any]]) -> dict[int, dict[str, 
                         contents=prompt,
                         config=generation_config,
                     )
+                    candidate_stories = _parse_editorial_response_text(getattr(response, "text", ""))
+                    if not _editorial_batch_response_complete(candidate_stories, batch_start, batch_end):
+                        raise _InvalidEditorialResponse("Gemini response omitted or emptied one or more stories")
+                    stories = candidate_stories
                     last_model_error = None
                     if active_model != primary_model:
-                        # Keep using the model that just worked for remaining batches;
-                        # avoid returning to one already known to be rate-limited or unstable.
+                        # Reuse the model that produced a valid response for remaining batches.
                         initial_model = active_model
                     break
                 except Exception as model_exc:
                     is_rate_limited = _is_gemini_rate_limit_error(model_exc)
                     is_transient = _is_gemini_transient_server_error(model_exc)
-                    if not (is_rate_limited or is_transient):
+                    is_invalid_response = isinstance(model_exc, _InvalidEditorialResponse)
+                    if not (is_rate_limited or is_transient or is_invalid_response):
                         raise
                     last_model_error = model_exc
                     if active_model == primary_model:
                         primary_error = model_exc
                         primary_error_model = active_model
+                    if is_invalid_response:
+                        _persist_shared_gemini_cooldown(
+                            "invalid_response",
+                            state_key=f"gemini_cooldown:{active_model}",
+                        )
+                        logger.warning(
+                            "Gemini model returned unusable structured JSON (model=%s); trying another model if budget permits",
+                            active_model,
+                        )
+                        continue
+
                     failure_reason = "rate_limited_429" if is_rate_limited else "transient_server_error"
                     _persist_shared_gemini_cooldown(
                         failure_reason, state_key=f"gemini_cooldown:{active_model}"
@@ -3407,7 +3624,7 @@ def _translate_batch(raw_articles: list[dict[str, Any]]) -> dict[int, dict[str, 
                         "429" if is_rate_limited else "5xx",
                     )
 
-            if response is None:
+            if stories is None:
                 if last_model_error is not None:
                     raise last_model_error
                 logger.info(
@@ -3416,12 +3633,6 @@ def _translate_batch(raw_articles: list[dict[str, Any]]) -> dict[int, dict[str, 
                 )
                 break
 
-            response_text = (response.text or "").strip()
-            response_text = re.sub(r"^```(?:json)?\s*|\s*```$", "", response_text, flags=re.I)
-            parsed = json.loads(response_text)
-            stories = parsed.get("stories", []) if isinstance(parsed, dict) else parsed
-            if not isinstance(stories, list):
-                raise ValueError("Gemini returned unexpected structure")
             for story in stories:
                 if not isinstance(story, dict):
                     continue
@@ -3444,8 +3655,8 @@ def _translate_batch(raw_articles: list[dict[str, Any]]) -> dict[int, dict[str, 
                     fields[key] = body[:12000]
                 required = ("title_ar", "title_en", "summary_ar", "summary_en")
                 if (all(fields.get(key) for key in required)
-                        and len(fields.get("content_ar", "")) >= 100
-                        and len(fields.get("content_en", "")) >= 100):
+                        and len(fields.get("content_ar", "")) >= 25
+                        and len(fields.get("content_en", "")) >= 25):
                     result[index] = fields
         except Exception as exc:
             rate_limited = _is_gemini_rate_limit_error(exc)
@@ -4125,7 +4336,10 @@ def _normalise_story(row: dict[str, Any], lang: str) -> dict[str, Any]:
         story["content"] = ""
     # Use the newsroom's language-specific brand asset only when no rights-cleared
     # photograph is available. The placeholder is branding, never a documentary photo.
-    story["image_fallback_url"] = "/static/A.jpg" if lang == "ar" else "/static/E.jpg"
+    story["image_fallback_url"] = (
+        "/static/images/fallback-ar.svg" if lang == "ar"
+        else "/static/images/fallback-en.svg"
+    )
     if not story.get("image_url"):
         story["image_url"] = story["image_fallback_url"]
         story["image_source"] = "fallback_ar" if lang == "ar" else "fallback_en"
@@ -4134,8 +4348,8 @@ def _normalise_story(row: dict[str, Any], lang: str) -> dict[str, Any]:
     story["ai_enriched"] = bool(
         len(str(story.get("title_ar") or "").strip()) > 0
         and len(str(story.get("title_en") or "").strip()) > 0
-        and len(str(story.get("content_ar") or "").strip()) >= 100
-        and len(str(story.get("content_en") or "").strip()) >= 100
+        and len(str(story.get("content_ar") or "").strip()) >= 25
+        and len(str(story.get("content_en") or "").strip()) >= 25
     )
     story["details_from_source_excerpt"] = bool(
         not story["headline_only"] and not story["ai_enriched"] and raw_content.strip()

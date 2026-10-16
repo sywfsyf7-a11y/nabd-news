@@ -119,6 +119,7 @@
       <div class="metrics">
         <div class="metric"><strong>{{ images.status.attempted or 0 }}</strong><span>محاولات بحث</span></div>
         <div class="metric"><strong>{{ images.status.found or 0 }}</strong><span>صور مؤهلة</span></div>
+        <div class="metric"><strong>{{ images.status.match_rate_percent or 0 }}%</strong><span>نسبة العثور</span></div>
         <div class="metric"><strong>{{ images.status.errors or 0 }}</strong><span>أخطاء بحث</span></div>
       </div>
       <div class="row"><span>آخر تشغيل</span><span class="value">{{ images.status.updated_at or 'لا توجد بيانات بعد' }}</span></div>

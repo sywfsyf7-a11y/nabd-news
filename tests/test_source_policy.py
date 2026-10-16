@@ -105,9 +105,9 @@ class SourcePolicyTests(unittest.TestCase):
         }
         arabic = world_pulse._normalise_story(dict(base), "ar")
         english = world_pulse._normalise_story(dict(base, original_language="en"), "en")
-        self.assertEqual(arabic["image_url"], "/static/A.jpg")
+        self.assertEqual(arabic["image_url"], "/static/images/fallback-ar.svg")
         self.assertEqual(arabic["image_source"], "fallback_ar")
-        self.assertEqual(english["image_url"], "/static/E.jpg")
+        self.assertEqual(english["image_url"], "/static/images/fallback-en.svg")
         self.assertEqual(english["image_source"], "fallback_en")
 
     def test_headline_image_query_removes_editorial_filler(self):
@@ -858,7 +858,7 @@ class SourcePolicyTests(unittest.TestCase):
             "image_license_url": "",
         }
         story = world_pulse._normalise_story(row, "ar")
-        self.assertEqual(story["image_url"], "/static/A.jpg")
+        self.assertEqual(story["image_url"], "/static/images/fallback-ar.svg")
         self.assertEqual(story["image_source"], "fallback_ar")
         self.assertEqual(story["image_credit"], "")
         self.assertEqual(story["image_license_url"], "")

@@ -28,6 +28,8 @@ services:
         value: "gemini-3.8-flash"
       - key: GEMINI_FALLBACK_MODEL_2
         value: "gemini-3.1-flash-lite"
+      - key: GEMINI_INVALID_RESPONSE_COOLDOWN_MINUTES
+        value: "5"
       - key: MAX_GEMINI_API_CALLS_PER_REFRESH
         value: "4"
       - key: GEMINI_IMAGE_MODEL
