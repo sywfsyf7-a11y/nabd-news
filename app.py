@@ -965,16 +965,25 @@ def _known_source_controls() -> list[dict[str, Any]]:
 
 
 def _invalidate_db_articles_cache() -> None:
-    global _DB_ARTICLES_CACHE, _DB_ARTICLES_CACHE_AT
+    global _DB_ARTICLES_CACHE_AT
+    # Keep the last successful database snapshot as a fallback during a temporary
+    # Supabase/pooler outage. Setting its timestamp to zero forces a fresh read.
     with _DB_ARTICLES_CACHE_LOCK:
-        _DB_ARTICLES_CACHE = None
         _DB_ARTICLES_CACHE_AT = 0.0
     with _DISPLAY_STORIES_CACHE_LOCK:
         _DISPLAY_STORIES_CACHE.clear()
 
 
+def _cached_db_article_snapshot() -> list[dict[str, Any]]:
+    """Return a copy of the last successful archive read, even if it is stale."""
+    with _DB_ARTICLES_CACHE_LOCK:
+        if _DB_ARTICLES_CACHE is None:
+            return []
+        return [dict(row) for row in _DB_ARTICLES_CACHE]
+
+
 def _db_fetch_all() -> list[dict[str, Any]]:
-    """Return the latest live articles with a short cache to avoid reconnecting on every page request."""
+    """Read the persistent archive, retaining the last good snapshot during outages."""
     global _DB_ARTICLES_CACHE, _DB_ARTICLES_CACHE_AT
     now = time.monotonic()
     with _DB_ARTICLES_CACHE_LOCK:
@@ -985,10 +994,62 @@ def _db_fetch_all() -> list[dict[str, Any]]:
             return [dict(row) for row in _DB_ARTICLES_CACHE]
 
     if not _ensure_schema():
-        return []
+        logger.warning("Archive database check failed; serving last known article snapshot")
+        return _cached_db_article_snapshot()
     conn = _connect_db()
     if conn is None:
-        return []
+        logger.warning("Archive database connection unavailable; serving last known article snapshot")
+        return _cached_db_article_snapshot()
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""
+                WITH eligible AS (
+                    SELECT slug, source_url, category, source_name, source_domain, image_url,
+                           image_source, image_credit, image_credit_url, image_provider_url, image_license_url, image_checked_at,
+                           title_ar, title_en, summary_ar, summary_en,
+                           content_ar, content_en, published_at, fetched_at,
+                           read_minutes, original_language, is_demo,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY original_language
+                               ORDER BY COALESCE(published_at, fetched_at) DESC, fetched_at DESC
+                           ) AS language_rank
+                    FROM world_pulse_articles
+                    WHERE is_demo = FALSE
+                      AND ((original_language = 'ar' AND LENGTH(TRIM(COALESCE(title_ar, ''))) > 0 AND LENGTH(TRIM(COALESCE(summary_ar, ''))) > 0)
+                           OR (original_language = 'en' AND LENGTH(TRIM(COALESCE(title_en, ''))) > 0 AND LENGTH(TRIM(COALESCE(summary_en, ''))) > 0))
+                )
+                SELECT slug, source_url, category, source_name, source_domain, image_url,
+                       image_source, image_credit, image_credit_url, image_provider_url, image_license_url, image_checked_at,
+                       title_ar, title_en, summary_ar, summary_en,
+                       content_ar, content_en, published_at, fetched_at,
+                       read_minutes, original_language, is_demo
+                FROM eligible
+                WHERE language_rank <= 120
+                ORDER BY COALESCE(published_at, fetched_at) DESC, fetched_at DESC
+            """)
+            rows = [dict(row) for row in cur.fetchall()]
+        with _DB_ARTICLES_CACHE_LOCK:
+            _DB_ARTICLES_CACHE = rows
+            _DB_ARTICLES_CACHE_AT = time.monotonic()
+        return [dict(row) for row in rows]
+    except Exception as exc:
+        logger.warning(
+            "Could not read persistent news archive; serving last known snapshot (%s)",
+            type(exc).__name__,
+        )
+        return _cached_db_article_snapshot()
+    finally:
+        _release_db_connection(conn)
+
+
+def _db_fetch_article_by_slug(slug: str) -> dict[str, Any] | None:
+    """Fetch a saved story directly so old permanent links survive the homepage window."""
+    slug = _clean_text(slug, 220)
+    if not slug or not _ensure_schema():
+        return None
+    conn = _connect_db()
+    if conn is None:
+        return None
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute("""
@@ -998,19 +1059,14 @@ def _db_fetch_all() -> list[dict[str, Any]]:
                        content_ar, content_en, published_at, fetched_at,
                        read_minutes, original_language, is_demo
                 FROM world_pulse_articles
-                WHERE is_demo = FALSE
-                  AND ((original_language = 'ar' AND LENGTH(TRIM(COALESCE(title_ar, ''))) > 0 AND LENGTH(TRIM(COALESCE(summary_ar, ''))) > 0)
-                       OR (original_language = 'en' AND LENGTH(TRIM(COALESCE(title_en, ''))) > 0 AND LENGTH(TRIM(COALESCE(summary_en, ''))) > 0))
-                ORDER BY COALESCE(published_at, fetched_at) DESC, fetched_at DESC
-                LIMIT 120
-            """)
-            rows = [dict(row) for row in cur.fetchall()]
-        with _DB_ARTICLES_CACHE_LOCK:
-            _DB_ARTICLES_CACHE = rows
-            _DB_ARTICLES_CACHE_AT = time.monotonic()
-        return [dict(row) for row in rows]
-    except Exception:
-        return []
+                WHERE slug = %s AND is_demo = FALSE
+                LIMIT 1
+            """, (slug,))
+            row = cur.fetchone()
+            return dict(row) if row else None
+    except Exception as exc:
+        logger.warning("Could not load archived article by slug (%s)", type(exc).__name__)
+        return None
     finally:
         _release_db_connection(conn)
 
@@ -4402,6 +4458,9 @@ def _normalise_story(row: dict[str, Any], lang: str) -> dict[str, Any]:
     return story
 
 def _all_live_articles() -> list[dict[str, Any]]:
+    # The database is the shared source of truth across Gunicorn workers. Never merge
+    # process-local memory into the visible list: each worker has different memory, which
+    # made article counts fluctuate depending on which worker served a request.
     rows = _db_fetch_all()
     by_url: dict[str, dict[str, Any]] = {}
     for row in rows:
@@ -4410,10 +4469,6 @@ def _all_live_articles() -> list[dict[str, Any]]:
         key = str(row.get("source_url") or row.get("slug") or "")
         if key:
             by_url[key] = row
-    for key, row in _MEMORY_ARTICLES.items():
-        if row.get("is_demo"):
-            continue
-        by_url[key] = row
     result = list(by_url.values())
     result.sort(key=lambda item: item.get("published_at") or item.get("fetched_at") or datetime(1970, 1, 1, tzinfo=timezone.utc), reverse=True)
     return result
@@ -4592,10 +4647,24 @@ def search():
 @app.get("/article/<slug>")
 def article(slug: str):
     lang = current_language()
-    # Reuse the short-lived display pool; sorting and near-duplicate checks are
-    # expensive to repeat for every article click and unnecessary between DB writes.
+    # Reuse the short-lived display pool for current articles, but look up older stories
+    # directly in Supabase so their permanent URLs do not break after they leave the
+    # bounded homepage window.
     pool = _get_display_stories(lang)
     selected = next((story for story in pool if story.get("slug") == slug), None)
+    if selected is None:
+        stored = _db_fetch_article_by_slug(slug)
+        if (
+            stored
+            and stored.get("source_url")
+            and stored.get(f"title_{lang}")
+            and _row_allowed_on_language_site(stored, lang)
+        ):
+            corrected_category = _display_category(stored, lang)
+            if corrected_category != stored.get("category"):
+                stored = dict(stored)
+                stored["category"] = corrected_category
+            selected = _normalise_story(stored, lang)
     if selected is None:
         abort(404)
     related = [story for story in pool if story.get("slug") != slug and story.get("category") == selected.get("category")][:3]
