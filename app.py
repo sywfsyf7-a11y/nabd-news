@@ -4235,6 +4235,8 @@ def _refresh_news_job() -> None:
                 return
         else:
             queue_items = cleaned_queue
+        # Preserve the known database URL set for the later fallback/retry guards.
+        existing_url_keys = known_keys
 
         # Exactly one fresh story is translated and published per tick by default. Existing
         # editorial repairs run only when no queued new story is waiting.
