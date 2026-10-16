@@ -10,6 +10,41 @@ import app as world_pulse
 
 
 class SiteExperienceTests(unittest.TestCase):
+    def test_in_process_article_working_set_is_bounded_and_keeps_recent_stories(self):
+        base = datetime(2026, 10, 1, tzinfo=timezone.utc)
+        rows = [
+            {
+                "source_url": f"https://example.com/memory-{index}",
+                "published_at": base + timedelta(days=index),
+                "fetched_at": base + timedelta(days=index),
+            }
+            for index in range(7)
+        ]
+        with patch.object(world_pulse, "MAX_MEMORY_ARTICLES", 3):
+            with patch.object(world_pulse, "_MEMORY_ARTICLES", {}):
+                world_pulse._remember_articles(rows)
+                memory = world_pulse._MEMORY_ARTICLES
+                self.assertEqual(len(memory), 3)
+                self.assertEqual(
+                    set(memory),
+                    {f"https://example.com/memory-{index}" for index in (4, 5, 6)},
+                )
+
+    def test_background_status_poll_does_not_force_reload_current_article(self):
+        template_path = os.path.join(os.path.dirname(world_pulse.__file__), "templates", "index.html")
+        with open(template_path, encoding="utf-8") as handle:
+            template = handle.read()
+        self.assertIn("if (!document.hidden) loadStatus();", template)
+        self.assertIn("}, 120000);", template)
+        self.assertIn("filename='css/site.css'", template)
+        self.assertNotIn("cdn.tailwindcss.com", template)
+        self.assertNotIn(
+            "if (knownRefreshAt !== null && status.last_refresh_at && status.last_refresh_at !== knownRefreshAt)",
+            template,
+        )
+        tailwind_config_path = os.path.join(os.path.dirname(world_pulse.__file__), "tailwind.config.js")
+        self.assertTrue(os.path.exists(tailwind_config_path))
+
     def test_rss_excerpt_is_displayed_as_details_when_editorial_ai_is_unavailable(self):
         excerpt = (
             "The city council approved the transit plan after a public vote. "
