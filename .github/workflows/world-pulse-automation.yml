@@ -77,7 +77,10 @@ jobs:
           print("  refresh_running:", status.get("running", False))
           print("  last_refresh_at:", status.get("last_refresh_at"))
           print("  database_url_configured:", status.get("database_url_configured", False))
-          print("  database_state:", (status.get("database") or {}).get("state", "unknown"))
+          database_state = (status.get("database") or {}).get("state", "unknown")
+          print("  database_state:", database_state)
           if not status.get("database_url_configured", False):
               raise SystemExit("Database connection URL is not configured on the live service.")
+          if database_state != "connected":
+              raise SystemExit("Live database probe failed; inspect Render logs and the protected admin monitor.")
           PY
