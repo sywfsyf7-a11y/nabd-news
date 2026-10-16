@@ -704,13 +704,14 @@ class SiteExperienceTests(unittest.TestCase):
             yield futures[0]
             raise TimeoutError("image batch expired")
 
-        with patch.object(world_pulse, "_db_fetch_all", return_value=stored):
-            with patch.object(world_pulse, "_control_enabled", return_value=True):
-                with patch.object(world_pulse, "_reserve_gemini_image_slots", return_value=0):
-                    with patch.object(world_pulse, "ThreadPoolExecutor", return_value=executor):
-                        with patch.object(world_pulse, "as_completed", side_effect=complete_then_timeout):
-                            world_pulse._enrich_article_images(raw, force_refresh=True, allow_ai_generation=False)
-
+        with patch.object(world_pulse, "MAX_IMAGE_LOOKUPS_PER_REFRESH", 12):
+            with patch.object(world_pulse, "_db_fetch_all", return_value=stored):
+                with patch.object(world_pulse, "_control_enabled", return_value=True):
+                    with patch.object(world_pulse, "_reserve_gemini_image_slots", return_value=0):
+                        with patch.object(world_pulse, "ThreadPoolExecutor", return_value=executor):
+                            with patch.object(world_pulse, "as_completed", side_effect=complete_then_timeout):
+                                world_pulse._enrich_article_images(raw, force_refresh=True, allow_ai_generation=False)
+    
         self.assertEqual(raw[0]["image_url"], "https://images.example.com/new-first.jpg")
         self.assertEqual(raw[1]["image_url"], "https://images.example.com/old-second.jpg")
         self.assertEqual(raw[1]["image_source"], "openverse_licensed")
