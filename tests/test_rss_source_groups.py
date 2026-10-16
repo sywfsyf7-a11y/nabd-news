@@ -262,7 +262,7 @@ class GeminiRequestBudgetTests(unittest.TestCase):
             result = world_pulse._translate_batch(raw_articles)
 
         self.assertEqual(generate.call_count, 2)
-        self.assertEqual(set(result), set(range(8)))
+        self.assertEqual(set(result), set(range(12)))
         client_options = fake_genai.Client.call_args.kwargs["http_options"]
         self.assertEqual(client_options.retry_options.attempts, 1)
 
