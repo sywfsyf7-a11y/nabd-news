@@ -88,7 +88,7 @@ class SourcePolicyTests(unittest.TestCase):
         self.assertEqual(story["content"], "")
         self.assertIn("Headline and source link only", story["summary"])
 
-    def test_missing_images_use_distinct_topic_specific_art_not_A_or_E(self):
+    def test_missing_images_use_language_specific_A_or_E_fallback(self):
         base = {
             "slug": "story-fallback",
             "source_url": "https://example.test/story",
@@ -105,14 +105,10 @@ class SourcePolicyTests(unittest.TestCase):
         }
         arabic = world_pulse._normalise_story(dict(base), "ar")
         english = world_pulse._normalise_story(dict(base, original_language="en"), "en")
-        self.assertTrue(arabic["image_url"].startswith("/media/editorial.svg?"))
-        self.assertIn("lang=ar", arabic["image_url"])
-        self.assertEqual(arabic["image_source"], "editorial_generated")
-        self.assertTrue(english["image_url"].startswith("/media/editorial.svg?"))
-        self.assertIn("lang=en", english["image_url"])
-        self.assertEqual(english["image_source"], "editorial_generated")
-        self.assertNotEqual(arabic["image_url"], "/static/A.jpg")
-        self.assertNotEqual(english["image_url"], "/static/E.jpg")
+        self.assertEqual(arabic["image_url"], "/static/A.jpg")
+        self.assertEqual(arabic["image_source"], "fallback_ar")
+        self.assertEqual(english["image_url"], "/static/E.jpg")
+        self.assertEqual(english["image_source"], "fallback_en")
 
     def test_headline_image_query_removes_editorial_filler(self):
         query = world_pulse._image_search_phrase(
@@ -132,7 +128,7 @@ class SourcePolicyTests(unittest.TestCase):
         self.assertTrue(variants[0].startswith("NASA Artemis"))
         self.assertIn("astronauts", variants[0].casefold())
         self.assertEqual(variants[1], "NASA Artemis mission")
-        self.assertEqual(variants[2], "NASA Artemis")
+        self.assertEqual(variants[2], "The spacecraft carries astronauts")
 
     def test_image_match_score_accepts_one_entity_for_a_two_term_query_but_not_a_long_query(self):
         self.assertEqual(
@@ -154,6 +150,7 @@ class SourcePolicyTests(unittest.TestCase):
             "image_credit_url": "https://openverse.example.test/item",
             "image_provider_url": "https://openverse.example.test/item",
             "image_license_url": "https://creativecommons.org/licenses/by/4.0/",
+            "_image_relevance_score": 0.75,
         }
         article = {
             "slug": "story-image-retry",
@@ -280,8 +277,7 @@ class SourcePolicyTests(unittest.TestCase):
         with patch.object(world_pulse, "_search_any_reusable_image", return_value={}) as reusable:
             with patch.object(world_pulse, "_generate_gemini_article_image", return_value=generated) as generator:
                 result = world_pulse._resolve_article_image(article)
-        self.assertEqual(reusable.call_count, 2)
-        self.assertEqual(reusable.call_args_list[1].kwargs, {"open_only": True})
+        self.assertEqual(reusable.call_count, 1)
         generator.assert_called_once_with(article)
         self.assertEqual(result["image_source"], "gemini_generated")
         self.assertEqual(result["image_url"], generated["image_url"])
@@ -325,7 +321,7 @@ class SourcePolicyTests(unittest.TestCase):
         self.assertEqual(article["summary_ar"], "ملخص الخبر")
         self.assertEqual(article["title_en"], "")
         self.assertEqual(article["original_language"], "ar")
-        self.assertEqual(article["content_ar"], "")
+        self.assertEqual(article["content_ar"], "ملخص الخبر")
 
     def test_global_publisher_catalog_is_expanded_and_language_scoped(self):
         catalog = world_pulse.CATEGORY_SOURCE_DOMAINS
@@ -429,7 +425,15 @@ class SourcePolicyTests(unittest.TestCase):
                     with patch.object(world_pulse, "GEMINI_429_COOLDOWN_MINUTES", 60):
                         result = world_pulse._translate_batch(articles)
                         self.assertEqual(result, {})
-                        self.assertEqual(fake_client.models.generate_content.call_count, 1)
+                        self.assertEqual(fake_client.models.generate_content.call_count, 2)
+                        self.assertEqual(
+                            fake_client.models.generate_content.call_args_list[0].kwargs["model"],
+                            world_pulse.GEMINI_MODEL,
+                        )
+                        self.assertEqual(
+                            fake_client.models.generate_content.call_args_list[1].kwargs["model"],
+                            world_pulse.GEMINI_FALLBACK_MODEL,
+                        )
                         self.assertGreater(world_pulse._GEMINI_RATE_LIMIT_UNTIL, world_pulse.time.monotonic())
 
     def test_gemini_503_or_504_trips_short_circuit_breaker_and_stops_batches(self):
@@ -846,8 +850,8 @@ class SourcePolicyTests(unittest.TestCase):
             "image_license_url": "",
         }
         story = world_pulse._normalise_story(row, "ar")
-        self.assertTrue(story["image_url"].startswith("/media/editorial.svg?"))
-        self.assertEqual(story["image_source"], "editorial_generated")
+        self.assertEqual(story["image_url"], "/static/A.jpg")
+        self.assertEqual(story["image_source"], "fallback_ar")
         self.assertEqual(story["image_credit"], "")
         self.assertEqual(story["image_license_url"], "")
 
