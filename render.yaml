@@ -19,7 +19,15 @@ services:
       - key: NEWS_REFRESH_WEBHOOK_TOKEN
         generateValue: true
       - key: NEWS_REFRESH_MINUTES
+        value: "5"
+      - key: NEWS_RETRY_MINUTES
+        value: "5"
+      - key: NEWS_DISCOVERY_REFRESH_MINUTES
         value: "30"
+      - key: MAX_PENDING_NEWS_CANDIDATES
+        value: "60"
+      - key: MAX_QUEUE_ADDITIONS_PER_DISCOVERY
+        value: "6"
       - key: RSS_BATCH_TIMEOUT_SECONDS
         value: "35"
       - key: GEMINI_MODEL
@@ -31,7 +39,7 @@ services:
       - key: GEMINI_INVALID_RESPONSE_COOLDOWN_MINUTES
         value: "5"
       - key: MAX_GEMINI_API_CALLS_PER_REFRESH
-        value: "4"
+        value: "2"
       - key: GEMINI_IMAGE_MODEL
         value: "gemini-nano-banana-2.1"
       - key: GEMINI_IMAGE_GENERATION_ENABLED
@@ -41,8 +49,8 @@ services:
       - key: MAX_GEMINI_IMAGES_PER_24H
         value: "0"
       - key: MAX_ARTICLES_PER_REFRESH
-        value: "12"
+        value: "1"
       - key: MAX_ARTICLES_PER_CATEGORY
         value: "3"
       - key: MAX_IMAGE_LOOKUPS_PER_REFRESH
-        value: "12"
+        value: "1"
