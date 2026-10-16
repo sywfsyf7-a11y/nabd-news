@@ -2728,8 +2728,9 @@ def _base_article(raw: dict[str, Any]) -> dict[str, Any]:
         "title_en": title if original_lang == "en" else "",
         "summary_ar": summary if original_lang == "ar" else "",
         "summary_en": summary if original_lang == "en" else "",
-        "content_ar": usable_excerpt if original_lang == "ar" else "",
-        "content_en": usable_excerpt if original_lang == "en" else "",
+        # RSS excerpts are used for the brief, not presented as a full article body.
+        "content_ar": "",
+        "content_en": "",
         "published_at": raw.get("published_at"),
         "read_minutes": 1,
         "original_language": original_lang,
