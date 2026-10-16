@@ -161,7 +161,7 @@ class SiteExperienceTests(unittest.TestCase):
                 self.max_workers = max_workers
                 self.futures = []
                 self.shutdown_args = None
-            def submit(self, fn, category, lang):
+            def submit(self, fn, category, lang, source_group=()):
                 if category == "world" and lang == "en":
                     future = FakeFuture(("world", "en", [dict(story)]), is_done=True)
                 else:
