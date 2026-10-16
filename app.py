@@ -3508,10 +3508,9 @@ def _translate_batch(raw_articles: list[dict[str, Any]]) -> dict[int, dict[str, 
         )
 
     result: dict[int, dict[str, str]] = {}
-    # Four short stories per request reduce response truncation and malformed JSON.
-    # Four physical calls can still cover twelve new stories plus the small editorial backlog
-    # when Gemini is healthy, and the source-language fallback remains available on failure.
-    batch_size = 4
+    # Six stories per request keeps twelve-story refreshes within the existing bounded
+    # API budget. Structured outputs plus concise bodies reduce truncation and malformed JSON.
+    batch_size = 6
     client = None
     api_calls_used = 0
 
