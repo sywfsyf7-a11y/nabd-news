@@ -150,6 +150,75 @@ class RSSDeadlineSeparationTests(unittest.TestCase):
 
 
 class GeminiRequestBudgetTests(unittest.TestCase):
+    def test_third_gemini_model_is_tried_when_both_first_models_return_429(self):
+        def successful_response(**kwargs):
+            payload = json.loads(kwargs["contents"])
+            stories = []
+            for article in payload:
+                index = article["index"]
+                stories.append({
+                    "index": index,
+                    "title_ar": "عنوان صحفي عربي واضح",
+                    "title_en": "A clear English news headline",
+                    "summary_ar": "ملخص عربي مستقل يستند إلى مقتطف الناشر.",
+                    "summary_en": "An independent English summary based on the publisher excerpt.",
+                    "content_ar": "تفاصيل الخبر من نص المصدر دون اختلاق وقائع. " + ("تفصيل متاح. " * 18),
+                    "content_en": "Story details from source text without invented facts. " + ("Available detail. " * 18),
+                })
+            return SimpleNamespace(text=json.dumps({"stories": stories}))
+
+        calls = []
+        def respond(**kwargs):
+            model = kwargs["model"]
+            calls.append(model)
+            if model in {"gemini-3.5-flash-lite", "gemini-3.8-flash"}:
+                raise RuntimeError("429 RESOURCE_EXHAUSTED model-specific rate limit")
+            return successful_response(**kwargs)
+
+        client = SimpleNamespace(models=SimpleNamespace(generate_content=Mock(side_effect=respond)))
+        fake_genai = SimpleNamespace(Client=Mock(return_value=client))
+        fake_types = SimpleNamespace(
+            HttpOptions=lambda **kwargs: SimpleNamespace(**kwargs),
+            HttpRetryOptions=lambda attempts: SimpleNamespace(attempts=attempts),
+            GenerateContentConfig=lambda **kwargs: SimpleNamespace(**kwargs),
+        )
+        articles = [
+            {
+                "category": "world",
+                "source_name": "Test publisher",
+                "source_url": f"https://example.com/third-model-{index}",
+                "original_title": f"Independent news headline {index}",
+                "original_summary": f"Publisher excerpt about event {index}.",
+                "original_language": "en",
+            }
+            for index in range(12)
+        ]
+
+        with (
+            patch.object(world_pulse, "GEMINI_API_KEY", "test-key"),
+            patch.object(world_pulse, "GEMINI_MODEL", "gemini-3.5-flash-lite"),
+            patch.object(world_pulse, "GEMINI_FALLBACK_MODEL", "gemini-3.8-flash"),
+            patch.object(world_pulse, "GEMINI_FALLBACK_MODEL_2", "gemini-3.1-flash-lite"),
+            patch.object(world_pulse, "genai", fake_genai),
+            patch.object(world_pulse, "types", fake_types),
+            patch.object(world_pulse, "MAX_GEMINI_API_CALLS_PER_REFRESH", 4),
+            patch.object(world_pulse, "_shared_gemini_cooldown_remaining", return_value=(0, "")),
+            patch.object(world_pulse, "_persist_shared_gemini_cooldown", return_value=True),
+            patch.object(world_pulse, "_build_editorial_prompt", side_effect=lambda items: json.dumps(items)),
+            patch.object(world_pulse, "_GEMINI_RATE_LIMIT_UNTIL", 0),
+            patch.object(world_pulse, "_GEMINI_TRANSIENT_ERROR_UNTIL", 0),
+        ):
+            translated = world_pulse._translate_batch(articles)
+
+        self.assertEqual(calls, [
+            "gemini-3.5-flash-lite",
+            "gemini-3.8-flash",
+            "gemini-3.1-flash-lite",
+            "gemini-3.1-flash-lite",
+        ])
+        self.assertEqual(set(translated), set(range(12)))
+
+
     def test_primary_model_429_switches_remaining_batches_to_alternate(self):
         def successful_response(**kwargs):
             payload = json.loads(kwargs["contents"])
