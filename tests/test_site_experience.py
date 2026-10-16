@@ -78,6 +78,34 @@ class SiteExperienceTests(unittest.TestCase):
                 {"discovered_at": (now - timedelta(minutes=31)).isoformat(), "items": []}, now
             ))
 
+    def test_headline_only_article_can_appear_in_english_feed_without_fabricated_translation(self):
+        row = {
+            "slug": "aljazeera-headline",
+            "source_url": "https://www.aljazeera.net/news/world/example",
+            "source_name": "Al Jazeera",
+            "source_domain": "aljazeera.net",
+            "category": "world",
+            "original_language": "ar",
+            "title_ar": "عنوان عربي من الجزيرة",
+            "title_en": "",
+            "summary_ar": "يعرض نبض العالم العنوان ورابط الناشر فقط لهذا المصدر. افتح المصدر الأصلي لقراءة التفاصيل والسياق وآخر التحديثات.",
+            "summary_en": "",
+            "content_ar": "",
+            "content_en": "",
+            "image_url": "",
+            "image_source": "none",
+            "image_credit": "",
+            "image_credit_url": "",
+            "image_provider_url": "",
+            "image_license_url": "",
+        }
+        story = world_pulse._normalise_story(row, "en")
+        self.assertEqual(story["title"], row["title_ar"])
+        self.assertEqual(story["display_language"], "ar")
+        self.assertEqual(story["content"], "")
+        self.assertTrue(story["headline_only"])
+
+
     def test_rss_excerpt_is_displayed_as_details_when_editorial_ai_is_unavailable(self):
         excerpt = (
             "The city council approved the transit plan after a public vote. "
