@@ -2210,7 +2210,6 @@ def _search_image_provider_group(
     if ranked:
         score, _priority, key, selected = max(ranked, key=lambda entry: (entry[0], entry[1]))
         result = dict(selected)
-        result.pop("_image_relevance_score", None)
         logger.info(
             "Image provider matched: provider=%s group=%s relevance=%.3f",
             key.removeprefix("image:"), group_name, score,
@@ -2252,20 +2251,35 @@ def _search_article_image_with_variants(
     lang: str = "en",
     category: str = "world",
 ) -> dict[str, Any]:
-    """Try context-rich, headline-only and two-term headline queries."""
+    """Try bounded headline/context variants and prefer a stronger topic match."""
     variants = _image_search_query_variants(title, context)
+    best: dict[str, Any] = {}
+    best_score = -1.0
     for index, query in enumerate(variants):
         if index == 0:
             result = _search_any_reusable_image(query, lang, category)
         else:
-            # The context query already tried NASA/approved press kits; use shorter
-            # headline alternatives only with open catalogues to keep requests bounded.
+            # The full query already tried fallback catalogues; keep alternatives to the
+            # three concurrently searched, openly licensed catalogues to bound latency.
             result = _search_any_reusable_image(query, lang, category, open_only=True)
-        if result:
-            if index:
-                logger.info("Image search matched on shorter headline query (source=%s)", result.get("image_source", "unknown"))
-            return result
-    return {}
+        if not result:
+            continue
+        score = float(result.get("_image_relevance_score") or 0.0)
+        if score > best_score:
+            best_score = score
+            best = dict(result)
+        # A strong first-query match needs no extra provider requests.
+        if score >= 0.42:
+            break
+    if not best:
+        return {}
+    best.pop("_image_relevance_score", None)
+    if best.get("image_url"):
+        logger.info(
+            "Image search selected source=%s relevance=%.3f",
+            best.get("image_source", "unknown"), max(0.0, best_score),
+        )
+    return best
 
 
 def _reserve_gemini_image_slots(pending_count: int) -> int:
@@ -3506,6 +3520,7 @@ def _avoid_repeated_news_photos(raw_articles: list[dict[str, Any]]) -> None:
         candidate = urlparse(candidate_url)
         candidate_identity = f"{candidate.scheme.lower()}://{candidate.netloc.lower()}{candidate.path.rstrip('/')}" if candidate.netloc else candidate_url
         if candidate_url and candidate_identity not in seen:
+            alternative.pop("_image_relevance_score", None)
             item.update(alternative)
             seen.add(candidate_identity)
         else:
