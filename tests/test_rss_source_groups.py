@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 import os
+import json
 import unittest
 import time
 from datetime import datetime, timezone, timedelta
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 from urllib.parse import parse_qs, urlparse
 
 import app as world_pulse
@@ -145,6 +147,59 @@ class RSSDeadlineSeparationTests(unittest.TestCase):
 
         self.assertEqual(len(result), 2)
         self.assertEqual({story["original_language"] for story in result}, {"ar", "en"})
+
+
+class GeminiRequestBudgetTests(unittest.TestCase):
+    def test_translation_stops_after_configured_api_call_budget(self):
+        def fake_generate_content(**kwargs):
+            payload = json.loads(kwargs["contents"])
+            stories = []
+            for article in payload:
+                index = article["index"]
+                stories.append({
+                    "index": index,
+                    "title_ar": "عنوان صحفي عربي واضح",
+                    "title_en": "A clear English news headline",
+                    "summary_ar": "ملخص عربي مستقل يستند إلى مقتطف المصدر المتاح.",
+                    "summary_en": "An independent English summary based on the available source excerpt.",
+                    "content_ar": "تفاصيل الخبر من المعلومات المتاحة دون إضافة وقائع غير مثبتة. " + ("تفصيل موثق. " * 20),
+                    "content_en": "Story details based on the available information without adding unsupported facts. " + ("Verified detail. " * 20),
+                })
+            return SimpleNamespace(text=json.dumps({"stories": stories}))
+
+        generate = Mock(side_effect=fake_generate_content)
+        client = SimpleNamespace(models=SimpleNamespace(generate_content=generate))
+        fake_genai = SimpleNamespace(Client=Mock(return_value=client))
+        fake_types = SimpleNamespace(
+            HttpOptions=Mock(return_value=None),
+            GenerateContentConfig=Mock(return_value=None),
+        )
+        raw_articles = [
+            {
+                "category": "world",
+                "source_name": "Test publisher",
+                "source_url": f"https://example.com/story-{index}",
+                "original_title": f"Test headline number {index}",
+                "original_summary": "A verified RSS excerpt.",
+                "original_language": "en",
+            }
+            for index in range(12)
+        ]
+
+        with (
+            patch.object(world_pulse, "GEMINI_API_KEY", "test-key"),
+            patch.object(world_pulse, "genai", fake_genai),
+            patch.object(world_pulse, "types", fake_types),
+            patch.object(world_pulse, "MAX_GEMINI_API_CALLS_PER_REFRESH", 2),
+            patch.object(world_pulse, "_GEMINI_RATE_LIMIT_UNTIL", 0),
+            patch.object(world_pulse, "_GEMINI_TRANSIENT_ERROR_UNTIL", 0),
+            patch.object(world_pulse, "_shared_gemini_cooldown_remaining", return_value=(0, "")),
+            patch.object(world_pulse, "_build_editorial_prompt", side_effect=lambda payload: json.dumps(payload)),
+        ):
+            result = world_pulse._translate_batch(raw_articles)
+
+        self.assertEqual(generate.call_count, 2)
+        self.assertEqual(set(result), set(range(8)))
 
 
 class DatabaseURLTests(unittest.TestCase):
