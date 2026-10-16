@@ -100,6 +100,7 @@ GEMINI_IMAGE_TIMEOUT_SECONDS = max(15, min(120, int(os.getenv("GEMINI_IMAGE_TIME
 GEMINI_TIMEOUT_SECONDS = max(8, min(45, int(os.getenv("GEMINI_TIMEOUT_SECONDS", "20"))))
 CONTACT_EMAIL = os.getenv("CONTACT_EMAIL", "syfsywf86@gmail.com").strip() or "syfsywf86@gmail.com"
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
+NEWS_REFRESH_WEBHOOK_TOKEN = os.getenv("NEWS_REFRESH_WEBHOOK_TOKEN", "").strip()
 MAX_ARTICLES_PER_REFRESH = max(8, min(32, int(os.getenv("MAX_ARTICLES_PER_REFRESH", "24"))))
 MAX_ARTICLES_PER_CATEGORY = max(1, min(5, int(os.getenv("MAX_ARTICLES_PER_CATEGORY", "3"))))
 RSS_CANDIDATES_PER_CATEGORY = max(3, min(8, int(os.getenv("RSS_CANDIDATES_PER_CATEGORY", "6"))))
@@ -474,6 +475,11 @@ LEGACY_IMAGE_URLS = set()
 _SCHEMA_LOCK = threading.Lock()
 _SCHEMA_READY = False
 _DB_RETRY_AFTER = 0.0
+# Bound concurrent live PostgreSQL sessions in each Gunicorn worker. With two workers and
+# the default cap of 3, this service opens at most 6 application connections at once.
+DB_MAX_CONCURRENT_CONNECTIONS = max(1, min(6, int(os.getenv("DB_MAX_CONCURRENT_CONNECTIONS", "3"))))
+DB_CONNECTION_WAIT_SECONDS = max(1, min(5, int(os.getenv("DB_CONNECTION_WAIT_SECONDS", "2"))))
+_DB_CONNECTION_SLOTS = threading.BoundedSemaphore(DB_MAX_CONCURRENT_CONNECTIONS)
 _DB_LOCK = threading.Lock()
 _CONTROL_CACHE: dict[str, tuple[bool, float]] = {}
 _CONTROL_CACHE_LOCK = threading.Lock()
@@ -641,7 +647,7 @@ def _probe_database() -> dict[str, Any]:
             _DB_RETRY_AFTER = time.monotonic() + (30 if code == "max_clients_reached" else 60)
         logger.warning("Database health probe failed (reason=%s)", code)
     finally:
-        conn.close()
+        _release_db_connection(conn)
     return dict(_LAST_DB_STATUS)
 
 def _news_setup_issues() -> list[str]:
@@ -653,6 +659,18 @@ def _news_setup_issues() -> list[str]:
     if not _database_url():
         issues.append("Missing SUPABASE_POOLER_URL or DATABASE_URL in Render Environment")
     return issues
+
+def _release_db_connection(connection: Any) -> None:
+    """Close a short-lived DB connection and release its per-process concurrency slot."""
+    try:
+        connection.close()
+    finally:
+        try:
+            _DB_CONNECTION_SLOTS.release()
+        except ValueError:
+            # A defensive diagnostic: a slot must be released exactly once per connection.
+            logger.error("Database connection slot released more than once")
+
 
 def _connect_db():
     global _DB_RETRY_AFTER
@@ -666,6 +684,18 @@ def _connect_db():
         return None
     if time.monotonic() < _DB_RETRY_AFTER:
         return None
+
+    # Do not let concurrent requests/background work exceed the configured DB session budget.
+    if not _DB_CONNECTION_SLOTS.acquire(timeout=DB_CONNECTION_WAIT_SECONDS):
+        _LAST_DB_STATUS.update({
+            "state": "busy", "error_code": "local_connection_limit",
+            "checked_at": datetime.now(timezone.utc).isoformat(),
+            "checked_monotonic": time.monotonic(),
+        })
+        logger.warning("Database connection deferred: this worker reached its local connection cap")
+        return None
+
+    connection = None
     try:
         connection = psycopg2.connect(
             dsn,
@@ -682,6 +712,12 @@ def _connect_db():
         })
         return connection
     except Exception as exc:
+        if connection is not None:
+            try:
+                connection.close()
+            except Exception:
+                pass
+        _DB_CONNECTION_SLOTS.release()
         code = _database_error_code(exc)
         with _DB_LOCK:
             _DB_RETRY_AFTER = time.monotonic() + (30 if code == "max_clients_reached" else 60)
@@ -717,7 +753,7 @@ def _ensure_schema() -> bool:
             logger.exception("Could not initialise the news table")
             return False
         finally:
-            conn.close()
+            _release_db_connection(conn)
 
 def _known_control_cache_keys() -> set[str]:
     keys = {
@@ -783,7 +819,7 @@ def _prime_source_control_cache() -> bool:
             logger.warning("Bulk source-control cache load failed (%s)", type(exc).__name__)
             return _prime_default_source_controls(keys, ttl_seconds=15)
         finally:
-            conn.close()
+            _release_db_connection(conn)
 
 
 def _prime_default_source_controls(keys: set[str], *, ttl_seconds: int) -> bool:
@@ -826,7 +862,7 @@ def _control_enabled(control_key: str, default: bool = True) -> bool:
     except Exception:
         return default
     finally:
-        conn.close()
+        _release_db_connection(conn)
 
 def _set_control_enabled(control_key: str, enabled: bool) -> bool:
     if not _ensure_schema():
@@ -847,7 +883,7 @@ def _set_control_enabled(control_key: str, enabled: bool) -> bool:
         conn.rollback()
         return False
     finally:
-        conn.close()
+        _release_db_connection(conn)
 
 def _presskit_provider_configured() -> bool:
     manifest_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "approved_presskit_images.json")
@@ -946,7 +982,7 @@ def _db_fetch_all() -> list[dict[str, Any]]:
     except Exception:
         return []
     finally:
-        conn.close()
+        _release_db_connection(conn)
 
 def _db_search_articles(query: str, limit: int = 60) -> list[dict[str, Any]] | None:
     query = _clean_text(query, 160)
@@ -983,7 +1019,7 @@ def _db_search_articles(query: str, limit: int = 60) -> list[dict[str, Any]] | N
     except Exception:
         return None
     finally:
-        conn.close()
+        _release_db_connection(conn)
 
 def _db_fetch_articles_needing_editorial(limit: int = 4) -> list[dict[str, Any]]:
     if not GEMINI_API_KEY or genai is None or types is None or not _ensure_schema():
@@ -1016,7 +1052,7 @@ def _db_fetch_articles_needing_editorial(limit: int = 4) -> list[dict[str, Any]]
     except Exception:
         return []
     finally:
-        conn.close()
+        _release_db_connection(conn)
 
 def _db_fetch_articles_needing_images(limit: int = 6) -> list[dict[str, Any]]:
     if not _ensure_schema():
@@ -1054,7 +1090,7 @@ def _db_fetch_articles_needing_images(limit: int = 6) -> list[dict[str, Any]]:
         logger.debug("Image backfill query failed (%s)", type(exc).__name__)
         return []
     finally:
-        conn.close()
+        _release_db_connection(conn)
 
 def _db_update_article_images(articles: list[dict[str, Any]]) -> int:
     eligible = [item for item in articles if item.get("source_url")]
@@ -1092,7 +1128,7 @@ def _db_update_article_images(articles: list[dict[str, Any]]) -> int:
         logger.warning("Image backfill update failed (%s)", type(exc).__name__)
         return 0
     finally:
-        conn.close()
+        _release_db_connection(conn)
 
 def _backfill_missing_article_images(limit: int = 6) -> int:
     """Repair missing photos and re-check stale image matches in small batches."""
@@ -1171,7 +1207,7 @@ def _db_last_fetched_at() -> datetime | None:
         logger.debug("Could not read latest persisted news timestamp (%s)", type(exc).__name__)
         return cached_value
     finally:
-        conn.close()
+        _release_db_connection(conn)
 
 def _db_upsert_many(articles: list[dict[str, Any]]) -> bool:
     if not articles or not _ensure_schema():
@@ -1244,7 +1280,7 @@ def _db_upsert_many(articles: list[dict[str, Any]]) -> bool:
         logger.exception("Could not save fetched articles")
         return False
     finally:
-        conn.close()
+        _release_db_connection(conn)
 
 _REFRESH_LOCK = threading.Lock()
 _STATE_LOCK = threading.Lock()
@@ -1820,7 +1856,7 @@ def _db_count_gemini_images_last_24h() -> int | None:
         logger.warning("Could not read Gemini image quota (%s)", type(exc).__name__)
         return None
     finally:
-        conn.close()
+        _release_db_connection(conn)
 
 def _store_gemini_generated_image(image_bytes: bytes, prompt: str) -> str:
     if not image_bytes or len(image_bytes) > 8 * 1024 * 1024 or not _ensure_schema():
@@ -1843,7 +1879,7 @@ def _store_gemini_generated_image(image_bytes: bytes, prompt: str) -> str:
         logger.warning("Could not persist Gemini-generated image (%s)", type(exc).__name__)
         return ""
     finally:
-        conn.close()
+        _release_db_connection(conn)
 
 def _read_gemini_generated_image(image_id: str) -> tuple[bytes, str] | None:
     if not re.fullmatch(r"[a-f0-9]{32}", image_id or "") or not _ensure_schema():
@@ -1868,7 +1904,7 @@ def _read_gemini_generated_image(image_id: str) -> tuple[bytes, str] | None:
         logger.debug("Generated image read failed (%s)", type(exc).__name__)
         return None
     finally:
-        conn.close()
+        _release_db_connection(conn)
 
 def _build_gemini_image_prompt(raw: dict[str, Any]) -> str:
     lang = str(raw.get("original_language") or "en").lower()
@@ -2855,7 +2891,7 @@ def _repair_existing_articles_from_rss(
         logger.warning("Existing RSS excerpt repair failed (%s)", type(exc).__name__)
         return 0
     finally:
-        conn.close()
+        _release_db_connection(conn)
 
     if updated:
         for memory_row in _MEMORY_ARTICLES.values():
@@ -2943,7 +2979,7 @@ def _persist_shared_gemini_cooldown(reason: str, *, state_key: str = "gemini_coo
         logger.debug("Could not persist shared Gemini cooldown (%s)", type(exc).__name__)
         return False
     finally:
-        conn.close()
+        _release_db_connection(conn)
 
 
 def _shared_gemini_cooldown_remaining(state_key: str = "gemini_cooldown") -> tuple[int, str]:
@@ -2981,7 +3017,7 @@ def _shared_gemini_cooldown_remaining(state_key: str = "gemini_cooldown") -> tup
         logger.debug("Could not read shared Gemini cooldown (%s)", type(exc).__name__)
         return 0, ""
     finally:
-        conn.close()
+        _release_db_connection(conn)
 
 
 def _translate_batch(raw_articles: list[dict[str, Any]]) -> dict[int, dict[str, str]]:
@@ -3980,7 +4016,10 @@ def article(slug: str):
 def news_status():
     # The scheduler runs independently; this endpoint only reports current status.
     persisted_at = _db_last_fetched_at()
-    db_status = _probe_database()
+    # Public polling is frequent; report the latest cached DB status instead of opening a
+    # separate SELECT 1 connection for every status refresh. The protected admin monitor
+    # retains an explicit active DB probe.
+    db_status = dict(_LAST_DB_STATUS)
     timestamps = [value for value in (persisted_at, _LAST_REFRESH_AT) if isinstance(value, datetime)]
     normalised = [value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value for value in timestamps]
     last_refresh_at = max(normalised) if normalised else None
@@ -4025,6 +4064,48 @@ def news_status():
         "last_gemini_error": dict(_LAST_GEMINI_ERROR),
         "setup_issues": _news_setup_issues(),
     }), 200
+
+@app.post("/api/internal/refresh")
+def scheduled_refresh_api():
+    """Authenticated webhook used by an external 30-minute scheduler."""
+    expected_token = NEWS_REFRESH_WEBHOOK_TOKEN
+    if len(expected_token) < 32:
+        return jsonify({"state": "not_configured"}), 503
+    authorization = str(request.headers.get("Authorization") or "")
+    prefix = "Bearer "
+    if not authorization.startswith(prefix):
+        return jsonify({"error": "not_found"}), 404
+    supplied_token = authorization[len(prefix):].strip()
+    if not secrets.compare_digest(supplied_token, expected_token):
+        return jsonify({"error": "not_found"}), 404
+    if not NEWS_AUTO_FETCH:
+        return jsonify({"state": "disabled"}), 503
+
+    global _REFRESHING, _LAST_REFRESH_ATTEMPT, _LAST_REFRESH_STATE, _LAST_REFRESH_ERROR
+    now = time.monotonic()
+    with _STATE_LOCK:
+        if _REFRESHING:
+            return jsonify({"state": "already_running"}), 202
+        # Treat simultaneous/repeated scheduler calls as an idempotent no-op.
+        if _LAST_REFRESH_ATTEMPT and now - _LAST_REFRESH_ATTEMPT < 60:
+            return jsonify({"state": "recently_started"}), 202
+        _REFRESHING = True
+        _LAST_REFRESH_ATTEMPT = now
+        _LAST_REFRESH_STATE = "running"
+        _LAST_REFRESH_ERROR = ""
+
+    try:
+        thread = threading.Thread(target=_refresh_news_job, name="world-pulse-scheduled-refresh", daemon=True)
+        thread.start()
+    except Exception as exc:
+        with _STATE_LOCK:
+            _REFRESHING = False
+            _LAST_REFRESH_STATE = "error"
+            _LAST_REFRESH_ERROR = "Could not start scheduled refresh."
+        logger.error("Could not start scheduled refresh thread (%s)", type(exc).__name__)
+        return jsonify({"state": "start_failed"}), 500
+    return jsonify({"state": "started"}), 202
+
 
 @app.post("/api/refresh")
 def refresh_news_api():
@@ -4439,7 +4520,7 @@ def _remove_article_image(slug: str) -> bool:
         logger.exception("Could not remove article image from admin panel")
         return changed
     finally:
-        conn.close()
+        _release_db_connection(conn)
 
 def _run_image_storage_probe() -> dict[str, Any]:
     """Persist and reload a tiny diagnostic JPEG without using the Gemini API."""

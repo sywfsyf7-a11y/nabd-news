@@ -51,7 +51,7 @@ The application normalizes the configured shared Supabase pooler URL before pass
 
 
 ## Image sourcing
-Images are selected by searching title phrases that combine distinct headline terms with RSS-excerpt context. Wikimedia Commons and Openverse are tried first with explicit item-level reuse checks; when that query has no match, the shorter headline is retried against open catalogues. Library of Congress, NASA, and approved press-kit sources follow when relevant. The active production chain does not rely on Pexels or Unsplash APIs. Photographer attribution, item page, provider, and licence link are retained. If no suitable photo is found, the site uses a distinct local 16:9 editorial SVG, not a generic A.jpg/E.jpg fallback.
+Images are selected by searching title phrases that combine distinct headline terms with RSS-excerpt context. Wikimedia Commons and Openverse are tried first with explicit item-level reuse checks; when that query has no match, the shorter headline is retried against open catalogues. Library of Congress, NASA, and approved press-kit sources follow when relevant. The active production chain does not rely on Pexels or Unsplash APIs. Photographer attribution, item page, provider, and licence link are retained. If no suitable, rights-checked photo is found, the site uses the brand-owned `static/A.jpg` or `static/E.jpg` fallback according to article language.
 
 ## Article reading experience
 Article pages include a prominent original-source link, an optional Arabic/English edition switch when both versions exist, clear labeling for AI-generated illustrative images, a compact source/timestamp/language metadata panel, and a sticky related-stories column on wide screens. Source attribution and licence links remain visible when provided.
@@ -76,6 +76,24 @@ python -m unittest discover -s tests -v
 
 The automated test suite covers language/source enforcement, Openverse licence filtering (CC0/PDM/CC BY/CC BY-SA), attribution metadata, inactive stock-provider exclusion, title/context query variants, image relevance scoring, image fallback rendering, and NASA/Commons rights policy. Live credentials, the production database, external API quotas and the actual rights status of individual images cannot be certified by unit tests alone; monitor `/api/news-status`, `/admin/monitor` and Render logs.
 
+### Scheduled refresh and connection guardrails
+
+The web service has a per-worker PostgreSQL connection concurrency cap (`DB_MAX_CONCURRENT_CONNECTIONS`, default 3; maximum 6) and a bounded wait (`DB_CONNECTION_WAIT_SECONDS`, default 2). With two Gunicorn workers and the default cap, application code opens at most six DB connections concurrently in that web-service instance. Every checked-out connection is closed in a `finally` block and releases its slot. This is a concurrency guard, not a substitute for using the Supabase Transaction Pooler URL on the configured pooler port.
+
+The public `/api/news-status` endpoint reports cached database health instead of issuing a separate `SELECT 1` connection on every poll. The protected admin monitor keeps an active database probe for diagnostics.
+
+For reliable scheduled triggering independent of homepage visits, `trigger_news_refresh.py` can be run by a Render Cron Job every 30 minutes with:
+
+- Command: `python trigger_news_refresh.py`
+- Schedule: `*/30 * * * *` (Render schedules are in UTC).
+- `NEWS_REFRESH_TARGET_URL=https://nabd-news.onrender.com`
+- `NEWS_REFRESH_WEBHOOK_TOKEN`: the same random value (at least 32 characters) set on the web service and the Cron Job.
+
+The trigger uses HTTPS and sends the token only in an Authorization header. The web app's `POST /api/internal/refresh` endpoint is disabled until a valid token is configured and returns a non-disclosing response for incorrect tokens. The Cron Job does not need the Supabase URL or Gemini API key.
+
+Once the Cron Job is created and verified, set `NEWS_SCHEDULER_ENABLED=false` on the web service so the in-process scheduler does not compete with the external schedule. Keep it enabled when no external scheduler is configured. Creating a Render Cron Job may incur a separate recurring charge; the code path alone does not create or enable that paid service.
+
+
 ### Fast article navigation
 
 The sorted and deduplicated display pool is cached per language for a short period to avoid repeating a full article-list scan on every article click. Database writes invalidate both the database-row cache and display-pool cache. This is a performance cache only; article records remain in Supabase.
@@ -86,7 +104,7 @@ Article records and image URLs, source attribution, provider links, licence meta
 
 ### Continuous refresh while a page stays open
 
-The browser checks `/api/news-status` once a minute. That endpoint also checks whether a scheduled news refresh is due, so an already-open page can start the next refresh without requiring the reader to reload the homepage or press the refresh button. RSS stories without a publisher timestamp are ordered using their database fetch time so newly saved entries are not buried behind older dated stories. The app still requires requests to reach the web service; this is not a separate cron worker that fetches news while the site is completely idle.
+The web app starts an in-process scheduler after its first request and the scheduler then checks the refresh interval in the background. The operating-system lock prevents duplicate scheduler leaders among workers on the same Render instance, but this thread cannot survive a service sleep, restart or suspension. The public `/api/news-status` endpoint reports status only; it is not the scheduler. For a schedule that must fire even without visitors, configure the separate Cron trigger described under “Scheduled refresh and connection guardrails” and disable `NEWS_SCHEDULER_ENABLED` only after that Cron Job is verified.
 
 ### Refresh reliability during Gemini quota errors
 Google News RSS discovery is restricted to the most recent seven days so high-relevance older stories are less likely to crowd fresh items out of the ingestion batch. If an RSS item has no excerpt and Gemini is unavailable, the site stores a transparent source-language note directing readers to the publisher instead of inserting an empty summary that hides the headline. Gemini rate-limit and temporary server-error cooldowns are shared through Supabase so separate Gunicorn workers do not repeatedly call an unavailable model. Automatic image backfills rotate by oldest image-check time; manual image refresh waits briefly for the current news refresh lock rather than being silently discarded.

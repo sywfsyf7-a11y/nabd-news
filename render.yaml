@@ -20,6 +20,8 @@ services:
         value: "true"
       - key: NEWS_SCHEDULER_ENABLED
         value: "true"
+      - key: NEWS_REFRESH_WEBHOOK_TOKEN
+        generateValue: true
       - key: NEWS_REFRESH_MINUTES
         value: "30"
       - key: GEMINI_IMAGE_MODEL
