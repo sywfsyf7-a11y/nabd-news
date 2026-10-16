@@ -790,6 +790,7 @@ class SourcePolicyTests(unittest.TestCase):
         self.assertIn("license=cc0%2Cpdm%2Cby%2Cby-sa", request.full_url)
         self.assertIn("license_type=commercial", request.full_url)
         self.assertIn("/v1/images/image-cc-by-sa/thumb/", result["image_cache_url"])
+        self.assertIn("full_size=true&compressed=true", result["image_cache_url"])
 
     def test_active_image_search_uses_openverse_without_unsplash_or_pexels_keys(self):
         from unittest.mock import patch
@@ -859,7 +860,8 @@ class SourcePolicyTests(unittest.TestCase):
         fake_cursor.fetchall.return_value = []
         with patch.object(world_pulse, "_ensure_schema", return_value=True):
             with patch.object(world_pulse, "_connect_db", return_value=fake_connection):
-                world_pulse._db_fetch_articles_needing_images(24)
+                with patch.object(world_pulse, "_release_db_connection"):
+                    world_pulse._db_fetch_articles_needing_images(24)
         query = fake_cursor.execute.call_args.args[0]
         self.assertIn("fallback_ar", query)
         self.assertIn("fallback_en", query)
