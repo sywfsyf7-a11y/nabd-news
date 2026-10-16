@@ -87,9 +87,10 @@ NEWS_AUTO_FETCH = os.getenv("NEWS_AUTO_FETCH", "true").lower() not in {"0", "fal
 NEWS_SCHEDULER_ENABLED = os.getenv("NEWS_SCHEDULER_ENABLED", "true").lower() not in {"0", "false", "no"}
 NEWS_SCHEDULER_POLL_SECONDS = max(15, min(120, int(os.getenv("NEWS_SCHEDULER_POLL_SECONDS", "30"))))
 RSS_TIMEOUT_SECONDS = max(2, int(os.getenv("RSS_TIMEOUT_SECONDS", "6")))
-RSS_BATCH_TIMEOUT_SECONDS = max(8, min(60, int(os.getenv("RSS_BATCH_TIMEOUT_SECONDS", "20"))))
+RSS_BATCH_TIMEOUT_SECONDS = max(8, min(60, int(os.getenv("RSS_BATCH_TIMEOUT_SECONDS", "35"))))
 IMAGE_ENRICHMENT_BATCH_TIMEOUT_SECONDS = max(5, min(120, int(os.getenv("IMAGE_ENRICHMENT_BATCH_TIMEOUT_SECONDS", "65"))))
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
+GEMINI_FALLBACK_MODEL = os.getenv("GEMINI_FALLBACK_MODEL", "gemini-3.5-flash-lite").strip()
 GEMINI_IMAGE_MODEL = os.getenv("GEMINI_IMAGE_MODEL", "gemini-nano-banana-2.1").strip()
 GEMINI_IMAGE_GENERATION_ENABLED = os.getenv("GEMINI_IMAGE_GENERATION_ENABLED", "false").lower() not in {"0", "false", "no"}
 MAX_GEMINI_IMAGES_PER_REFRESH = max(0, min(4, int(os.getenv("MAX_GEMINI_IMAGES_PER_REFRESH", "1"))))
@@ -2561,7 +2562,11 @@ def _parse_any_rss(feed_url: str, category: str, lang: str, default_source: str)
         logger.debug("Google News RSS parse failed for %s/%s", category, lang, exc_info=True)
         return category, lang, []
 
-def _parse_feed_task(category: str, lang: str) -> tuple[str, str, list[dict[str, Any]]]:
+def _parse_feed_task(
+    category: str,
+    lang: str,
+    source_group: tuple[str, ...] | None = None,
+) -> tuple[str, str, list[dict[str, Any]]]:
     query = CATEGORY_QUERIES[category][lang]
     domains = [
         domain for domain in CATEGORY_SOURCE_DOMAINS.get(category, {}).get(lang, [])
@@ -2571,18 +2576,28 @@ def _parse_feed_task(category: str, lang: str) -> tuple[str, str, list[dict[str,
     # Never fall back to an unrestricted Google News search when no sources are eligible.
     if not domains:
         return category, lang, []
-    # Keep the RSS request short: placing every allowlisted domain in one large
-    # site:... OR ... expression makes some Google News queries very slow or stall.
-    # _parse_any_rss still enforces the exact language/category publisher allowlist
-    # on every returned item before it can enter the catalogue.
-    query = f"({query}) when:7d"
+
+    # Target a small rotating group of allowlisted publishers per cycle. The old broad
+    # category query returned mostly non-allowlisted publishers, which were then filtered
+    # out and could leave very few usable stories. The result parser still validates every
+    # returned publisher, language, category, and rights mode before accepting it.
+    if source_group is not None:
+        requested_domains = [domain for domain in source_group if domain in domains]
+        if not requested_domains:
+            return category, lang, []
+        domain_query = " OR ".join(f"site:{domain}" for domain in requested_domains)
+        query = f"({query}) ({domain_query}) when:3d"
+    else:
+        # Backward-compatible path for direct callers and tests.
+        query = f"({query}) when:7d"
+
     if lang == "ar":
         locale = {"hl": "ar", "gl": "JO", "ceid": "JO:ar"}
     else:
         locale = {"hl": "en-US", "gl": "US", "ceid": "US:en"}
     params = {"q": query, **locale}
     feed_url = "https://news.google.com/rss/search?" + urlencode(params)
-    return _parse_any_rss(feed_url, category, lang, "Google News RSS · allowlisted publisher discovery")
+    return _parse_any_rss(feed_url, category, lang, "Google News RSS · rotating allowlisted publisher group")
 
 def _slug_for_url(url: str) -> str:
     return "story-" + hashlib.sha256(url.encode("utf-8")).hexdigest()[:18]
@@ -2667,21 +2682,42 @@ def _log_rss_selection(stories: list[dict[str, Any]], candidates_before_selectio
 def _collect_rss_articles() -> list[dict[str, Any]]:
     # Warm source enable/disable state before fan-out to the parallel RSS workers.
     _prime_source_control_cache()
-    tasks = [
-        (category, lang)
-        for category in CATEGORY_NAMES
-        for lang in ("ar", "en")
-    ]
+    tasks: list[tuple[str, str, tuple[str, ...]]] = []
+    # Google News RSS returns a small relevance-ranked slice for broad queries. Rotate
+    # through groups of four eligible publisher domains and scan two groups per category
+    # and language each cycle. This increases source diversity without fanning out to every
+    # publisher simultaneously; the next cycle naturally advances to the following groups.
+    rotation_bucket = int(time.time() // max(900, NEWS_REFRESH_MINUTES * 60))
+    for category in CATEGORY_NAMES:
+        for lang in ("ar", "en"):
+            eligible_domains = [
+                domain for domain in CATEGORY_SOURCE_DOMAINS.get(category, {}).get(lang, [])
+                if _control_enabled(f"news:{category}:{lang}:{domain}", True)
+                and (not _domain_needs_license(domain) or _is_headline_only_domain(domain))
+            ]
+            groups = [
+                tuple(eligible_domains[index:index + 4])
+                for index in range(0, len(eligible_domains), 4)
+            ]
+            if not groups:
+                continue
+            first_group = rotation_bucket % len(groups)
+            selected_group_indexes = [first_group]
+            if len(groups) > 1:
+                selected_group_indexes.append((first_group + 1) % len(groups))
+            for group_index in selected_group_indexes:
+                tasks.append((category, lang, groups[group_index]))
+
     by_category: dict[str, list[dict[str, Any]]] = {key: [] for key in CATEGORY_NAMES}
     batch_started = time.monotonic()
     logger.info(
-        "RSS discovery started: feeds=%d per_feed_timeout=%ds batch_timeout=%ds",
+        "RSS discovery started: feeds=%d per_feed_timeout=%ds batch_timeout=%ds rotating_publisher_groups=true",
         len(tasks), RSS_TIMEOUT_SECONDS, RSS_BATCH_TIMEOUT_SECONDS,
     )
     pool = ThreadPoolExecutor(max_workers=min(20, len(tasks)))
     futures = {
-        pool.submit(_parse_feed_task, category, lang): (category, lang)
-        for category, lang in tasks
+        pool.submit(_parse_feed_task, category, lang, source_group): (category, lang)
+        for category, lang, source_group in tasks
     }
     completed = 0
     failed = 0
@@ -3144,15 +3180,38 @@ def _translate_batch(raw_articles: list[dict[str, Any]]) -> dict[int, dict[str, 
         try:
             if client is None:
                 client = genai.Client(api_key=GEMINI_API_KEY, http_options=types.HttpOptions(timeout=GEMINI_TIMEOUT_SECONDS * 1000))
-            response = client.models.generate_content(
-                model=GEMINI_MODEL,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    temperature=0.25,
-                    max_output_tokens=6144,
-                ),
+            active_model = GEMINI_MODEL
+            generation_config = types.GenerateContentConfig(
+                response_mime_type="application/json",
+                temperature=0.25,
+                max_output_tokens=6144,
             )
+            try:
+                response = client.models.generate_content(
+                    model=active_model,
+                    contents=prompt,
+                    config=generation_config,
+                )
+            except Exception as primary_exc:
+                # A single alternative model attempt is reserved for upstream 5xx errors.
+                # Do not retry a 429 with a second model; that can worsen quota pressure.
+                if (
+                    not _is_gemini_transient_server_error(primary_exc)
+                    or not GEMINI_FALLBACK_MODEL
+                    or GEMINI_FALLBACK_MODEL == GEMINI_MODEL
+                ):
+                    raise
+                active_model = GEMINI_FALLBACK_MODEL
+                logger.warning(
+                    "Gemini primary model unavailable (model=%s); trying configured fallback model=%s once",
+                    GEMINI_MODEL,
+                    active_model,
+                )
+                response = client.models.generate_content(
+                    model=active_model,
+                    contents=prompt,
+                    config=generation_config,
+                )
             response_text = (response.text or "").strip()
             response_text = re.sub(r"^```(?:json)?\s*|\s*```$", "", response_text, flags=re.I)
             parsed = json.loads(response_text)
@@ -3207,7 +3266,7 @@ def _translate_batch(raw_articles: list[dict[str, Any]]) -> dict[int, dict[str, 
             )
             logger.warning(
                 "Gemini editorial enrichment failed (model=%s batch=%d-%d error=%s rate_limited=%s transient_server_error=%s)",
-                GEMINI_MODEL, batch_start, batch_end - 1, type(exc).__name__, rate_limited, transient_server_error,
+                active_model, batch_start, batch_end - 1, type(exc).__name__, rate_limited, transient_server_error,
             )
             with _GEMINI_STATUS_LOCK:
                 _LAST_GEMINI_ERROR.update({
