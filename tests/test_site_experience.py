@@ -665,7 +665,7 @@ class SiteExperienceTests(unittest.TestCase):
             result = world_pulse._search_image_provider_group("test", finders)
 
         self.assertEqual(result["image_url"], high_relevance["image_url"])
-        self.assertNotIn("_image_relevance_score", result)
+        self.assertEqual(result["_image_relevance_score"], 0.86)
 
     def test_image_provider_group_returns_first_configured_priority_match(self):
         first = {"image_url": "https://images.example.com/commons.jpg", "image_source": "wikimedia_relevant"}
