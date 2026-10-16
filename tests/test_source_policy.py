@@ -278,7 +278,8 @@ class SourcePolicyTests(unittest.TestCase):
         with patch.object(world_pulse, "_search_any_reusable_image", return_value={}) as reusable:
             with patch.object(world_pulse, "_generate_gemini_article_image", return_value=generated) as generator:
                 result = world_pulse._resolve_article_image(article)
-        reusable.assert_called_once()
+        self.assertEqual(reusable.call_count, 2)
+        self.assertEqual(reusable.call_args_list[1].kwargs, {"open_only": True})
         generator.assert_called_once_with(article)
         self.assertEqual(result["image_source"], "gemini_generated")
         self.assertEqual(result["image_url"], generated["image_url"])
