@@ -36,10 +36,14 @@ class SiteExperienceTests(unittest.TestCase):
             template = handle.read()
         self.assertIn("if (!document.hidden) loadStatus();", template)
         self.assertIn("}, 120000);", template)
+        self.assertIn("filename='css/site.css'", template)
+        self.assertNotIn("cdn.tailwindcss.com", template)
         self.assertNotIn(
             "if (knownRefreshAt !== null && status.last_refresh_at && status.last_refresh_at !== knownRefreshAt)",
             template,
         )
+        tailwind_config_path = os.path.join(os.path.dirname(world_pulse.__file__), "tailwind.config.js")
+        self.assertTrue(os.path.exists(tailwind_config_path))
 
     def test_rss_excerpt_is_displayed_as_details_when_editorial_ai_is_unavailable(self):
         excerpt = (
