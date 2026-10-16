@@ -106,7 +106,7 @@ MAX_ARTICLES_PER_REFRESH = max(8, min(32, int(os.getenv("MAX_ARTICLES_PER_REFRES
 MAX_ARTICLES_PER_CATEGORY = max(1, min(5, int(os.getenv("MAX_ARTICLES_PER_CATEGORY", "3"))))
 RSS_CANDIDATES_PER_CATEGORY = max(3, min(8, int(os.getenv("RSS_CANDIDATES_PER_CATEGORY", "6"))))
 MAX_RSS_CANDIDATES = max(32, min(96, MAX_ARTICLES_PER_REFRESH * 4))
-RSS_ENTRIES_PER_FEED = max(24, min(60, int(os.getenv("RSS_ENTRIES_PER_FEED", "48"))))
+RSS_ENTRIES_PER_FEED = max(24, min(60, int(os.getenv("RSS_ENTRIES_PER_FEED", "24"))))
 IMAGE_SEARCH_TIMEOUT_SECONDS = max(3, min(12, int(os.getenv("IMAGE_SEARCH_TIMEOUT_SECONDS", "5"))))
 MAX_IMAGE_LOOKUPS_PER_REFRESH = max(0, min(32, int(os.getenv("MAX_IMAGE_LOOKUPS_PER_REFRESH", "24"))))
 IMAGE_RETRY_AFTER_HOURS = max(1, min(168, int(os.getenv("IMAGE_RETRY_AFTER_HOURS", "1"))))
@@ -264,6 +264,14 @@ CATEGORY_SOURCE_DOMAINS = {
     },
 }
 
+# Precompute publisher-to-category membership once. Building this mapping inside
+# _classify_story multiplied the work by every candidate RSS entry during each refresh.
+_DOMAIN_CATEGORY_LOOKUP: dict[str, set[str]] = {}
+for _category_key, _language_map in CATEGORY_SOURCE_DOMAINS.items():
+    for _configured_domains in _language_map.values():
+        for _configured_domain in _configured_domains:
+            _DOMAIN_CATEGORY_LOOKUP.setdefault(_configured_domain, set()).add(_category_key)
+
 CATEGORY_MATCH_TERMS = {
     "politics": [
         "سياسة", "سياسي", "الحكومة", "حكوم", "الانتخابات", "انتخاب", "برلمان", "رئيس الوزراء", "دبلوماس", "وزير", "عقوبات", "سفارة", "politics", "political", "election", "government", "parliament", "diplomacy", "minister", "president", "sanctions", "senate", "congress", "policy",
@@ -304,12 +312,7 @@ def _classify_story(title: str, summary: str, fallback_category: str, source_dom
                 scores[category] += 1.0 if " " not in needle else 1.4
 
     domain = (source_domain or "").casefold().removeprefix("www.")
-    domain_categories: dict[str, set[str]] = {}
-    for cat, language_map in CATEGORY_SOURCE_DOMAINS.items():
-        for domains in language_map.values():
-            for candidate in domains:
-                domain_categories.setdefault(candidate, set()).add(cat)
-    for candidate, cats in domain_categories.items():
+    for candidate, cats in _DOMAIN_CATEGORY_LOOKUP.items():
         if len(cats) == 1 and _domain_matches(domain, candidate):
             scores[next(iter(cats))] += 2.0
             break
@@ -2781,7 +2784,7 @@ def _collect_rss_articles() -> list[dict[str, Any]]:
             url_key = _canonical_story_url(url)
             if not url_key or url_key in seen_urls:
                 continue
-            if any(_stories_are_near_duplicates(item, old) for old in accepted_stories[-160:]):
+            if any(_stories_are_near_duplicates(item, old) for old in accepted_stories[-80:]):
                 continue
             seen_urls.add(url_key)
             item["slug"] = _slug_for_url(url)
