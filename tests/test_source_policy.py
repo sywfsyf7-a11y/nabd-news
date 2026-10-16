@@ -14,18 +14,32 @@ class SourcePolicyTests(unittest.TestCase):
             "",
         )
 
-    def test_language_site_rejects_wrong_language_and_unknown_domains(self):
+    def test_bilingual_feed_accepts_native_sources_on_either_interface_language(self):
         arabic_story = {
             "category": "technology",
             "original_language": "ar",
             "source_domain": "aitnews.com",
             "source_name": "AIT News",
+            "title_ar": "عنوان تقني",
+            "title_en": "",
+            "summary_ar": "موجز المصدر",
+            "summary_en": "",
         }
         self.assertTrue(world_pulse._row_allowed_on_language_site(arabic_story, "ar"))
-        self.assertFalse(world_pulse._row_allowed_on_language_site(arabic_story, "en"))
+        self.assertTrue(world_pulse._row_allowed_on_language_site(arabic_story, "en"))
+        english_story = dict(arabic_story, original_language="en", source_domain="theverge.com")
+        self.assertTrue(world_pulse._row_allowed_on_language_site(english_story, "ar"))
+        self.assertTrue(world_pulse._row_allowed_on_language_site(english_story, "en"))
 
         unapproved = dict(arabic_story, source_domain="unknown.example")
         self.assertFalse(world_pulse._row_allowed_on_language_site(unapproved, "ar"))
+        self.assertFalse(world_pulse._row_allowed_on_language_site(unapproved, "en"))
+
+    def test_saudi_gamer_is_in_the_arabic_gaming_source_catalog(self):
+        self.assertEqual(
+            world_pulse._source_domain_for_category("gaming", "ar", "www.saudigamer.com"),
+            "saudigamer.com",
+        )
 
     def test_bbc_al_jazeera_and_cnn_catalog_policies(self):
         self.assertEqual(world_pulse._source_domain_for_category("world", "ar", "www.aljazeera.net"), "aljazeera.net")
@@ -215,7 +229,7 @@ class SourcePolicyTests(unittest.TestCase):
             "original_summary": "ملخص قصير عن الأجهزة المتصلة",
         }
         with patch.object(world_pulse.genai, "Client", return_value=fake_client):
-            with patch.object(world_pulse, "GEMINI_API_KEY", "test-key"):
+            with patch.object(world_pulse, "GEMINI_API_KEY", "test-key"), patch.object(world_pulse, "MAX_GEMINI_API_CALLS_PER_REFRESH", 4):
                 with patch.object(world_pulse, "GEMINI_IMAGE_GENERATION_ENABLED", True):
                     with patch.object(world_pulse, "_control_enabled", return_value=True):
                         with patch.object(world_pulse, "_store_gemini_generated_image", return_value="b" * 32) as store:
@@ -420,7 +434,7 @@ class SourcePolicyTests(unittest.TestCase):
             for i in range(8)
         ]
         with patch.object(world_pulse.genai, "Client", return_value=fake_client):
-            with patch.object(world_pulse, "GEMINI_API_KEY", "test-key"):
+            with patch.object(world_pulse, "GEMINI_API_KEY", "test-key"), patch.object(world_pulse, "MAX_GEMINI_API_CALLS_PER_REFRESH", 4):
                 with patch.object(world_pulse, "_GEMINI_RATE_LIMIT_UNTIL", 0.0):
                     with patch.object(world_pulse, "GEMINI_429_COOLDOWN_MINUTES", 60):
                         result = world_pulse._translate_batch(articles)
@@ -457,7 +471,7 @@ class SourcePolicyTests(unittest.TestCase):
             for i in range(12)
         ]
         with patch.object(world_pulse.genai, "Client", return_value=fake_client):
-            with patch.object(world_pulse, "GEMINI_API_KEY", "test-key"):
+            with patch.object(world_pulse, "GEMINI_API_KEY", "test-key"), patch.object(world_pulse, "MAX_GEMINI_API_CALLS_PER_REFRESH", 4):
                 with patch.object(world_pulse, "_GEMINI_RATE_LIMIT_UNTIL", 0.0):
                     with patch.object(world_pulse, "_GEMINI_TRANSIENT_ERROR_UNTIL", 0.0):
                         with patch.object(world_pulse, "GEMINI_TRANSIENT_ERROR_COOLDOWN_MINUTES", 10):

@@ -131,11 +131,6 @@
           <svg id="moonIcon" viewBox="0 0 24 24" class="hidden h-4 w-4" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M20.5 14.3A8.5 8.5 0 0 1 9.7 3.5 8.6 8.6 0 1 0 20.5 14.3Z" stroke-linecap="round" stroke-linejoin="round"/></svg>
           <span class="hidden sm:inline">{{ ui.theme_toggle }}</span>
         </button>
-        <button id="refreshNews" type="button" aria-label="{{ ui.refresh_news }}" title="{{ ui.refresh_news }}"
-                class="inline-flex items-center gap-2 rounded-full bg-pulse px-3 py-2 text-xs font-extrabold text-white transition hover:bg-rose-500 disabled:cursor-wait disabled:opacity-70">
-          <svg id="refreshIcon" viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5" stroke-linecap="round" stroke-linejoin="round"/><path d="M5.6 9A7 7 0 0 1 18 6l2 6M4 12l2 6a7 7 0 0 0 12.4-3" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          <span id="refreshButtonText" class="hidden sm:inline">{{ ui.refresh_news }}</span>
-        </button>
         <a href="{{ url_for('index', lang='en' if lang == 'ar' else 'ar') }}"
            class="shrink-0 rounded-full border border-white/20 px-3 py-2 text-xs font-bold transition hover:border-white/60 hover:bg-white/10"
            aria-label="{{ 'Switch language' if lang == 'ar' else 'تغيير اللغة' }}">
@@ -174,11 +169,6 @@
         {% endfor %}
       </div>
     </nav>
-    <div class="border-t border-slate-200/60">
-      <div class="mx-auto flex max-w-7xl items-center justify-end px-4 py-2 sm:px-6 lg:px-8">
-        <p id="newsStatusText" role="status" aria-live="polite" class="text-[11px] font-medium text-slate-500">{{ ui.auto_refresh.replace('{minutes}', news_refresh_interval|string) }}</p>
-      </div>
-    </div>
   </header>
 
   <form action="{{ url_for('search', lang=lang) }}" method="get" role="search" class="mx-auto flex max-w-7xl items-center gap-2 px-4 pt-4 md:hidden sm:px-6 lg:px-8">
@@ -507,21 +497,6 @@
       const themeButton = document.getElementById('themeToggle');
       const sunIcon = document.getElementById('sunIcon');
       const moonIcon = document.getElementById('moonIcon');
-      const refreshButton = document.getElementById('refreshNews');
-      const refreshButtonText = document.getElementById('refreshButtonText');
-      const refreshIcon = document.getElementById('refreshIcon');
-      const statusText = document.getElementById('newsStatusText');
-      const text = {
-        lightTheme: {{ ui.theme_toggle|tojson }},
-        refresh: {{ ui.refresh_news|tojson }},
-        refreshing: {{ ui.refreshing|tojson }},
-        autoRefresh: {{ ui.auto_refresh|tojson }},
-        interval: {{ news_refresh_interval|tojson }},
-        updated: {{ ui.last_updated|tojson }},
-        cooldown: {{ ui.refresh_cooldown|tojson }},
-        error: {{ ui.refresh_error|tojson }},
-        lang: {{ lang|tojson }}
-      };
 
       function applyTheme(theme) {
         root.dataset.theme = theme;
@@ -531,90 +506,9 @@
         if (themeButton) themeButton.setAttribute('aria-pressed', String(dark));
         try { localStorage.setItem('world-pulse-theme', theme); } catch (_) {}
       }
+
       applyTheme(root.dataset.theme || 'light');
       themeButton?.addEventListener('click', () => applyTheme(root.dataset.theme === 'dark' ? 'light' : 'dark'));
-
-      function formatStatus(data) {
-        if (!statusText) return;
-        let value = text.autoRefresh.replace('{minutes}', String(text.interval));
-        if (data && data.last_refresh_at) {
-          const time = new Date(data.last_refresh_at);
-          if (!Number.isNaN(time.getTime())) {
-            const formatted = time.toLocaleString(text.lang === 'ar' ? 'ar-JO' : 'en-US', { dateStyle: 'medium', timeStyle: 'short' });
-            value += ' · ' + text.updated + ': ' + formatted;
-          }
-        }
-        statusText.textContent = value;
-      }
-
-      let statusLoading = false;
-      async function loadStatus() {
-        if (statusLoading) return;
-        statusLoading = true;
-        try {
-          const response = await fetch('/api/news-status', { cache: 'no-store' });
-          if (!response.ok) return;
-          const status = await response.json();
-          // Status polling must never reload an article the visitor is reading.
-          formatStatus(status);
-        } catch (_) { /* Status display is optional; the news page stays usable. */ }
-        finally { statusLoading = false; }
-      }
-      loadStatus();
-      // Poll less often and skip background tabs to avoid needless network/render churn.
-      window.setInterval(() => {
-        if (!document.hidden) loadStatus();
-      }, 120000);
-      document.addEventListener('visibilitychange', () => {
-        if (!document.hidden) loadStatus();
-      });
-
-      refreshButton?.addEventListener('click', async () => {
-        if (refreshButton.disabled) return;
-        refreshButton.disabled = true;
-        if (refreshButtonText) refreshButtonText.textContent = text.refreshing;
-        refreshIcon?.classList.add('animate-spin');
-        try {
-          let baselineAt = '';
-          try {
-            const baselineResponse = await fetch('/api/news-status', { cache: 'no-store' });
-            if (baselineResponse.ok) baselineAt = (await baselineResponse.json()).last_refresh_at || '';
-          } catch (_) {}
-          const response = await fetch('/api/refresh', { method: 'POST', headers: { 'Accept': 'application/json', 'X-CSRF-Token': {{ site_csrf_token|tojson }} }, cache: 'no-store' });
-          const result = await response.json();
-          if (result.state === 'cooldown') {
-            if (refreshButtonText) refreshButtonText.textContent = text.refresh;
-            if (statusText) statusText.textContent = text.cooldown;
-            return;
-          }
-          if (result.state === 'disabled') throw new Error('automatic refresh disabled');
-          for (let attempt = 0; attempt < 80; attempt++) {
-            await new Promise(resolve => setTimeout(resolve, 1500));
-            const statusResponse = await fetch('/api/news-status', { cache: 'no-store' });
-            if (!statusResponse.ok) continue;
-            const status = await statusResponse.json();
-            formatStatus(status);
-            const completedWithNewTimestamp = Boolean(status.last_refresh_at) && status.last_refresh_at !== baselineAt;
-            if (!status.running && status.state !== 'running' && completedWithNewTimestamp) {
-              if (status.state === 'error' || status.state === 'memory_only') {
-                if (statusText) statusText.textContent = text.error;
-                if (refreshButtonText) refreshButtonText.textContent = text.refresh;
-                return;
-              }
-              window.location.reload();
-              return;
-            }
-          }
-          if (statusText) statusText.textContent = text.error;
-        } catch (_) {
-          if (statusText) statusText.textContent = text.error;
-        } finally {
-          refreshIcon?.classList.remove('animate-spin');
-          refreshButton.disabled = false;
-          if (refreshButtonText) refreshButtonText.textContent = text.refresh;
-        }
-      });
-
     })();
   </script>
 </body>

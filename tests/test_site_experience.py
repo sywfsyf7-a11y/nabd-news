@@ -30,20 +30,81 @@ class SiteExperienceTests(unittest.TestCase):
                     {f"https://example.com/memory-{index}" for index in (4, 5, 6)},
                 )
 
-    def test_background_status_poll_does_not_force_reload_current_article(self):
+    def test_homepage_hides_manual_refresh_and_status_ui_but_keeps_compiled_css(self):
         template_path = os.path.join(os.path.dirname(world_pulse.__file__), "templates", "index.html")
         with open(template_path, encoding="utf-8") as handle:
             template = handle.read()
-        self.assertIn("if (!document.hidden) loadStatus();", template)
-        self.assertIn("}, 120000);", template)
+        self.assertNotIn('id="refreshNews"', template)
+        self.assertNotIn('id="newsStatusText"', template)
+        self.assertNotIn("/api/news-status", template)
+        self.assertNotIn("/api/refresh", template)
         self.assertIn("filename='css/site.css'", template)
         self.assertNotIn("cdn.tailwindcss.com", template)
-        self.assertNotIn(
-            "if (knownRefreshAt !== null && status.last_refresh_at && status.last_refresh_at !== knownRefreshAt)",
-            template,
-        )
+        self.assertIn("الأخبار تتجدد باستمرار", world_pulse.UI_TEXT["ar"]["live"])
+        self.assertIn("Continuously updated", world_pulse.UI_TEXT["en"]["live"])
         tailwind_config_path = os.path.join(os.path.dirname(world_pulse.__file__), "tailwind.config.js")
         self.assertTrue(os.path.exists(tailwind_config_path))
+
+    def test_persistent_news_queue_serialises_metadata_without_losing_native_language(self):
+        item = {
+            "slug": "queue-story",
+            "source_url": "https://saudigamer.com/story",
+            "category": "gaming",
+            "source_name": "Saudi Gamer",
+            "source_domain": "saudigamer.com",
+            "original_title": "عنوان من سعودي جيمر",
+            "original_summary": "مقتطف قصير من المصدر",
+            "published_at": datetime(2026, 10, 16, tzinfo=timezone.utc),
+            "original_language": "ar",
+            "headline_only": False,
+            "image_url": "https://not-needed.example/photo.jpg",
+            "content_en": "This body is intentionally not part of the pending queue.",
+        }
+        stored = world_pulse._serialise_news_queue_item(item)
+        restored = world_pulse._deserialise_news_queue_item(stored)
+        self.assertEqual(restored["source_url"], item["source_url"])
+        self.assertEqual(restored["original_language"], "ar")
+        self.assertEqual(restored["category"], "gaming")
+        self.assertEqual(restored["published_at"], item["published_at"])
+        self.assertNotIn("image_url", stored)
+        self.assertNotIn("content_en", stored)
+
+    def test_persistent_news_discovery_interval_is_separate_from_publish_interval(self):
+        now = datetime(2026, 10, 16, 12, 30, tzinfo=timezone.utc)
+        state = {"discovered_at": (now - timedelta(minutes=29)).isoformat(), "items": []}
+        with patch.object(world_pulse, "NEWS_DISCOVERY_REFRESH_MINUTES", 30):
+            self.assertFalse(world_pulse._news_queue_discovery_due(state, now))
+            self.assertTrue(world_pulse._news_queue_discovery_due(
+                {"discovered_at": (now - timedelta(minutes=31)).isoformat(), "items": []}, now
+            ))
+
+    def test_headline_only_article_can_appear_in_english_feed_without_fabricated_translation(self):
+        row = {
+            "slug": "aljazeera-headline",
+            "source_url": "https://www.aljazeera.net/news/world/example",
+            "source_name": "Al Jazeera",
+            "source_domain": "aljazeera.net",
+            "category": "world",
+            "original_language": "ar",
+            "title_ar": "عنوان عربي من الجزيرة",
+            "title_en": "",
+            "summary_ar": "يعرض نبض العالم العنوان ورابط الناشر فقط لهذا المصدر. افتح المصدر الأصلي لقراءة التفاصيل والسياق وآخر التحديثات.",
+            "summary_en": "",
+            "content_ar": "",
+            "content_en": "",
+            "image_url": "",
+            "image_source": "none",
+            "image_credit": "",
+            "image_credit_url": "",
+            "image_provider_url": "",
+            "image_license_url": "",
+        }
+        story = world_pulse._normalise_story(row, "en")
+        self.assertEqual(story["title"], row["title_ar"])
+        self.assertEqual(story["display_language"], "ar")
+        self.assertEqual(story["content"], "")
+        self.assertTrue(story["headline_only"])
+
 
     def test_rss_excerpt_is_displayed_as_details_when_editorial_ai_is_unavailable(self):
         excerpt = (
@@ -450,16 +511,18 @@ class SiteExperienceTests(unittest.TestCase):
             lock_path = os.path.join(tmp, "news.lock")
             with patch.dict(os.environ, {"REFRESH_LOCK_FILE": lock_path}):
                 with patch.object(world_pulse, "_ensure_schema", return_value=True):
-                    with patch.object(world_pulse, "_collect_rss_articles", return_value=[dict(raw)]):
-                        with patch.object(world_pulse, "_db_fetch_articles_needing_editorial", return_value=[]):
-                            with patch.object(world_pulse, "_db_fetch_all", return_value=[]):
-                                with patch.object(world_pulse, "_translate_batch", return_value={0: translation}):
-                                    with patch.object(world_pulse, "_db_upsert_many", side_effect=save_news):
-                                        with patch.object(world_pulse, "_enrich_article_images", side_effect=enrich):
-                                            with patch.object(world_pulse, "_avoid_repeated_news_photos"):
-                                                with patch.object(world_pulse, "_db_update_article_images", return_value=1) as image_update:
-                                                    with patch.object(world_pulse, "_backfill_missing_article_images", return_value=0):
-                                                        world_pulse._refresh_news_job()
+                    with patch.object(world_pulse, "_load_persisted_news_queue", return_value={"discovered_at": "", "items": []}):
+                        with patch.object(world_pulse, "_save_persisted_news_queue", return_value=True):
+                            with patch.object(world_pulse, "_collect_rss_articles", return_value=[dict(raw)]):
+                                with patch.object(world_pulse, "_db_fetch_articles_needing_editorial", return_value=[]):
+                                    with patch.object(world_pulse, "_db_fetch_all", return_value=[]):
+                                        with patch.object(world_pulse, "_translate_batch", return_value={0: translation}):
+                                            with patch.object(world_pulse, "_db_upsert_many", side_effect=save_news):
+                                                with patch.object(world_pulse, "_enrich_article_images", side_effect=enrich):
+                                                    with patch.object(world_pulse, "_avoid_repeated_news_photos"):
+                                                        with patch.object(world_pulse, "_db_update_article_images", return_value=1) as image_update:
+                                                            with patch.object(world_pulse, "_backfill_missing_article_images", return_value=0):
+                                                                world_pulse._refresh_news_job()
         self.assertEqual(events, ["save", "images"])
         image_update.assert_called_once()
         stored_in_memory = world_pulse._MEMORY_ARTICLES[raw["source_url"]]
@@ -641,13 +704,14 @@ class SiteExperienceTests(unittest.TestCase):
             yield futures[0]
             raise TimeoutError("image batch expired")
 
-        with patch.object(world_pulse, "_db_fetch_all", return_value=stored):
-            with patch.object(world_pulse, "_control_enabled", return_value=True):
-                with patch.object(world_pulse, "_reserve_gemini_image_slots", return_value=0):
-                    with patch.object(world_pulse, "ThreadPoolExecutor", return_value=executor):
-                        with patch.object(world_pulse, "as_completed", side_effect=complete_then_timeout):
-                            world_pulse._enrich_article_images(raw, force_refresh=True, allow_ai_generation=False)
-
+        with patch.object(world_pulse, "MAX_IMAGE_LOOKUPS_PER_REFRESH", 12):
+            with patch.object(world_pulse, "_db_fetch_all", return_value=stored):
+                with patch.object(world_pulse, "_control_enabled", return_value=True):
+                    with patch.object(world_pulse, "_reserve_gemini_image_slots", return_value=0):
+                        with patch.object(world_pulse, "ThreadPoolExecutor", return_value=executor):
+                            with patch.object(world_pulse, "as_completed", side_effect=complete_then_timeout):
+                                world_pulse._enrich_article_images(raw, force_refresh=True, allow_ai_generation=False)
+    
         self.assertEqual(raw[0]["image_url"], "https://images.example.com/new-first.jpg")
         self.assertEqual(raw[1]["image_url"], "https://images.example.com/old-second.jpg")
         self.assertEqual(raw[1]["image_source"], "openverse_licensed")

@@ -81,8 +81,11 @@ def add_security_headers(response):
 SITE_NAME_AR = "نبض العالم"
 SITE_NAME_EN = "World Pulse"
 TIMEZONE = ZoneInfo(os.getenv("SITE_TIMEZONE", "Asia/Amman"))
-NEWS_REFRESH_MINUTES = max(15, int(os.getenv("NEWS_REFRESH_MINUTES", "30")))
-NEWS_RETRY_MINUTES = max(5, int(os.getenv("NEWS_RETRY_MINUTES", "10")))
+NEWS_REFRESH_MINUTES = max(5, int(os.getenv("NEWS_REFRESH_MINUTES", "5")))
+NEWS_RETRY_MINUTES = max(5, int(os.getenv("NEWS_RETRY_MINUTES", "5")))
+NEWS_DISCOVERY_REFRESH_MINUTES = max(15, int(os.getenv("NEWS_DISCOVERY_REFRESH_MINUTES", "30")))
+MAX_PENDING_NEWS_CANDIDATES = max(24, min(160, int(os.getenv("MAX_PENDING_NEWS_CANDIDATES", "60"))))
+MAX_QUEUE_ADDITIONS_PER_DISCOVERY = max(1, min(12, int(os.getenv("MAX_QUEUE_ADDITIONS_PER_DISCOVERY", "6"))))
 NEWS_AUTO_FETCH = os.getenv("NEWS_AUTO_FETCH", "true").lower() not in {"0", "false", "no"}
 NEWS_SCHEDULER_ENABLED = os.getenv("NEWS_SCHEDULER_ENABLED", "true").lower() not in {"0", "false", "no"}
 NEWS_SCHEDULER_POLL_SECONDS = max(15, min(120, int(os.getenv("NEWS_SCHEDULER_POLL_SECONDS", "30"))))
@@ -101,18 +104,18 @@ GEMINI_TRANSIENT_ERROR_COOLDOWN_MINUTES = max(1, min(60, int(os.getenv("GEMINI_T
 GEMINI_INVALID_RESPONSE_COOLDOWN_MINUTES = max(1, min(60, int(os.getenv("GEMINI_INVALID_RESPONSE_COOLDOWN_MINUTES", "5"))))
 GEMINI_IMAGE_TIMEOUT_SECONDS = max(15, min(120, int(os.getenv("GEMINI_IMAGE_TIMEOUT_SECONDS", "75"))))
 GEMINI_TIMEOUT_SECONDS = max(8, min(45, int(os.getenv("GEMINI_TIMEOUT_SECONDS", "20"))))
-MAX_GEMINI_API_CALLS_PER_REFRESH = max(1, min(4, int(os.getenv("MAX_GEMINI_API_CALLS_PER_REFRESH", "4"))))
+MAX_GEMINI_API_CALLS_PER_REFRESH = max(1, min(4, int(os.getenv("MAX_GEMINI_API_CALLS_PER_REFRESH", "2"))))
 CONTACT_EMAIL = os.getenv("CONTACT_EMAIL", "syfsywf86@gmail.com").strip() or "syfsywf86@gmail.com"
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 NEWS_REFRESH_WEBHOOK_TOKEN = os.getenv("NEWS_REFRESH_WEBHOOK_TOKEN", "").strip()
-MAX_ARTICLES_PER_REFRESH = max(8, min(32, int(os.getenv("MAX_ARTICLES_PER_REFRESH", "12"))))
+MAX_ARTICLES_PER_REFRESH = max(1, min(32, int(os.getenv("MAX_ARTICLES_PER_REFRESH", "1"))))
 MAX_ARTICLES_PER_CATEGORY = max(1, min(5, int(os.getenv("MAX_ARTICLES_PER_CATEGORY", "3"))))
 RSS_CANDIDATES_PER_CATEGORY = max(3, min(8, int(os.getenv("RSS_CANDIDATES_PER_CATEGORY", "6"))))
 MAX_RSS_CANDIDATES = max(32, min(96, MAX_ARTICLES_PER_REFRESH * 4))
 RSS_ENTRIES_PER_FEED = max(24, min(60, int(os.getenv("RSS_ENTRIES_PER_FEED", "24"))))
 IMAGE_SEARCH_TIMEOUT_SECONDS = max(3, min(12, int(os.getenv("IMAGE_SEARCH_TIMEOUT_SECONDS", "5"))))
 IMAGE_DOWNLOAD_TIMEOUT_SECONDS = max(5, min(20, int(os.getenv("IMAGE_DOWNLOAD_TIMEOUT_SECONDS", "10"))))
-MAX_IMAGE_LOOKUPS_PER_REFRESH = max(0, min(32, int(os.getenv("MAX_IMAGE_LOOKUPS_PER_REFRESH", "12"))))
+MAX_IMAGE_LOOKUPS_PER_REFRESH = max(0, min(32, int(os.getenv("MAX_IMAGE_LOOKUPS_PER_REFRESH", "1"))))
 IMAGE_RETRY_AFTER_HOURS = max(1, min(168, int(os.getenv("IMAGE_RETRY_AFTER_HOURS", "1"))))
 IMAGE_CACHE_MAX_AGE_SECONDS = max(3600, int(os.getenv("IMAGE_CACHE_MAX_AGE_HOURS", "24")) * 3600)
 TRUSTED_REUSABLE_IMAGE_SOURCES = {
@@ -162,7 +165,7 @@ UI_TEXT = {
         "empty_detail": "لن نعرض مقالات تجريبية بدل الأخبار الحقيقية.",
         "ai_note": "أُعدّت هذه المادة التحريرية بمساعدة الذكاء الاصطناعي بالاستناد إلى المعلومات المتاحة من المصدر.",
         "brief_note": "هذا موجز أولي مستند إلى مقتطف RSS المتاح من المصدر، وليس المقال الكامل.",
-        "live": "تغطية الأخبار",
+        "live": "الأخبار تتجدد باستمرار",
         "hero_title": "العالم يتغيّر. ابقَ على نبضه.",
         "hero_text": "أخبار من السياسة الاقتصاد والتكنولوجيا والرياضة والثقافة.",
         "search_hint": "استكشف الأخبار حسب القسم",
@@ -199,7 +202,7 @@ UI_TEXT = {
         "empty_detail": "We do not replace real news with demo articles.",
         "ai_note": "This original editorial report was prepared with AI assistance.",
         "brief_note": "This is a preliminary brief based on the available RSS excerpt, not the full article.",
-        "live": "News coverage",
+        "live": "Continuously updated",
         "hero_title": "The world moves. Stay in its pulse.",
         "hero_text": "Politics, business, technology, sport and culture in one editorial experience.",
         "search_hint": "Explore stories by section",
@@ -441,36 +444,41 @@ def _infer_source_domain_from_name(category: str, lang: str, source_name: str) -
     return ""
 
 def _display_category(row: dict[str, Any], lang: str) -> str:
-    """Correct clearly miscategorized stored stories only when the publisher allows that section."""
+    """Correct category using the publisher's original-language allowlist."""
     current = str(row.get("category") or "world")
     if current not in CATEGORY_NAMES:
         current = "world"
     if lang not in {"ar", "en"}:
         return current
+    source_lang = str(row.get("original_language") or "").casefold()
+    if source_lang not in {"ar", "en"}:
+        source_lang = lang
     host = str(row.get("source_domain") or "").casefold().removeprefix("www.")
     if not host:
-        host = _infer_source_domain_from_name(current, lang, str(row.get("source_name") or ""))
-    title = str(row.get(f"title_{lang}") or row.get("original_title") or "")
-    summary = str(row.get(f"summary_{lang}") or row.get("original_summary") or "")
+        host = _infer_source_domain_from_name(current, source_lang, str(row.get("source_name") or ""))
+    title = str(row.get(f"title_{lang}") or row.get(f"title_{source_lang}") or row.get("original_title") or "")
+    summary = str(row.get(f"summary_{lang}") or row.get(f"summary_{source_lang}") or row.get("original_summary") or "")
     detected = _classify_story(title, summary, current, host)
-    if detected != current and host and _source_domain_for_category(detected, lang, host):
+    if detected != current and host and _source_domain_for_category(detected, source_lang, host):
         return detected
     return current
 
 
 def _row_allowed_on_language_site(row: dict[str, Any], lang: str) -> bool:
-    """Keep language feeds restricted to their configured publisher list."""
-    original_language = str(row.get("original_language") or "").lower()
-    if original_language != lang:
+    """Allow a story on either interface language while validating its native publisher."""
+    if lang not in {"ar", "en"}:
+        return False
+    source_lang = str(row.get("original_language") or "").casefold()
+    if source_lang not in {"ar", "en"}:
         return False
     category = str(row.get("category") or "world")
     host = str(row.get("source_domain") or "").casefold().removeprefix("www.")
     if not host:
-        host = _infer_source_domain_from_name(category, lang, str(row.get("source_name") or ""))
+        host = _infer_source_domain_from_name(category, source_lang, str(row.get("source_name") or ""))
     if not host:
         return False
     return bool(
-        _source_domain_for_category(category, lang, host)
+        _source_domain_for_category(category, source_lang, host)
         and (not _domain_needs_license(host) or _is_headline_only_domain(host))
     )
 
@@ -2894,18 +2902,25 @@ def _story_title_key(value: Any) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
-def _stories_are_near_duplicates(left: dict[str, Any], right: dict[str, Any]) -> bool:
-    """Conservatively collapse syndicated copies while keeping distinct stories about one topic."""
+def _stories_are_near_duplicates(
+    left: dict[str, Any], right: dict[str, Any], lang: str | None = None
+) -> bool:
+    """Collapse syndicated copies, including translated cross-language copies in one feed."""
     left_url = _canonical_story_url(left.get("source_url"))
     right_url = _canonical_story_url(right.get("source_url"))
     if left_url and left_url == right_url:
         return True
     left_lang = str(left.get("original_language") or "").casefold()
     right_lang = str(right.get("original_language") or "").casefold()
-    if left_lang and right_lang and left_lang != right_lang:
+    cross_language = bool(left_lang and right_lang and left_lang != right_lang)
+    if cross_language and lang not in {"ar", "en"}:
         return False
-    left_title = _story_title_key(left.get("original_title") or left.get("title") or left.get("title_ar") or left.get("title_en"))
-    right_title = _story_title_key(right.get("original_title") or right.get("title") or right.get("title_ar") or right.get("title_en"))
+    if cross_language:
+        left_title = _story_title_key(left.get(f"title_{lang}") or left.get("title") or "")
+        right_title = _story_title_key(right.get(f"title_{lang}") or right.get("title") or "")
+    else:
+        left_title = _story_title_key(left.get("original_title") or left.get("title") or left.get("title_ar") or left.get("title_en"))
+        right_title = _story_title_key(right.get("original_title") or right.get("title") or right.get("title_ar") or right.get("title_en"))
     if not left_title or not right_title:
         return False
     left_date = left.get("published_at")
@@ -3981,6 +3996,137 @@ def _refresh_existing_article_images_job(limit: int = 8) -> None:
                 pass
 
 
+NEWS_QUEUE_STATE_KEY = "pending_rss_news_queue_v1"
+NEWS_QUEUE_ITEM_FIELDS = (
+    "slug", "source_url", "category", "source_name", "source_domain",
+    "original_title", "original_summary", "published_at", "original_language",
+    "headline_only",
+)
+
+
+def _queue_datetime(value: Any) -> datetime | None:
+    if isinstance(value, datetime):
+        parsed = value
+    elif isinstance(value, str) and value.strip():
+        try:
+            parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    else:
+        return None
+    return parsed.replace(tzinfo=timezone.utc) if parsed.tzinfo is None else parsed.astimezone(timezone.utc)
+
+
+def _serialise_news_queue_item(item: dict[str, Any]) -> dict[str, Any]:
+    """Keep only the small, source-attributed metadata needed for one future publishing pass."""
+    result: dict[str, Any] = {}
+    for key in NEWS_QUEUE_ITEM_FIELDS:
+        value = item.get(key)
+        if key == "published_at" and isinstance(value, datetime):
+            value = value.isoformat()
+        if key == "headline_only":
+            value = bool(value)
+        if value is not None:
+            result[key] = value
+    if not result.get("slug") and result.get("source_url"):
+        result["slug"] = _slug_for_url(str(result["source_url"]))
+    return result
+
+
+def _deserialise_news_queue_item(item: Any) -> dict[str, Any] | None:
+    if not isinstance(item, dict):
+        return None
+    result = {key: item.get(key) for key in NEWS_QUEUE_ITEM_FIELDS if key in item}
+    source_url = str(result.get("source_url") or "").strip()
+    if not source_url.startswith(("https://", "http://")):
+        return None
+    if not str(result.get("original_title") or "").strip():
+        return None
+    result["source_url"] = source_url
+    result["slug"] = str(result.get("slug") or _slug_for_url(source_url))
+    result["category"] = str(result.get("category") or "world")
+    result["source_name"] = str(result.get("source_name") or "")
+    result["source_domain"] = str(result.get("source_domain") or "")
+    result["original_summary"] = str(result.get("original_summary") or "")
+    result["original_language"] = str(result.get("original_language") or "en").casefold()
+    if result["original_language"] not in {"ar", "en"}:
+        return None
+    result["published_at"] = _queue_datetime(result.get("published_at"))
+    result["headline_only"] = bool(result.get("headline_only"))
+    return result
+
+
+def _load_persisted_news_queue() -> dict[str, Any] | None:
+    """Load the shared RSS queue from Supabase so restarts do not lose discovered headlines."""
+    if not _ensure_schema():
+        return None
+    conn = _connect_db()
+    if conn is None:
+        return None
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT state_value FROM world_pulse_runtime_state WHERE state_key = %s",
+                (NEWS_QUEUE_STATE_KEY,),
+            )
+            row = cur.fetchone()
+        if not row or not row[0]:
+            return {"discovered_at": "", "items": []}
+        value = json.loads(str(row[0]))
+        if not isinstance(value, dict):
+            return {"discovered_at": "", "items": []}
+        items = [
+            decoded for decoded in (_deserialise_news_queue_item(item) for item in value.get("items", []))
+            if decoded is not None
+        ]
+        return {"discovered_at": str(value.get("discovered_at") or ""), "items": items}
+    except Exception as exc:
+        logger.warning("Could not load persistent RSS queue (%s)", type(exc).__name__)
+        return None
+    finally:
+        _release_db_connection(conn)
+
+
+def _save_persisted_news_queue(state: dict[str, Any]) -> bool:
+    """Atomically replace the shared queue; it contains discovery metadata, not full article copies."""
+    if not _ensure_schema():
+        return False
+    conn = _connect_db()
+    if conn is None:
+        return False
+    payload = {
+        "discovered_at": str(state.get("discovered_at") or ""),
+        "items": [_serialise_news_queue_item(item) for item in state.get("items", [])],
+    }
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO world_pulse_runtime_state (state_key, state_value, updated_at)
+                VALUES (%s, %s, NOW())
+                ON CONFLICT (state_key) DO UPDATE
+                SET state_value = EXCLUDED.state_value, updated_at = NOW()
+                """,
+                (NEWS_QUEUE_STATE_KEY, json.dumps(payload, ensure_ascii=False, separators=(",", ":"))),
+            )
+        conn.commit()
+        return True
+    except Exception as exc:
+        conn.rollback()
+        logger.warning("Could not save persistent RSS queue (%s)", type(exc).__name__)
+        return False
+    finally:
+        _release_db_connection(conn)
+
+
+def _news_queue_discovery_due(state: dict[str, Any], now: datetime | None = None) -> bool:
+    discovered_at = _queue_datetime(state.get("discovered_at"))
+    if discovered_at is None:
+        return True
+    current = now or datetime.now(timezone.utc)
+    return (current - discovered_at).total_seconds() >= NEWS_DISCOVERY_REFRESH_MINUTES * 60
+
+
 def _refresh_news_job() -> None:
     global _REFRESHING, _LAST_REFRESH_SUCCESS, _LAST_REFRESH_AT, _LAST_REFRESH_STATE, _LAST_REFRESH_ERROR
     refresh_lock_file = None
@@ -4008,56 +4154,124 @@ def _refresh_news_job() -> None:
             _LAST_REFRESH_ERROR = "Database unavailable; stories were not published. The scheduler will retry."
             logger.error("News refresh aborted before RSS ingestion: database/schema unavailable")
             return
-        rss_candidates = _collect_rss_articles()
         database_rows = _db_fetch_all()
-        repaired_excerpts = _repair_existing_articles_from_rss(
-            rss_candidates, database_rows, limit=min(12, MAX_ARTICLES_PER_REFRESH)
-        ) if schema_available and database_rows else 0
-        if repaired_excerpts:
-            logger.info("Repaired %d existing article summaries/details from current RSS excerpts", repaired_excerpts)
-        existing_urls = {str(row.get("source_url", "")) for row in database_rows if row.get("source_url")}
-        existing_urls.update(str(row.get("source_url", "")) for row in _MEMORY_ARTICLES.values() if row.get("source_url"))
-        existing_url_keys = {_canonical_story_url(url) for url in existing_urls if url}
+        queue_state = _load_persisted_news_queue()
+        if queue_state is None:
+            _LAST_REFRESH_AT = datetime.now(timezone.utc)
+            _LAST_REFRESH_STATE = "error"
+            _LAST_REFRESH_ERROR = "Could not load the persistent news discovery queue; retrying without altering saved articles."
+            logger.error("News refresh stopped because the persistent RSS queue could not be read")
+            return
 
-        # Filter the wider RSS discovery pool against stored canonical URLs before
-        # translation. Tracking parameters and minor URL variants must not hide new stories.
-        fresh_candidates: list[dict[str, Any]] = []
-        seen_fresh_keys: set[str] = set()
-        for raw in rss_candidates:
-            key = _canonical_story_url(raw.get("source_url"))
-            if not key or key in existing_url_keys or key in seen_fresh_keys:
+        rss_candidates: list[dict[str, Any]] = []
+        queue_items: list[dict[str, Any]] = list(queue_state.get("items") or [])
+        discovery_due = _news_queue_discovery_due(queue_state)
+        if discovery_due:
+            # RSS discovery is intentionally less frequent than publication. The queue lives
+            # in Supabase, so each five-minute publishing tick does not fan out to dozens of feeds.
+            rss_candidates = _collect_rss_articles()
+            repaired_excerpts = _repair_existing_articles_from_rss(
+                rss_candidates, database_rows, limit=min(1, MAX_ARTICLES_PER_REFRESH)
+            ) if database_rows else 0
+            if repaired_excerpts:
+                logger.info("Repaired %d existing article summaries/details from allowed RSS excerpts", repaired_excerpts)
+
+            known_urls = {str(row.get("source_url", "")) for row in database_rows if row.get("source_url")}
+            known_urls.update(str(row.get("source_url", "")) for row in _MEMORY_ARTICLES.values() if row.get("source_url"))
+            known_keys = {_canonical_story_url(url) for url in known_urls if url}
+            queued_keys = {
+                _canonical_story_url(item.get("source_url"))
+                for item in queue_items if item.get("source_url")
+            }
+            additions: list[dict[str, Any]] = []
+            for candidate in rss_candidates:
+                key = _canonical_story_url(candidate.get("source_url"))
+                if not key or key in known_keys or key in queued_keys:
+                    continue
+                queued_keys.add(key)
+                additions.append(candidate)
+                if len(additions) >= MAX_QUEUE_ADDITIONS_PER_DISCOVERY:
+                    break
+
+            # Keep intake close to publishing capacity: six new stories per 30 minutes
+            # matches one publication every five minutes. Do not evict older unsent queue
+            # entries just because one RSS scan found a burst of headlines.
+            queue_items.extend(additions)
+            queue_items.sort(key=_memory_article_timestamp, reverse=True)
+            queue_items = queue_items[:MAX_PENDING_NEWS_CANDIDATES]
+            queue_state["discovered_at"] = datetime.now(timezone.utc).isoformat()
+            queue_state["items"] = queue_items
+            if not _save_persisted_news_queue(queue_state):
+                _LAST_REFRESH_AT = datetime.now(timezone.utc)
+                _LAST_REFRESH_STATE = "error"
+                _LAST_REFRESH_ERROR = "Could not persist the news discovery queue; existing news remain safe and the scheduler will retry."
+                logger.error("News refresh stopped because the persistent RSS queue could not be saved")
+                return
+            logger.info(
+                "Persistent RSS queue refreshed: fetched=%d added=%d queued=%d discovery_interval_minutes=%d",
+                len(rss_candidates), len(additions), len(queue_items), NEWS_DISCOVERY_REFRESH_MINUTES,
+            )
+
+        known_urls = {str(row.get("source_url", "")) for row in database_rows if row.get("source_url")}
+        known_urls.update(str(row.get("source_url", "")) for row in _MEMORY_ARTICLES.values() if row.get("source_url"))
+        known_keys = {_canonical_story_url(url) for url in known_urls if url}
+        cleaned_queue: list[dict[str, Any]] = []
+        queued_seen: set[str] = set(known_keys)
+        for item in queue_items:
+            key = _canonical_story_url(item.get("source_url"))
+            if not key or key in queued_seen:
                 continue
-            fresh_candidates.append(raw)
-            seen_fresh_keys.add(key)
-            if len(fresh_candidates) >= MAX_ARTICLES_PER_REFRESH:
-                break
+            queued_seen.add(key)
+            cleaned_queue.append(item)
+        cleaned_queue = cleaned_queue[:MAX_PENDING_NEWS_CANDIDATES]
+        if len(cleaned_queue) != len(queue_items):
+            queue_items = cleaned_queue
+            queue_state["items"] = queue_items
+            if not _save_persisted_news_queue(queue_state):
+                _LAST_REFRESH_AT = datetime.now(timezone.utc)
+                _LAST_REFRESH_STATE = "error"
+                _LAST_REFRESH_ERROR = "Could not update the persistent news queue; the saved archive is unchanged."
+                logger.error("News refresh stopped because the persistent RSS queue could not be updated")
+                return
+        else:
+            queue_items = cleaned_queue
+        # Preserve the known database URL set for the later fallback/retry guards.
+        existing_url_keys = known_keys
 
-        editorial_retry_candidates: list[dict[str, Any]] = []
-        retry_keys: set[str] = set()
-        if schema_available:
+        # Exactly one fresh story is translated and published per tick by default. Existing
+        # editorial repairs run only when no queued new story is waiting.
+        selected_queue_keys: set[str] = set()
+        if queue_items:
+            batch = queue_items[:MAX_ARTICLES_PER_REFRESH]
+            raw_articles = [dict(item) for item in batch]
+            selected_queue_keys = {
+                key for key in (_canonical_story_url(item.get("source_url")) for item in batch) if key
+            }
+        else:
+            editorial_retry_candidates = []
             for stored in _db_fetch_articles_needing_editorial(limit=4):
-                source_url = str(stored.get("source_url", ""))
-                key = _canonical_story_url(source_url)
-                if not key or key in seen_fresh_keys or key in retry_keys:
+                if _is_headline_only_domain(str(stored.get("source_domain") or "")):
                     continue
                 editorial_retry_candidates.append(_raw_from_stored_article(stored))
-                retry_keys.add(key)
+                if len(editorial_retry_candidates) >= MAX_ARTICLES_PER_REFRESH:
+                    break
+            raw_articles = editorial_retry_candidates
 
-        # Retry existing untranslated stories before newer headlines so they do not starve
-        # behind each refresh’s fresh ingestion batch when Gemini quota is tight.
-        raw_articles = editorial_retry_candidates + fresh_candidates
-        unseen_count = sum(1 for raw in rss_candidates if _canonical_story_url(raw.get("source_url")) not in existing_url_keys)
         logger.info(
-            "News refresh discovery: rss_candidates=%d unseen_candidates=%d selected_new=%d editorial_retries=%d database_available=%s",
-            len(rss_candidates), unseen_count, len(fresh_candidates), len(editorial_retry_candidates), schema_available,
+            "News publishing tick: new_stories=%d editorial_retries=%d queue_remaining=%d discovery_due=%s",
+            len(selected_queue_keys), len(raw_articles) - len(selected_queue_keys),
+            len(queue_items), discovery_due,
         )
         if not raw_articles:
-            backfilled = _backfill_missing_article_images(limit=min(12, MAX_IMAGE_LOOKUPS_PER_REFRESH)) if schema_available and MAX_IMAGE_LOOKUPS_PER_REFRESH > 0 else 0
+            backfilled = _backfill_missing_article_images(limit=MAX_IMAGE_LOOKUPS_PER_REFRESH) if MAX_IMAGE_LOOKUPS_PER_REFRESH > 0 else 0
             _LAST_REFRESH_SUCCESS = time.monotonic()
             _LAST_REFRESH_AT = datetime.now(timezone.utc)
             _LAST_REFRESH_STATE = "success"
-            _LAST_REFRESH_ERROR = "No unseen publisher URLs among %d RSS candidates; existing stories retained. Images repaired: %d." % (len(rss_candidates), backfilled)
-            logger.info("News refresh found no unseen publisher URLs in %d candidates; image_repairs=%d", len(rss_candidates), backfilled)
+            _LAST_REFRESH_ERROR = "The archive is intact. No new eligible story was found; image repairs: %d." % backfilled
+            logger.info(
+                "News publishing queue empty; image_repairs=%d next_discovery_in_minutes=%d",
+                backfilled, NEWS_DISCOVERY_REFRESH_MINUTES,
+            )
             return
         translatable_indices = [i for i, raw in enumerate(raw_articles) if not raw.get("headline_only")]
         translated_subset = _translate_batch([raw_articles[i] for i in translatable_indices])
@@ -4128,6 +4342,15 @@ def _refresh_news_job() -> None:
             logger.error("News refresh stopped after database write failed; no memory-only publication")
             return
         _remember_articles(ready)
+        if selected_queue_keys:
+            queue_state["items"] = [
+                item for item in queue_items
+                if _canonical_story_url(item.get("source_url")) not in selected_queue_keys
+            ]
+            if not _save_persisted_news_queue(queue_state):
+                # The story itself is already in the permanent archive; next tick will
+                # detect that URL in Supabase and prune it instead of publishing a duplicate.
+                logger.warning("Story was saved, but its RSS queue acknowledgement will be retried")
 
         image_candidates = [raw for _index, raw in raw_to_publish]
         image_updates = 0
@@ -4413,9 +4636,14 @@ def _normalise_story(row: dict[str, Any], lang: str) -> dict[str, Any]:
                       "image_credit_url": "", "image_provider_url": "", "image_license_url": ""})
     if not story.get("slug"):
         story["slug"] = _slug_for_url(story.get("source_url", "world-pulse"))
-    raw_title = story.get(f"title_{lang}") or ""
-    raw_summary = story.get(f"summary_{lang}") or ""
-    raw_content = story.get(f"content_{lang}") or ""
+    native_lang = str(story.get("original_language") or "en").casefold()
+    display_lang = lang if story.get(f"title_{lang}") else native_lang
+    if display_lang not in {"ar", "en"}:
+        display_lang = lang
+    story["display_language"] = display_lang
+    raw_title = story.get(f"title_{display_lang}") or story.get(f"title_{lang}") or ""
+    raw_summary = story.get(f"summary_{display_lang}") or story.get(f"summary_{lang}") or ""
+    raw_content = story.get(f"content_{display_lang}") or story.get(f"content_{lang}") or ""
     story["content"] = _normalise_summary_body(raw_summary, raw_content)
     # A one-sentence RSS excerpt can be identical to its executive summary. Keep the
     # clearly source-attributed excerpt visible in Details instead of rendering an empty block.
@@ -4428,7 +4656,7 @@ def _normalise_story(row: dict[str, Any], lang: str) -> dict[str, Any]:
     if story["headline_only"]:
         story["summary"] = (
             "يعرض نبض العالم العنوان ورابط الناشر فقط لهذا المصدر. افتح المصدر الأصلي لقراءة التفاصيل والسياق وآخر التحديثات."
-            if lang == "ar"
+            if display_lang == "ar"
             else "Headline and source link only. Open the publisher's original page for full details, context, and updates."
         )
         story["content"] = ""
@@ -4476,7 +4704,9 @@ def _all_live_articles() -> list[dict[str, Any]]:
 def _build_display_stories(lang: str) -> list[dict[str, Any]]:
     live: list[dict[str, Any]] = []
     for original in _all_live_articles():
-        if original.get("is_demo") or not original.get("source_url") or not original.get(f"title_{lang}"):
+        source_lang = str(original.get("original_language") or "").casefold()
+        has_display_title = bool(original.get(f"title_{lang}") or original.get(f"title_{source_lang}"))
+        if original.get("is_demo") or not original.get("source_url") or not has_display_title:
             continue
         row = original
         corrected_category = _display_category(original, lang)
@@ -4496,7 +4726,7 @@ def _build_display_stories(lang: str) -> list[dict[str, Any]]:
         url_key = _canonical_story_url(row.get("source_url"))
         if not url_key or url_key in seen_urls:
             continue
-        if any(_stories_are_near_duplicates(row, old) for old in unique[-100:]):
+        if any(_stories_are_near_duplicates(row, old, lang=lang) for old in unique[-100:]):
             continue
         seen_urls.add(url_key)
         unique.append(row)
@@ -4521,7 +4751,8 @@ def _find_article(slug: str, lang: str) -> dict[str, Any] | None:
     for row in _all_live_articles():
         if row.get("is_demo"):
             continue
-        if row.get("slug") == slug and row.get("source_url") and row.get(f"title_{lang}") and _row_allowed_on_language_site(row, lang):
+        source_lang = str(row.get("original_language") or "").casefold()
+        if row.get("slug") == slug and row.get("source_url") and (row.get(f"title_{lang}") or row.get(f"title_{source_lang}")) and _row_allowed_on_language_site(row, lang):
             return _normalise_story(row, lang)
     return None
 
@@ -4622,8 +4853,12 @@ def search():
     if query and len(query) >= 2:
         db_rows = _db_search_articles(query)
         if db_rows is not None:
-            results = [_normalise_story(row, lang) for row in db_rows
-                       if row.get(f"title_{lang}") and _row_allowed_on_language_site(row, lang)]
+            results = [
+                _normalise_story(row, lang)
+                for row in db_rows
+                if (row.get(f"title_{lang}") or row.get(f"title_{str(row.get('original_language') or '').casefold()}"))
+                and _row_allowed_on_language_site(row, lang)
+            ]
             found_urls = {str(row.get("source_url", "")) for row in results}
             terms = [term.casefold() for term in re.findall(r"[\w\u0600-\u06ff]+", query) if len(term) > 1]
             for stored in _MEMORY_ARTICLES.values():
@@ -4654,10 +4889,11 @@ def article(slug: str):
     selected = next((story for story in pool if story.get("slug") == slug), None)
     if selected is None:
         stored = _db_fetch_article_by_slug(slug)
+        stored_language = str((stored or {}).get("original_language") or "").casefold()
         if (
             stored
             and stored.get("source_url")
-            and stored.get(f"title_{lang}")
+            and (stored.get(f"title_{lang}") or stored.get(f"title_{stored_language}"))
             and _row_allowed_on_language_site(stored, lang)
         ):
             corrected_category = _display_category(stored, lang)
