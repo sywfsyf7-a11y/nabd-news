@@ -2714,6 +2714,10 @@ def _collect_rss_articles() -> list[dict[str, Any]]:
         "RSS discovery started: feeds=%d per_feed_timeout=%ds batch_timeout=%ds rotating_publisher_groups=true",
         len(tasks), RSS_TIMEOUT_SECONDS, RSS_BATCH_TIMEOUT_SECONDS,
     )
+    if not tasks:
+        logger.warning("RSS discovery skipped: no enabled allowlisted publisher groups")
+        _log_rss_selection([], 0)
+        return []
     pool = ThreadPoolExecutor(max_workers=min(20, len(tasks)))
     futures = {
         pool.submit(_parse_feed_task, category, lang, source_group): (category, lang)
