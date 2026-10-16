@@ -82,7 +82,9 @@ The web service has a per-worker PostgreSQL connection concurrency cap (`DB_MAX_
 
 The public `/api/news-status` endpoint reports cached database health instead of issuing a separate `SELECT 1` connection on every poll. The protected admin monitor keeps an active database probe for diagnostics.
 
-The GitHub Actions workflow `.github/workflows/world-pulse-automation.yml` runs regression tests after relevant code changes and wakes the live homepage twice an hour (at minutes 7 and 37 UTC). The request initializes the guarded in-process scheduler, and the workflow reads `/api/news-status` to report a safe runtime snapshot. This is a no-extra-service-cost wake-up path, not a direct authenticated refresh command; keep `NEWS_SCHEDULER_ENABLED=true` for it to work. Scheduled GitHub Actions can be delayed, so this complements rather than replaces the application scheduler.\n\nFor a direct authenticated refresh trigger independent of homepage visits, `trigger_news_refresh.py` can alternatively be run by a Render Cron Job every 30 minutes with:
+The GitHub Actions workflow `.github/workflows/world-pulse-automation.yml` runs regression tests after relevant code changes and wakes the live homepage twice an hour (at minutes 7 and 37 UTC). The request initializes the guarded in-process scheduler, and the workflow reads `/api/news-status` to report a safe runtime snapshot. This is a no-extra-service-cost wake-up path, not a direct authenticated refresh command; keep `NEWS_SCHEDULER_ENABLED=true` for it to work. Scheduled GitHub Actions can be delayed, so this complements rather than replaces the application scheduler.
+
+For a direct authenticated refresh trigger independent of homepage visits, `trigger_news_refresh.py` can alternatively be run by a Render Cron Job every 30 minutes with:
 
 - Command: `python trigger_news_refresh.py`
 - Schedule: `*/30 * * * *` (Render schedules are in UTC).
