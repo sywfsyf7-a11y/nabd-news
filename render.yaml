@@ -18,14 +18,18 @@ services:
         value: "true"
       - key: NEWS_AUTO_FETCH
         value: "true"
+      - key: NEWS_SCHEDULER_ENABLED
+        value: "true"
+      - key: NEWS_REFRESH_MINUTES
+        value: "30"
       - key: GEMINI_IMAGE_MODEL
         value: "gemini-nano-banana-2.1"
       - key: GEMINI_IMAGE_GENERATION_ENABLED
-        value: "true"
+        value: "false"
       - key: MAX_GEMINI_IMAGES_PER_REFRESH
-        value: "3"
+        value: "0"
       - key: MAX_GEMINI_IMAGES_PER_24H
-        value: "8"
+        value: "0"
       - key: MAX_ARTICLES_PER_REFRESH
         value: "32"
       - key: MAX_ARTICLES_PER_CATEGORY

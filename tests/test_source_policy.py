@@ -88,7 +88,7 @@ class SourcePolicyTests(unittest.TestCase):
         self.assertEqual(story["content"], "")
         self.assertIn("Headline and source link only", story["summary"])
 
-    def test_missing_images_use_topic_specific_editorial_fallbacks(self):
+    def test_missing_images_use_the_language_specific_brand_fallbacks(self):
         base = {
             "slug": "story-fallback",
             "source_url": "https://example.test/story",
@@ -105,12 +105,10 @@ class SourcePolicyTests(unittest.TestCase):
         }
         arabic = world_pulse._normalise_story(dict(base), "ar")
         english = world_pulse._normalise_story(dict(base, original_language="en"), "en")
-        self.assertTrue(arabic["image_url"].startswith("/media/editorial.svg?"))
-        self.assertIn("lang=ar", arabic["image_url"])
-        self.assertEqual(arabic["image_source"], "editorial_generated")
-        self.assertTrue(english["image_url"].startswith("/media/editorial.svg?"))
-        self.assertIn("lang=en", english["image_url"])
-        self.assertEqual(english["image_source"], "editorial_generated")
+        self.assertEqual(arabic["image_url"], "/static/A.jpg")
+        self.assertEqual(arabic["image_source"], "fallback_ar")
+        self.assertEqual(english["image_url"], "/static/E.jpg")
+        self.assertEqual(english["image_source"], "fallback_en")
 
     def test_headline_image_query_removes_editorial_filler(self):
         query = world_pulse._image_search_phrase(
@@ -864,6 +862,34 @@ class SourcePolicyTests(unittest.TestCase):
                                 result = world_pulse._search_any_reusable_image("NASA Artemis lunar rocket launch", "en", "science")
         self.assertEqual(result, openverse_result)
         openverse.assert_called_once()
+
+
+    def test_unverified_external_image_is_not_shown_without_item_level_licence(self):
+        row = {
+            "slug": "unverified-image",
+            "source_url": "https://example.test/story",
+            "category": "world",
+            "source_name": "Example",
+            "source_domain": "example.test",
+            "original_language": "ar",
+            "title_ar": "عنوان الخبر",
+            "title_en": "",
+            "summary_ar": "ملخص الخبر",
+            "summary_en": "",
+            "content_ar": "",
+            "content_en": "",
+            "image_url": "https://images.example.test/photo.jpg",
+            "image_source": "openverse_licensed",
+            "image_credit": "Unknown creator",
+            "image_credit_url": "",
+            "image_provider_url": "https://example.test/photo",
+            "image_license_url": "",
+        }
+        story = world_pulse._normalise_story(row, "ar")
+        self.assertEqual(story["image_url"], "/static/A.jpg")
+        self.assertEqual(story["image_source"], "fallback_ar")
+        self.assertEqual(story["image_credit"], "")
+        self.assertEqual(story["image_license_url"], "")
 
 
 if __name__ == "__main__":

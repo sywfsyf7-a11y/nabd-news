@@ -15,6 +15,9 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      NEWS_AUTO_FETCH: "false"
+      NEWS_SCHEDULER_ENABLED: "false"
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
