@@ -35,8 +35,8 @@ services:
       - key: MAX_GEMINI_IMAGES_PER_24H
         value: "0"
       - key: MAX_ARTICLES_PER_REFRESH
-        value: "32"
+        value: "24"
       - key: MAX_ARTICLES_PER_CATEGORY
-        value: "5"
+        value: "3"
       - key: MAX_IMAGE_LOOKUPS_PER_REFRESH
         value: "24"
