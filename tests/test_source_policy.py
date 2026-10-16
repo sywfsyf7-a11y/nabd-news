@@ -434,7 +434,7 @@ class SourcePolicyTests(unittest.TestCase):
             for i in range(8)
         ]
         with patch.object(world_pulse.genai, "Client", return_value=fake_client):
-            with patch.object(world_pulse, "GEMINI_API_KEY", "test-key"):
+            with patch.object(world_pulse, "GEMINI_API_KEY", "test-key"), patch.object(world_pulse, "MAX_GEMINI_API_CALLS_PER_REFRESH", 4):
                 with patch.object(world_pulse, "_GEMINI_RATE_LIMIT_UNTIL", 0.0):
                     with patch.object(world_pulse, "GEMINI_429_COOLDOWN_MINUTES", 60):
                         result = world_pulse._translate_batch(articles)
@@ -471,7 +471,7 @@ class SourcePolicyTests(unittest.TestCase):
             for i in range(12)
         ]
         with patch.object(world_pulse.genai, "Client", return_value=fake_client):
-            with patch.object(world_pulse, "GEMINI_API_KEY", "test-key"):
+            with patch.object(world_pulse, "GEMINI_API_KEY", "test-key"), patch.object(world_pulse, "MAX_GEMINI_API_CALLS_PER_REFRESH", 4):
                 with patch.object(world_pulse, "_GEMINI_RATE_LIMIT_UNTIL", 0.0):
                     with patch.object(world_pulse, "_GEMINI_TRANSIENT_ERROR_UNTIL", 0.0):
                         with patch.object(world_pulse, "GEMINI_TRANSIENT_ERROR_COOLDOWN_MINUTES", 10):
