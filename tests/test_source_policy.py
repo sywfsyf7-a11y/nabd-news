@@ -425,7 +425,7 @@ class SourcePolicyTests(unittest.TestCase):
                     with patch.object(world_pulse, "GEMINI_429_COOLDOWN_MINUTES", 60):
                         result = world_pulse._translate_batch(articles)
                         self.assertEqual(result, {})
-                        self.assertEqual(fake_client.models.generate_content.call_count, 2)
+                        self.assertEqual(fake_client.models.generate_content.call_count, 3)
                         self.assertEqual(
                             fake_client.models.generate_content.call_args_list[0].kwargs["model"],
                             world_pulse.GEMINI_MODEL,
@@ -433,6 +433,10 @@ class SourcePolicyTests(unittest.TestCase):
                         self.assertEqual(
                             fake_client.models.generate_content.call_args_list[1].kwargs["model"],
                             world_pulse.GEMINI_FALLBACK_MODEL,
+                        )
+                        self.assertEqual(
+                            fake_client.models.generate_content.call_args_list[2].kwargs["model"],
+                            world_pulse.GEMINI_FALLBACK_MODEL_2,
                         )
                         self.assertGreater(world_pulse._GEMINI_RATE_LIMIT_UNTIL, world_pulse.time.monotonic())
 
@@ -459,8 +463,8 @@ class SourcePolicyTests(unittest.TestCase):
                         with patch.object(world_pulse, "GEMINI_TRANSIENT_ERROR_COOLDOWN_MINUTES", 10):
                             result = world_pulse._translate_batch(articles)
                             self.assertEqual(result, {})
-                            # A transient 5xx permits exactly one fallback-model attempt, then later batches stop.
-                            self.assertEqual(fake_client.models.generate_content.call_count, 2)
+                            # A transient 5xx advances through the configured model chain once per model, then stops.
+                            self.assertEqual(fake_client.models.generate_content.call_count, 3)
                             self.assertEqual(
                                 fake_client.models.generate_content.call_args_list[0].kwargs["model"],
                                 world_pulse.GEMINI_MODEL,
@@ -468,6 +472,10 @@ class SourcePolicyTests(unittest.TestCase):
                             self.assertEqual(
                                 fake_client.models.generate_content.call_args_list[1].kwargs["model"],
                                 world_pulse.GEMINI_FALLBACK_MODEL,
+                            )
+                            self.assertEqual(
+                                fake_client.models.generate_content.call_args_list[2].kwargs["model"],
+                                world_pulse.GEMINI_FALLBACK_MODEL_2,
                             )
                             self.assertGreater(
                                 world_pulse._GEMINI_TRANSIENT_ERROR_UNTIL,
