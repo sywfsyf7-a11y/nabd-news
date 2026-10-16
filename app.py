@@ -3177,10 +3177,10 @@ def _translate_batch(raw_articles: list[dict[str, Any]]) -> dict[int, dict[str, 
             for i in range(batch_start, batch_end)
         ]
         prompt = _build_editorial_prompt(payload)
+        active_model = GEMINI_MODEL
         try:
             if client is None:
                 client = genai.Client(api_key=GEMINI_API_KEY, http_options=types.HttpOptions(timeout=GEMINI_TIMEOUT_SECONDS * 1000))
-            active_model = GEMINI_MODEL
             generation_config = types.GenerateContentConfig(
                 response_mime_type="application/json",
                 temperature=0.25,
