@@ -107,6 +107,7 @@ RSS_CANDIDATES_PER_CATEGORY = max(3, min(8, int(os.getenv("RSS_CANDIDATES_PER_CA
 MAX_RSS_CANDIDATES = max(32, min(96, MAX_ARTICLES_PER_REFRESH * 4))
 RSS_ENTRIES_PER_FEED = max(24, min(60, int(os.getenv("RSS_ENTRIES_PER_FEED", "48"))))
 IMAGE_SEARCH_TIMEOUT_SECONDS = max(3, min(12, int(os.getenv("IMAGE_SEARCH_TIMEOUT_SECONDS", "5"))))
+IMAGE_DOWNLOAD_TIMEOUT_SECONDS = max(5, min(20, int(os.getenv("IMAGE_DOWNLOAD_TIMEOUT_SECONDS", "10"))))
 MAX_IMAGE_LOOKUPS_PER_REFRESH = max(0, min(32, int(os.getenv("MAX_IMAGE_LOOKUPS_PER_REFRESH", "24"))))
 IMAGE_RETRY_AFTER_HOURS = max(1, min(168, int(os.getenv("IMAGE_RETRY_AFTER_HOURS", "1"))))
 IMAGE_CACHE_MAX_AGE_SECONDS = max(3600, int(os.getenv("IMAGE_CACHE_MAX_AGE_HOURS", "24")) * 3600)
@@ -1811,7 +1812,7 @@ def _cache_reusable_image(result: dict[str, Any]) -> dict[str, Any]:
                 "User-Agent": "WorldPulseNews/2.1 (+licensed image caching)",
             },
         )
-        with urlopen(request_obj, timeout=IMAGE_SEARCH_TIMEOUT_SECONDS) as response:
+        with urlopen(request_obj, timeout=IMAGE_DOWNLOAD_TIMEOUT_SECONDS) as response:
             image_bytes = response.read(6 * 1024 * 1024 + 1)
     except Exception as exc:
         logger.debug("Licensed image download failed (source=%s error=%s)", source, type(exc).__name__)
