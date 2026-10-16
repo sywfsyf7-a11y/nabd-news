@@ -23,7 +23,7 @@ The article-level Ask-Me AI question panel and `/api/ask` endpoint are removed. 
 The Openverse API adapter and item-level licence validator live in `image_sources.py`, separate from the Flask routes and database logic; the app injects its scoring, URL-safety and HTTP helpers for deterministic tests.
 
 
-The image pipeline searches short, topic-specific phrases derived from each story headline across Wikimedia Commons and Openverse, then checks the Library of Congress, NASA when the topic fits, and manually approved press kits. If those sources do not produce a suitable result, the pipeline can query Pexels and Unsplash using their official photo-search APIs when the corresponding API keys are configured. Photographer attribution, the original photo page, the provider, and the licence link are retained for display. If no suitable photo is found, a bounded Gemini illustration may be generated separately; if that is unavailable too, the page shows a topic-specific local SVG illustration rather than a generic placeholder.
+The image pipeline searches short, topic-specific phrases derived from the story headline and RSS excerpt across Wikimedia Commons and Openverse, then checks the Library of Congress, NASA when the topic fits, and manually approved press kits. When the context-rich query has no match, it retries with a shorter headline-only phrase against the open catalogues. Pexels and Unsplash are not part of the active production provider chain because their API access is unavailable for this project. Attribution, the original photo page, the provider, and the item-level licence link are retained for display. If no suitable photo is found, the local editorial SVG is used instead of a generic A/E placeholder.
 
 Only when no suitable sourced image is found, the site may generate a topic-specific 16:9 Gemini editorial illustration, within the configured limits. A generated illustration is labelled as illustrative content and is not documentary evidence. The CI suite also checks local SVG fallback safety and the BBC/Al Jazeera headline-only policy.
 
@@ -42,7 +42,7 @@ API access and a free-to-view website do not mean an image is universally copyri
 - `RSS_TIMEOUT_SECONDS=6`, `RSS_BATCH_TIMEOUT_SECONDS=20`: per-feed timeout and maximum wait for a complete RSS discovery batch. If some feeds hang, the app proceeds with completed feed results rather than holding the entire news refresh indefinitely.
 - `IMAGE_ENRICHMENT_BATCH_TIMEOUT_SECONDS=65`: overall maximum time for each batch of concurrent external photo searches. Each story searches open catalogues concurrently before falling back to NASA/press-kit/stock API sources, reducing the chance of timing out before alternatives are tried. News are saved first; if photo providers stall, completed matches are stored and older safe images are preserved for unfinished items so the news-refresh lock is released promptly.
 - `MAX_IMAGE_LOOKUPS_PER_REFRESH=24`, `IMAGE_RETRY_AFTER_HOURS=1`, and `IMAGE_CACHE_MAX_AGE_HOURS=24` (up to eight existing articles are rechecked in a regular refresh): per-refresh photo lookup budget, retry interval for missing images, and freshness window for existing photo matches. The freshness window does not delete stored records or force every image to change when no better result exists.
-- `PEXELS_API_KEY`, `UNSPLASH_ACCESS_KEY`: optional secret API keys for title-keyword photo search on Pexels and Unsplash. Set these in Render → Environment, never in source control. These providers are tried only after the earlier open-licence/archive sources fail; without a key, each provider is skipped. Pexels currently reports that new API-key issuance is paused, so an existing key may be needed.
+- Pexels and Unsplash API adapters remain isolated for tests but are intentionally excluded from active production image search. The live pipeline does not depend on `PEXELS_API_KEY` or `UNSPLASH_ACCESS_KEY`.
 - `CONTENT_LICENSE_APPROVED_DOMAINS`: only after source-specific rights review, with permission evidence retained.
 - `ADMIN_PANEL_PASSWORD`: enables `/admin/login`, `/admin/monitor`, and `/admin/sources`; use a strong password. The protected monitoring page reports safe database state, Gemini cooldown and image search/storage probes without exposing secrets.
 - `CONTACT_EMAIL`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM_EMAIL`: optional contact delivery.
@@ -53,7 +53,7 @@ The application normalizes the configured shared Supabase pooler URL before pass
 
 
 ## Image sourcing
-Images are selected by searching short, relevant phrases from the story headline. Wikimedia Commons and Openverse are tried first with explicit item-level reuse checks; Library of Congress, NASA, and approved press-kit sources follow when relevant. If none returns a suitable match, Pexels and Unsplash can be queried through their official APIs when their API keys are present and their admin controls are enabled. Attribution and photo-page links are retained; Unsplash URLs returned by its API are hotlinked as required by its API guidelines. If no suitable photo is found, the site uses a bounded AI illustration or a distinct local 16:9 editorial SVG, not a generic A.jpg/E.jpg fallback.
+Images are selected by searching title phrases that combine distinct headline terms with RSS-excerpt context. Wikimedia Commons and Openverse are tried first with explicit item-level reuse checks; when that query has no match, the shorter headline is retried against open catalogues. Library of Congress, NASA, and approved press-kit sources follow when relevant. The active production chain does not rely on Pexels or Unsplash APIs. Photographer attribution, item page, provider, and licence link are retained. If no suitable photo is found, the site uses a distinct local 16:9 editorial SVG, not a generic A.jpg/E.jpg fallback.
 
 ## Article reading experience
 Article pages include a prominent original-source link, an optional Arabic/English edition switch when both versions exist, clear labeling for AI-generated illustrative images, a compact source/timestamp/language metadata panel, and a sticky related-stories column on wide screens. Source attribution and licence links remain visible when provided.
@@ -76,7 +76,7 @@ python app.py
 python -m unittest discover -s tests -v
 ```
 
-The automated test suite covers language/source enforcement, Openverse licence filtering (CC0/PDM/CC BY/CC BY-SA), attribution metadata, Pexels/Unsplash API request headers, title-keyword matching and attribution, image fallback rendering and NASA/Commons rights policy. Live credentials, the production database, external API quotas and the actual rights status of individual images cannot be certified by unit tests alone; monitor `/api/news-status`, `/admin/monitor` and Render logs.
+The automated test suite covers language/source enforcement, Openverse licence filtering (CC0/PDM/CC BY/CC BY-SA), attribution metadata, inactive stock-provider exclusion, title/context query variants, image relevance scoring, image fallback rendering, and NASA/Commons rights policy. Live credentials, the production database, external API quotas and the actual rights status of individual images cannot be certified by unit tests alone; monitor `/api/news-status`, `/admin/monitor` and Render logs.
 
 ### Fast article navigation
 
@@ -103,7 +103,7 @@ New RSS headlines and bilingual briefs are saved to Supabase before photo search
 Gemini image generation is disabled by default. News images are sourced from external catalogues and providers with source/reuse metadata; when no suitable result is found, the editorial fallback remains. The site does not intentionally bypass copyright or licensing restrictions.
 
 ### Context-aware image search
-Photo discovery combines the most distinctive terms from a story headline with keywords from its source excerpt. This helps open-licence archives match photos whose metadata describes the subject rather than repeating the full headline, while retaining item-level licence checks and relevance filtering. The image-enrichment batch has an overall deadline so slow providers cannot hold the news refresh lock.
+Photo discovery combines the most distinctive terms from a story headline with keywords from its source excerpt, then retries the headline on its own. Relevance scoring accepts a strong single-entity overlap for short, provider-ranked queries while still requiring the image itself to pass the item's licence and attribution checks. The image-enrichment batch has an overall deadline so slow providers cannot hold the news refresh lock.
 
 
 ### RSS discovery query performance
