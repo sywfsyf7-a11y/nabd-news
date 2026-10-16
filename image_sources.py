@@ -130,7 +130,7 @@ def search_openverse_image(
             # Fetch from Openverse's own thumbnail endpoint for safe, durable server-side caching.
             # The original item URL remains the attribution destination.
             thumbnail_url = (
-                "https://api.openverse.org/v1/images/" + quote(identifier, safe="") + "/thumb/"
+                "https://api.openverse.org/v1/images/" + quote(identifier, safe="") + "/thumb/?full_size=true&compressed=true"
                 if identifier and re.fullmatch(r"[A-Za-z0-9_-]{8,100}", identifier)
                 else ""
             )
