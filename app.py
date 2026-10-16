@@ -3484,11 +3484,6 @@ def _translate_batch(raw_articles: list[dict[str, Any]]) -> dict[int, dict[str, 
                 reason = "429 quota/rate limit" if rate_limited else "temporary 5xx server error"
                 failed_reason = "rate_limited_429" if rate_limited else "transient_server_error"
                 _persist_shared_gemini_cooldown(failed_reason, state_key=f"gemini_cooldown:{active_model}")
-                if primary_error_model == primary_model and primary_error is not None and (
-                    _is_gemini_rate_limit_error(primary_error) or _is_gemini_transient_server_error(primary_error)
-                ):
-                    primary_reason = "rate_limited_429" if _is_gemini_rate_limit_error(primary_error) else "transient_server_error"
-                    _persist_shared_gemini_cooldown(primary_reason, state_key=primary_cooldown_key)
                 logger.warning(
                     "Gemini request circuit breaker enabled for %d minutes after %s; shared cooldown saved for all workers; source-language news and image search will continue",
                     cooldown_minutes, reason,
