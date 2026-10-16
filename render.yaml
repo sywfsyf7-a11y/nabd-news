@@ -10,10 +10,6 @@ services:
         generateValue: true
       - key: ADMIN_PANEL_PASSWORD
         sync: false
-      - key: PEXELS_API_KEY
-        sync: false
-      - key: UNSPLASH_ACCESS_KEY
-        sync: false
       - key: SESSION_COOKIE_SECURE
         value: "true"
       - key: NEWS_AUTO_FETCH
@@ -24,6 +20,10 @@ services:
         generateValue: true
       - key: NEWS_REFRESH_MINUTES
         value: "30"
+      - key: RSS_BATCH_TIMEOUT_SECONDS
+        value: "35"
+      - key: GEMINI_FALLBACK_MODEL
+        value: "gemini-3.5-flash-lite"
       - key: GEMINI_IMAGE_MODEL
         value: "gemini-nano-banana-2.1"
       - key: GEMINI_IMAGE_GENERATION_ENABLED
