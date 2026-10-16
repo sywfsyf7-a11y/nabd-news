@@ -145,7 +145,7 @@ class SiteExperienceTests(unittest.TestCase):
             def __init__(self, result=None, is_done=False):
                 self._result = result
                 self._done = is_done
-                self.cancelled = False
+                self._cancelled = False
             def done(self):
                 return self._done
             def result(self):
@@ -153,15 +153,17 @@ class SiteExperienceTests(unittest.TestCase):
                     raise AssertionError("pending future must not be awaited")
                 return self._result
             def cancel(self):
-                self.cancelled = True
+                self._cancelled = True
                 return True
+            def cancelled(self):
+                return self._cancelled
 
         class FakeExecutor:
             def __init__(self, max_workers):
                 self.max_workers = max_workers
                 self.futures = []
                 self.shutdown_args = None
-            def submit(self, fn, category, lang):
+            def submit(self, fn, category, lang, source_group=()):
                 if category == "world" and lang == "en":
                     future = FakeFuture(("world", "en", [dict(story)]), is_done=True)
                 else:
@@ -188,7 +190,7 @@ class SiteExperienceTests(unittest.TestCase):
         self.assertEqual(len(stories), 1)
         self.assertEqual(stories[0]["source_url"], story["source_url"])
         self.assertEqual(executor.shutdown_args, (False, True))
-        self.assertTrue(all(future.cancelled for future in executor.futures if not future.done()))
+        self.assertTrue(all(future.cancelled() for future in executor.futures if not future.done()))
 
     def test_google_news_rss_query_is_limited_to_recent_stories(self):
         with patch.object(world_pulse, "_control_enabled", return_value=True):
