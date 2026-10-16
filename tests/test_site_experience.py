@@ -10,6 +10,51 @@ import app as world_pulse
 
 
 class SiteExperienceTests(unittest.TestCase):
+    def test_rss_excerpt_is_displayed_as_details_when_editorial_ai_is_unavailable(self):
+        excerpt = (
+            "The city council approved the transit plan after a public vote. "
+            "The first phase will add three bus routes, according to the council's release."
+        )
+        raw = world_pulse._base_article({
+            "slug": "rss-details-fallback",
+            "source_url": "https://example.com/transit-plan",
+            "category": "world",
+            "source_name": "Example News",
+            "source_domain": "example.com",
+            "original_title": "City council approves transit plan",
+            "original_summary": excerpt,
+            "original_language": "en",
+            "published_at": datetime(2026, 10, 16, tzinfo=timezone.utc),
+        })
+
+        story = world_pulse._normalise_story(raw, "en")
+
+        self.assertEqual(raw["content_en"], excerpt)
+        self.assertTrue(story["content"])
+        self.assertIn("three bus routes", story["content"])
+        self.assertTrue(story["details_from_source_excerpt"])
+
+    def test_single_sentence_excerpt_is_not_silently_hidden_as_details(self):
+        excerpt = "The city council approved the plan after a public vote."
+        raw = world_pulse._base_article({
+            "slug": "single-sentence-details",
+            "source_url": "https://example.com/one-sentence",
+            "category": "world",
+            "source_name": "Example News",
+            "source_domain": "example.com",
+            "original_title": "City council approves plan",
+            "original_summary": excerpt,
+            "original_language": "en",
+            "published_at": datetime(2026, 10, 16, tzinfo=timezone.utc),
+        })
+
+        story = world_pulse._normalise_story(raw, "en")
+
+        self.assertTrue(story["content"])
+        self.assertIn("public vote", story["content"])
+        self.assertTrue(story["details_from_source_excerpt"])
+
+
     def test_missing_photo_uses_language_specific_brand_fallback(self):
         published = datetime(2026, 10, 15, tzinfo=timezone.utc)
         common = {
