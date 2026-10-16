@@ -14,18 +14,32 @@ class SourcePolicyTests(unittest.TestCase):
             "",
         )
 
-    def test_language_site_rejects_wrong_language_and_unknown_domains(self):
+    def test_bilingual_feed_accepts_native_sources_on_either_interface_language(self):
         arabic_story = {
             "category": "technology",
             "original_language": "ar",
             "source_domain": "aitnews.com",
             "source_name": "AIT News",
+            "title_ar": "عنوان تقني",
+            "title_en": "",
+            "summary_ar": "موجز المصدر",
+            "summary_en": "",
         }
         self.assertTrue(world_pulse._row_allowed_on_language_site(arabic_story, "ar"))
-        self.assertFalse(world_pulse._row_allowed_on_language_site(arabic_story, "en"))
+        self.assertTrue(world_pulse._row_allowed_on_language_site(arabic_story, "en"))
+        english_story = dict(arabic_story, original_language="en", source_domain="theverge.com")
+        self.assertTrue(world_pulse._row_allowed_on_language_site(english_story, "ar"))
+        self.assertTrue(world_pulse._row_allowed_on_language_site(english_story, "en"))
 
         unapproved = dict(arabic_story, source_domain="unknown.example")
         self.assertFalse(world_pulse._row_allowed_on_language_site(unapproved, "ar"))
+        self.assertFalse(world_pulse._row_allowed_on_language_site(unapproved, "en"))
+
+    def test_saudi_gamer_is_in_the_arabic_gaming_source_catalog(self):
+        self.assertEqual(
+            world_pulse._source_domain_for_category("gaming", "ar", "www.saudigamer.com"),
+            "saudigamer.com",
+        )
 
     def test_bbc_al_jazeera_and_cnn_catalog_policies(self):
         self.assertEqual(world_pulse._source_domain_for_category("world", "ar", "www.aljazeera.net"), "aljazeera.net")
