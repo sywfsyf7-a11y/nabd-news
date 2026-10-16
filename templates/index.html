@@ -292,7 +292,7 @@
                 <a href="{{ url_for('article', slug=story.slug, lang=lang) }}" class="relative block aspect-[16/9] overflow-hidden bg-slate-200" tabindex="-1" aria-hidden="true">
                   <div aria-hidden="true" class="absolute inset-0 z-0 h-full w-full bg-gradient-to-br from-ink via-slate-800 to-slate-600"></div>
                   {% if story.image_url %}
-                    <img src="{{ story.image_url }}" alt="{{ story.title }}" loading="lazy" decoding="async" class="absolute inset-0 z-[1] h-full w-full object-cover transition duration-700 group-hover:scale-105" onerror="this.onerror=null;this.src='{{ url_for('static', filename='images/fallback-' ~ lang ~ '.svg') }}';">
+                    <img src="{{ story.image_url }}" alt="{{ story.title }}" loading="lazy" decoding="async" class="absolute inset-0 z-[1] h-full w-full object-cover transition duration-700 group-hover:scale-105" onerror="this.onerror=null;this.src={{ url_for('static', filename='images/fallback-' ~ lang ~ '.svg')|tojson }};">
                   {% else %}
                     <img src="{{ url_for('static', filename='images/fallback-' ~ lang ~ '.svg') }}" alt="{{ 'صورة تحريرية بديلة' if lang == 'ar' else 'Editorial fallback image' }}" loading="lazy" class="absolute inset-0 z-[1] h-full w-full object-cover">
                   {% endif %}
@@ -378,7 +378,7 @@
         <div class="relative aspect-[16/8] max-h-[540px] overflow-hidden bg-slate-200 sm:aspect-[16/7]">
           <div aria-hidden="true" class="absolute inset-0 z-0 h-full w-full bg-gradient-to-br from-ink via-slate-800 to-slate-600"></div>
           {% if article.image_url %}
-            <img src="{{ article.image_url }}" alt="{{ article.title }}" loading="eager" fetchpriority="high" decoding="async" class="absolute inset-0 z-[1] h-full w-full object-cover" onerror="this.onerror=null;this.src='{{ url_for('static', filename='images/fallback-' ~ lang ~ '.svg') }}';">
+            <img src="{{ article.image_url }}" alt="{{ article.title }}" loading="eager" fetchpriority="high" decoding="async" class="absolute inset-0 z-[1] h-full w-full object-cover" onerror="this.onerror=null;this.src={{ url_for('static', filename='images/fallback-' ~ lang ~ '.svg')|tojson }};">
           {% else %}
             <img src="{{ url_for('static', filename='images/fallback-' ~ lang ~ '.svg') }}" alt="{{ 'صورة تحريرية بديلة' if lang == 'ar' else 'Editorial fallback image' }}" class="absolute inset-0 z-[1] h-full w-full object-cover">
           {% endif %}
@@ -462,7 +462,7 @@
                   <span class="relative block h-20 w-24 shrink-0 overflow-hidden rounded-xl bg-slate-200">
                     <div aria-hidden="true" class="absolute inset-0 z-0 h-full w-full bg-gradient-to-br from-ink via-slate-800 to-slate-600"></div>
                     {% if story.image_url %}
-                      <img src="{{ story.image_url }}" alt="{{ story.title }}" loading="lazy" decoding="async" class="absolute inset-0 z-[1] h-full w-full object-cover" onerror="this.onerror=null;this.src='{{ url_for('static', filename='images/fallback-' ~ lang ~ '.svg') }}';">
+                      <img src="{{ story.image_url }}" alt="{{ story.title }}" loading="lazy" decoding="async" class="absolute inset-0 z-[1] h-full w-full object-cover" onerror="this.onerror=null;this.src={{ url_for('static', filename='images/fallback-' ~ lang ~ '.svg')|tojson }};">
                     {% else %}
                       <img src="{{ url_for('static', filename='images/fallback-' ~ lang ~ '.svg') }}" alt="{{ 'صورة تحريرية بديلة' if lang == 'ar' else 'Editorial fallback image' }}" loading="lazy" class="absolute inset-0 z-[1] h-full w-full object-cover">
                     {% endif}
