@@ -40,7 +40,7 @@ from image_sources import search_openverse_image as _search_openverse_provider
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from flask import Flask, Response, abort, jsonify, redirect, render_template, request, session, url_for
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageOps
 
 try:
     from google import genai
@@ -1824,15 +1824,34 @@ def _cache_reusable_image(result: dict[str, Any]) -> dict[str, Any]:
         logger.info("Licensed image not cached because it is empty or larger than 6 MiB (source=%s)", source)
         return result
     try:
+        # Verify dimensions and decode successfully before storing bytes from any remote provider.
         with Image.open(io.BytesIO(image_bytes)) as opened:
             image_format = str(opened.format or "").upper()
             width, height = opened.size
             if image_format not in {"JPEG", "PNG", "WEBP"} or width < 300 or height < 180 or width * height > 30_000_000:
                 return result
             opened.verify()
-        mime_type = {"JPEG": "image/jpeg", "PNG": "image/png", "WEBP": "image/webp"}[image_format]
+
+        # Persist a standard, optimized 16:9-ish web image rather than large originals.
+        # The original source, creator and exact license URL remain attached to this row.
+        with Image.open(io.BytesIO(image_bytes)) as opened:
+            oriented = ImageOps.exif_transpose(opened)
+            if "A" in oriented.getbands() or "transparency" in oriented.info:
+                rgba = oriented.convert("RGBA")
+                optimized = Image.new("RGB", rgba.size, "#ffffff")
+                optimized.paste(rgba, mask=rgba.getchannel("A"))
+            else:
+                optimized = oriented.convert("RGB")
+            optimized.thumbnail((1600, 1200), Image.Resampling.LANCZOS)
+            optimized_buffer = io.BytesIO()
+            optimized.save(optimized_buffer, format="JPEG", quality=82, optimize=True, progressive=True)
+            image_bytes = optimized_buffer.getvalue()
+            mime_type = "image/jpeg"
+        if not image_bytes or len(image_bytes) > 2 * 1024 * 1024:
+            logger.info("Licensed image not cached because optimized payload exceeds 2 MiB (source=%s)", source)
+            return result
     except Exception as exc:
-        logger.debug("Licensed image bytes failed verification (source=%s error=%s)", source, type(exc).__name__)
+        logger.debug("Licensed image bytes failed verification/optimization (source=%s error=%s)", source, type(exc).__name__)
         return result
 
     if not _ensure_schema():
