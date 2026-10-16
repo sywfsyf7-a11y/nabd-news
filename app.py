@@ -1453,7 +1453,7 @@ def _search_commons_image(title: str, lang: str, category: str = "world") -> dic
     if not title:
         return {}
     # The caller already retries context-rich, short-headline, and two-term queries.
-    # Do one Wikimedia API request per variant rather than doubling every query internally.
+    # One Wikimedia request per query variant avoids repeatedly exceeding the group deadline.
     query = _clean_text(_image_search_phrase(title, 4) or title, 160)
     if not query:
         return {}
@@ -1482,51 +1482,51 @@ def _search_commons_image(title: str, lang: str, category: str = "world") -> dic
     for page in pages:
         imageinfos = page.get("imageinfo") or []
         if not imageinfos:
-                continue
+            continue
         info = imageinfos[0]
         mime = str(info.get("mime", "")).lower()
         if mime not in {"image/jpeg", "image/png", "image/webp"}:
-                continue
+            continue
         page_title = str(page.get("title", ""))
-        if re.search(r"(?i)\b(logo|icon|wordmark|commons-logo|flag icon|map icon|banner logo|coat of arms|seal of)\b", page_title):
-                continue
+        if re.search(r"(?i)\\b(logo|icon|wordmark|commons-logo|flag icon|map icon|banner logo|coat of arms|seal of)\\b", page_title):
+            continue
         ext = info.get("extmetadata") or {}
         license_short = _clean_text((ext.get("LicenseShortName") or {}).get("value", ""), 100).casefold()
         license_url = _https_url(html.unescape((ext.get("LicenseUrl") or {}).get("value", "")), {"creativecommons.org"})
         license_path = urlparse(license_url).path.casefold() if license_url else ""
-        is_cc0 = bool(re.search(r"/publicdomain/zero/1\.0/?$", license_path))
-        is_pd = bool(re.search(r"/publicdomain/mark/1\.0/?$", license_path))
-        is_cc_by = bool(re.search(r"/licenses/by/(?:2\.0|3\.0|4\.0)/?$", license_path))
-        is_cc_by_sa = bool(re.search(r"/licenses/by-sa/(?:2\.0|3\.0|4\.0)/?$", license_path))
+        is_cc0 = bool(re.search(r"/publicdomain/zero/1\\.0/?$", license_path))
+        is_pd = bool(re.search(r"/publicdomain/mark/1\\.0/?$", license_path))
+        is_cc_by = bool(re.search(r"/licenses/by/(?:2\\.0|3\\.0|4\\.0)/?$", license_path))
+        is_cc_by_sa = bool(re.search(r"/licenses/by-sa/(?:2\\.0|3\\.0|4\\.0)/?$", license_path))
         if not (is_cc0 or is_pd or is_cc_by or is_cc_by_sa):
-                continue
+            continue
         forbidden = any(term in license_short for term in (
-                "noncommercial", "non-commercial", "no derivatives", "no-derivatives",
-                "by-nc", "by-nd", "share alike prohibited",
+            "noncommercial", "non-commercial", "no derivatives", "no-derivatives",
+            "by-nc", "by-nd", "share alike prohibited",
         ))
         if forbidden:
-                continue
+            continue
         artist = _clean_text((ext.get("Artist") or {}).get("value", ""), 180)
         if (is_cc_by or is_cc_by_sa) and not artist:
-                continue
+            continue
         image_url = _https_url(info.get("thumburl") or info.get("url"), {"wikimedia.org", "wikipedia.org"})
         if not image_url:
-                continue
+            continue
         description = _clean_text((ext.get("ImageDescription") or {}).get("value", ""), 1200)
         categories = _clean_text((ext.get("Categories") or {}).get("value", ""), 500)
         evidence = page_title + " " + description + " " + categories
         score = max(_image_match_score(title, evidence), _image_match_score(query, evidence))
         if score <= 0:
-                continue
+            continue
         file_page_url = "https://commons.wikimedia.org/wiki/" + quote(page_title.replace(" ", "_"), safe=":_()!,.'-")
         result = {
-                "image_url": image_url,
-                "image_source": "wikimedia_relevant",
-                "image_credit": artist or "Public-domain image via Wikimedia Commons",
-                "image_credit_url": file_page_url,
-                "image_provider_url": file_page_url,
-                "image_license_url": license_url,
-                "image_checked_at": datetime.now(timezone.utc),
+            "image_url": image_url,
+            "image_source": "wikimedia_relevant",
+            "image_credit": artist or "Public-domain image via Wikimedia Commons",
+            "image_credit_url": file_page_url,
+            "image_provider_url": file_page_url,
+            "image_license_url": license_url,
+            "image_checked_at": datetime.now(timezone.utc),
         }
         if best is None or score > best[0]:
             best = (score, result)
