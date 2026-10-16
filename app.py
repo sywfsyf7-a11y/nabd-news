@@ -297,26 +297,43 @@ CATEGORY_MATCH_TERMS = {
     ],
 }
 
+# Compile category matching rules once at import instead of rebuilding regexes for
+# every incoming RSS story. Matching semantics and weights mirror the original loop.
+_CATEGORY_MATCH_TERM_RULES: dict[str, list[tuple[str, Any, float]]] = {}
+for _rule_category, _rule_terms in CATEGORY_MATCH_TERMS.items():
+    _compiled_rules: list[tuple[str, Any, float]] = []
+    for _raw_term in _rule_terms:
+        _needle = _raw_term.casefold().strip()
+        if not _needle:
+            continue
+        if _needle == "ai":
+            _compiled_rules.append(("regex", re.compile(r"\bai\b"), 1.1))
+        elif re.fullmatch(r"[a-z0-9]+", _needle):
+            _compiled_rules.append(("regex", re.compile(r"\b" + re.escape(_needle) + r"\b"), 1.0))
+        else:
+            _compiled_rules.append(("substring", _needle, 1.0 if " " not in _needle else 1.4))
+    _CATEGORY_MATCH_TERM_RULES[_rule_category] = _compiled_rules
+
+
 def _classify_story(title: str, summary: str, fallback_category: str, source_domain: str = "") -> str:
     text = " " + _clean_text(f"{title} {summary}", 1100).casefold() + " "
     scores: dict[str, float] = {key: 0.0 for key in CATEGORY_NAMES}
-    for category, terms in CATEGORY_MATCH_TERMS.items():
-        for term in terms:
-            needle = term.casefold().strip()
-            if needle == "ai":
-                if re.search(r"\bai\b", text):
-                    scores[category] += 1.1
-            elif re.fullmatch(r"[a-z0-9]+", needle):
-                if re.search(r"\b" + re.escape(needle) + r"\b", text):
-                    scores[category] += 1.0
-            elif needle and needle in text:
-                scores[category] += 1.0 if " " not in needle else 1.4
+    for category, rules in _CATEGORY_MATCH_TERM_RULES.items():
+        for mode, matcher, weight in rules:
+            matched = matcher.search(text) is not None if mode == "regex" else matcher in text
+            if matched:
+                scores[category] += weight
 
     domain = (source_domain or "").casefold().removeprefix("www.")
-    for candidate, cats in _DOMAIN_CATEGORY_LOOKUP.items():
-        if len(cats) == 1 and _domain_matches(domain, candidate):
-            scores[next(iter(cats))] += 2.0
-            break
+    exact_categories = _DOMAIN_CATEGORY_LOOKUP.get(domain)
+    if exact_categories and len(exact_categories) == 1:
+        scores[next(iter(exact_categories))] += 2.0
+    else:
+        # Preserve suffix-aware handling for subdomains and shared publishers.
+        for candidate, cats in _DOMAIN_CATEGORY_LOOKUP.items():
+            if len(cats) == 1 and _domain_matches(domain, candidate):
+                scores[next(iter(cats))] += 2.0
+                break
     best = max(scores, key=scores.get)
     fallback_score = scores.get(fallback_category, 0.0)
     if best != fallback_category and scores[best] >= 1.4 and scores[best] >= fallback_score + 0.8:
@@ -2800,6 +2817,10 @@ def _collect_rss_articles() -> list[dict[str, Any]]:
     cleaned: dict[str, list[dict[str, Any]]] = {key: [] for key in CATEGORY_NAMES}
     seen_urls: set[str] = set()
     accepted_stories: list[dict[str, Any]] = []
+    # Precompute normalized titles and tokens once per accepted item. Recomputing URLs
+    # and title normalization against every prior candidate caused long dedupe stalls.
+    accepted_signatures: list[tuple[str, str, Any, set[str]]] = []
+    dedupe_started = time.monotonic()
     for category in CATEGORY_NAMES:
         candidates = sorted(by_category[category],
                             key=lambda item: item.get("published_at") or datetime(1970, 1, 1, tzinfo=timezone.utc),
@@ -2809,14 +2830,56 @@ def _collect_rss_articles() -> list[dict[str, Any]]:
             url_key = _canonical_story_url(url)
             if not url_key or url_key in seen_urls:
                 continue
-            if any(_stories_are_near_duplicates(item, old) for old in accepted_stories[-80:]):
+
+            title_key = _story_title_key(
+                item.get("original_title") or item.get("title") or item.get("title_ar") or item.get("title_en")
+            )
+            lang = str(item.get("original_language") or "").casefold()
+            published_at = item.get("published_at")
+            title_tokens = set(title_key.split())
+            duplicate = False
+            for old_lang, old_title, old_date, old_tokens in accepted_signatures[-80:]:
+                if lang and old_lang and lang != old_lang:
+                    continue
+                if isinstance(published_at, datetime) and isinstance(old_date, datetime):
+                    try:
+                        if abs((published_at - old_date).total_seconds()) > 48 * 60 * 60:
+                            continue
+                    except (TypeError, ValueError):
+                        pass
+                if title_key == old_title and title_key:
+                    duplicate = True
+                    break
+                if min(len(title_key), len(old_title)) < 30:
+                    continue
+
+                # A >12% title-length gap cannot reach a 0.94 sequence similarity ratio.
+                max_title_length = max(len(title_key), len(old_title))
+                if abs(len(title_key) - len(old_title)) > max(4, int(max_title_length * 0.12)):
+                    continue
+
+                # Nearly identical headlines should retain some shared word content.
+                if title_tokens and old_tokens:
+                    overlap = len(title_tokens & old_tokens) / max(1, min(len(title_tokens), len(old_tokens)))
+                    if overlap < 0.35:
+                        continue
+                if difflib.SequenceMatcher(None, title_key, old_title).ratio() >= 0.94:
+                    duplicate = True
+                    break
+
+            if duplicate:
                 continue
             seen_urls.add(url_key)
             item["slug"] = _slug_for_url(url)
             cleaned[category].append(item)
             accepted_stories.append(item)
+            accepted_signatures.append((lang, title_key, published_at, title_tokens))
 
     candidates_before_selection = sum(len(items) for items in cleaned.values())
+    logger.info(
+        "RSS candidate de-duplication complete: input=%d accepted=%d elapsed=%.1fs",
+        parsed_entry_count, len(accepted_stories), time.monotonic() - dedupe_started,
+    )
     selected: list[dict[str, Any]] = []
     # Collect a wider candidate pool than the publish batch. The refresh job filters
     # already-stored canonical URLs first; otherwise the first page can be entirely
