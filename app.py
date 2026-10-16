@@ -40,7 +40,7 @@ from image_sources import search_openverse_image as _search_openverse_provider
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from flask import Flask, Response, abort, jsonify, redirect, render_template, request, session, url_for
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageOps
 
 try:
     from google import genai
@@ -109,11 +109,9 @@ RSS_ENTRIES_PER_FEED = max(24, min(60, int(os.getenv("RSS_ENTRIES_PER_FEED", "48
 IMAGE_SEARCH_TIMEOUT_SECONDS = max(3, min(12, int(os.getenv("IMAGE_SEARCH_TIMEOUT_SECONDS", "5"))))
 MAX_IMAGE_LOOKUPS_PER_REFRESH = max(0, min(32, int(os.getenv("MAX_IMAGE_LOOKUPS_PER_REFRESH", "24"))))
 IMAGE_RETRY_AFTER_HOURS = max(1, min(168, int(os.getenv("IMAGE_RETRY_AFTER_HOURS", "1"))))
-UNSPLASH_ACCESS_KEY = os.getenv("UNSPLASH_ACCESS_KEY", "").strip()
-PEXELS_API_KEY = os.getenv("PEXELS_API_KEY", "").strip()
 IMAGE_CACHE_MAX_AGE_SECONDS = max(3600, int(os.getenv("IMAGE_CACHE_MAX_AGE_HOURS", "24")) * 3600)
 TRUSTED_REUSABLE_IMAGE_SOURCES = {
-    "wikimedia_relevant", "openverse_licensed", "loc_open_access", "nasa_images", "presskit_approved", "unsplash_api", "pexels_api"
+    "wikimedia_relevant", "openverse_licensed", "loc_open_access", "nasa_images", "presskit_approved"
 }
 
 
@@ -122,10 +120,12 @@ def _image_license_verified(row: dict[str, Any]) -> bool:
     image_url = str(row.get("image_url") or "").strip()
     license_url = str(row.get("image_license_url") or "").strip()
     source = str(row.get("image_source") or "").strip()
+    remote_url = image_url.startswith("https://")
+    cached_url = bool(re.fullmatch(r"/media/catalogued/[a-f0-9]{40}", image_url))
     return bool(
-        image_url.startswith("https://")
+        (remote_url or cached_url)
         and source in TRUSTED_REUSABLE_IMAGE_SOURCES
-        and license_url.startswith(("https://", "http://"))
+        and license_url.startswith("https://")
         and source != "gemini_generated"
     )
 
@@ -550,6 +550,15 @@ CREATE TABLE IF NOT EXISTS world_pulse_generated_images (
 );
 CREATE INDEX IF NOT EXISTS idx_wp_generated_images_created
     ON world_pulse_generated_images (created_at DESC);
+CREATE TABLE IF NOT EXISTS world_pulse_catalogued_images (
+    image_id TEXT PRIMARY KEY,
+    source_url TEXT NOT NULL UNIQUE,
+    mime_type TEXT NOT NULL,
+    image_data BYTEA NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_wp_catalogued_images_created
+    ON world_pulse_catalogued_images (created_at DESC);
 ALTER TABLE world_pulse_articles ADD COLUMN IF NOT EXISTS source_domain TEXT NOT NULL DEFAULT '';
 """
 
@@ -768,8 +777,6 @@ def _known_control_cache_keys() -> set[str]:
         "image:loc_open_access",
         "image:nasa_images",
         "image:presskit_approved",
-        "image:pexels_api",
-        "image:unsplash_api",
         "image:gemini_generated",
     })
     return keys
@@ -919,8 +926,6 @@ def _known_source_controls() -> list[dict[str, Any]]:
         ("loc_open_access", "Library of Congress open-access photos", True),
         ("nasa_images", "NASA Image and Video Library", True),
         ("presskit_approved", "صور صحفية معتمدة", _presskit_provider_configured()),
-        ("pexels_api", "Pexels API", bool(PEXELS_API_KEY)),
-        ("unsplash_api", "Unsplash API", bool(UNSPLASH_ACCESS_KEY)),
         ("gemini_generated", "توليد صور تحريرية باستخدام Gemini", bool(GEMINI_IMAGE_GENERATION_ENABLED and GEMINI_API_KEY) and genai is not None and types is not None),
     ]
     for provider, title, configured in image_providers:
@@ -1073,11 +1078,21 @@ def _db_fetch_articles_needing_images(limit: int = 6) -> list[dict[str, Any]]:
                   AND source_url <> ''
                   AND (
                     (
-                      COALESCE(image_url, '') = ''
+                      (
+                        COALESCE(image_url, '') = ''
+                        OR image_source IN ('fallback_ar', 'fallback_en', 'language_fallback',
+                                            'pexels_api', 'unsplash_api', 'category',
+                                            'duplicate_removed', 'none')
+                        OR image_url IN ('/static/A.jpg', '/static/E.jpg')
+                      )
                       AND (image_checked_at IS NULL OR image_checked_at < NOW() - (%s * INTERVAL '1 hour'))
                     )
                     OR (
                       COALESCE(image_url, '') <> ''
+                      AND image_url NOT LIKE '/media/catalogued/%%'
+                      AND image_source NOT IN ('fallback_ar', 'fallback_en', 'language_fallback',
+                                               'pexels_api', 'unsplash_api', 'category',
+                                               'duplicate_removed', 'none')
                       AND (image_checked_at IS NULL OR image_checked_at < NOW() - (%s * INTERVAL '1 second'))
                     )
                   )
@@ -1233,27 +1248,27 @@ def _db_upsert_many(articles: list[dict[str, Any]]) -> bool:
             source_name = EXCLUDED.source_name,
             source_domain = CASE WHEN EXCLUDED.source_domain <> '' THEN EXCLUDED.source_domain ELSE world_pulse_articles.source_domain END,
             image_url = CASE
-                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'openverse_licensed', 'loc_open_access', 'nasa_images', 'unsplash_api', 'pexels_api', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
+                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'openverse_licensed', 'loc_open_access', 'nasa_images', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
                     THEN world_pulse_articles.image_url
                 ELSE EXCLUDED.image_url END,
             image_source = CASE
-                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'openverse_licensed', 'loc_open_access', 'nasa_images', 'unsplash_api', 'pexels_api', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
+                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'openverse_licensed', 'loc_open_access', 'nasa_images', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
                     THEN world_pulse_articles.image_source
                 ELSE EXCLUDED.image_source END,
             image_credit = CASE
-                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'openverse_licensed', 'loc_open_access', 'nasa_images', 'unsplash_api', 'pexels_api', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
+                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'openverse_licensed', 'loc_open_access', 'nasa_images', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
                     THEN world_pulse_articles.image_credit
                 ELSE EXCLUDED.image_credit END,
             image_credit_url = CASE
-                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'openverse_licensed', 'loc_open_access', 'nasa_images', 'unsplash_api', 'pexels_api', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
+                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'openverse_licensed', 'loc_open_access', 'nasa_images', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
                     THEN world_pulse_articles.image_credit_url
                 ELSE EXCLUDED.image_credit_url END,
             image_provider_url = CASE
-                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'openverse_licensed', 'loc_open_access', 'nasa_images', 'unsplash_api', 'pexels_api', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
+                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'openverse_licensed', 'loc_open_access', 'nasa_images', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
                     THEN world_pulse_articles.image_provider_url
                 ELSE EXCLUDED.image_provider_url END,
             image_license_url = CASE
-                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'openverse_licensed', 'loc_open_access', 'nasa_images', 'unsplash_api', 'pexels_api', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
+                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'openverse_licensed', 'loc_open_access', 'nasa_images', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
                     THEN world_pulse_articles.image_license_url
                 ELSE EXCLUDED.image_license_url END,
             image_checked_at = COALESCE(EXCLUDED.image_checked_at, world_pulse_articles.image_checked_at),
@@ -1687,112 +1702,6 @@ def _search_nasa_image(title: str, lang: str = "en", category: str = "world") ->
         logger.debug("NASA image lookup failed (error=%s)", type(exc).__name__)
         return {}
 
-def _search_pexels_image(title: str) -> dict[str, str]:
-    if not PEXELS_API_KEY or not title:
-        return {}
-    query = _image_search_phrase(_clean_text(title, 180), 5)[:100]
-    params = urlencode({"query": query, "per_page": 10, "orientation": "landscape"})
-    request_obj = Request(
-        "https://api.pexels.com/v1/search?" + params,
-        headers={"Authorization": PEXELS_API_KEY, "User-Agent": "WorldPulseNews/1.4 (+image sourcing)"},
-    )
-    try:
-        with urlopen(request_obj, timeout=IMAGE_SEARCH_TIMEOUT_SECONDS) as response:
-            data = json.loads(response.read(1_500_000).decode("utf-8", errors="replace"))
-        best: tuple[float, dict[str, str]] | None = None
-        for index, photo in enumerate(data.get("photos", [])[:10]):
-            src = photo.get("src") or {}
-            image_url = _https_url(src.get("large") or src.get("large2x") or src.get("medium"), {"pexels.com"})
-            photo_page = _https_url(photo.get("url"), {"pexels.com"})
-            photographer = _clean_text(photo.get("photographer", ""), 160)
-            photographer_url = _https_url(photo.get("photographer_url"), {"pexels.com"})
-            alt = _clean_text(photo.get("alt", ""), 400)
-            if not image_url or not photo_page or not photographer:
-                continue
-            score = _image_match_score(query, alt)
-            # Pexels ranks results for the query; an empty alt field is not evidence of a mismatch.
-            if score <= 0:
-                if alt:
-                    continue
-                score = max(0.01, 0.05 - index * 0.003)
-            result = {
-                "image_url": image_url,
-                "image_source": "pexels_api",
-                "image_credit": photographer,
-                "image_credit_url": photographer_url or photo_page,
-                "image_provider_url": photo_page,
-                "image_license_url": "https://www.pexels.com/license/",
-                "image_checked_at": datetime.now(timezone.utc),
-            }
-            if best is None or score > best[0]:
-                best = (score, result)
-        return best[1] if best else {}
-    except Exception as exc:
-        logger.debug("Pexels image lookup failed (%s)", type(exc).__name__)
-        return {}
-
-def _with_unsplash_tracking(url: Any) -> str:
-    safe = _https_url(url, {"unsplash.com"})
-    if not safe:
-        return ""
-    parsed = urlparse(safe)
-    query = parsed.query
-    additions = "utm_source=world_pulse&utm_medium=referral"
-    if "utm_source=" not in query:
-        query = query + ("&" if query else "") + additions
-    return parsed._replace(query=query).geturl()
-
-def _search_unsplash_image(title: str) -> dict[str, str]:
-    if not UNSPLASH_ACCESS_KEY or not title:
-        return {}
-    query = _image_search_phrase(_clean_text(title, 180), 5)[:100]
-    params = urlencode({"query": query, "per_page": 10, "orientation": "landscape", "content_filter": "high"})
-    request_obj = Request(
-        "https://api.unsplash.com/search/photos?" + params,
-        headers={
-            "Authorization": "Client-ID " + UNSPLASH_ACCESS_KEY,
-            "Accept-Version": "v1",
-            "User-Agent": "WorldPulseNews/1.3 (+image sourcing)",
-        },
-    )
-    try:
-        with urlopen(request_obj, timeout=IMAGE_SEARCH_TIMEOUT_SECONDS) as response:
-            data = json.loads(response.read(1_500_000).decode("utf-8", errors="replace"))
-        best: tuple[float, dict[str, str]] | None = None
-        for photo in data.get("results", [])[:10]:
-            urls = photo.get("urls") or {}
-            image_url = _https_url(urls.get("regular") or urls.get("small"), {"images.unsplash.com"})
-            links = photo.get("links") or {}
-            user = photo.get("user") or {}
-            user_links = user.get("links") or {}
-            photo_page = _with_unsplash_tracking(links.get("html"))
-            photographer = _clean_text(user.get("name", ""), 160)
-            photographer_url = _with_unsplash_tracking(user_links.get("html"))
-            if not image_url or not photo_page or not photographer:
-                continue
-            description = " ".join([
-                str(photo.get("alt_description", "")), str(photo.get("description", "")),
-                " ".join(_clean_text(tag.get("title", ""), 80) for tag in photo.get("tags", [])[:12] if isinstance(tag, dict)),
-            ])
-            score = _image_match_score(query, description)
-            if score <= 0:
-                continue
-            result = {
-                "image_url": image_url,
-                "image_source": "unsplash_api",
-                "image_credit": photographer,
-                "image_credit_url": photographer_url or photo_page,
-                "image_provider_url": photo_page,
-                "image_license_url": "https://unsplash.com/license",
-                "image_checked_at": datetime.now(timezone.utc),
-            }
-            if best is None or score > best[0]:
-                best = (score, result)
-        return best[1] if best else {}
-    except Exception as exc:
-        logger.debug("Unsplash image lookup failed (%s)", type(exc).__name__)
-        return {}
-
 def _search_approved_presskit_image(title: str, category: str) -> dict[str, str]:
     manifest_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "approved_presskit_images.json")
     try:
@@ -1836,6 +1745,167 @@ def _search_approved_presskit_image(title: str, category: str) -> dict[str, str]
         if best is None or score > best[0]:
             best = (score, result)
     return best[1] if best else {}
+
+def _catalogued_image_exists(image_id: str) -> bool:
+    if not re.fullmatch(r"[a-f0-9]{40}", image_id or "") or not _ensure_schema():
+        return False
+    conn = _connect_db()
+    if conn is None:
+        return False
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1 FROM world_pulse_catalogued_images WHERE image_id = %s", (image_id,))
+            return cur.fetchone() is not None
+    except Exception as exc:
+        logger.debug("Cached source image lookup failed (%s)", type(exc).__name__)
+        return False
+    finally:
+        _release_db_connection(conn)
+
+
+def _cache_reusable_image(result: dict[str, Any]) -> dict[str, Any]:
+    """Save licensed image bytes to Supabase so browser hotlink failures cannot leave A/E placeholders."""
+    image_url = str(result.get("image_url") or "").strip()
+    source = str(result.get("image_source") or "")
+    if not image_url.startswith("https://") or not _image_license_verified(result):
+        return result
+    source_url = image_url
+    cache_url = str(result.get("image_cache_url") or image_url).strip()
+    try:
+        source_parsed = urlparse(source_url)
+        cache_parsed = urlparse(cache_url)
+    except ValueError:
+        return result
+    if source_parsed.scheme != "https" or not source_parsed.hostname or cache_parsed.scheme != "https" or not cache_parsed.hostname:
+        return result
+
+    # Do not fetch arbitrary Openverse index hosts server-side. Use the official thumbnail endpoint instead.
+    if source == "openverse_licensed":
+        if cache_parsed.hostname.casefold() != "api.openverse.org" or not cache_parsed.path.startswith("/v1/images/"):
+            return result
+    elif source == "wikimedia_relevant":
+        host = source_parsed.hostname.casefold()
+        if not any(host == domain or host.endswith("." + domain) for domain in ("wikimedia.org", "wikipedia.org")):
+            return result
+    elif source == "loc_open_access":
+        if not _domain_matches(source_parsed.hostname, "loc.gov"):
+            return result
+    elif source == "nasa_images":
+        if not _domain_matches(source_parsed.hostname, "nasa.gov"):
+            return result
+    elif source == "presskit_approved":
+        # This host is listed in the owner's explicitly approved press-kit manifest.
+        pass
+    else:
+        return result
+
+    image_id = hashlib.sha256(source_url.encode("utf-8")).hexdigest()[:40]
+    if _catalogued_image_exists(image_id):
+        cached = dict(result)
+        cached["image_url"] = "/media/catalogued/" + image_id
+        cached.pop("image_cache_url", None)
+        return cached
+
+    try:
+        request_obj = Request(
+            cache_url,
+            headers={
+                "Accept": "image/jpeg,image/png,image/webp",
+                "User-Agent": "WorldPulseNews/2.1 (+licensed image caching)",
+            },
+        )
+        with urlopen(request_obj, timeout=IMAGE_SEARCH_TIMEOUT_SECONDS) as response:
+            image_bytes = response.read(6 * 1024 * 1024 + 1)
+    except Exception as exc:
+        logger.debug("Licensed image download failed (source=%s error=%s)", source, type(exc).__name__)
+        return result
+
+    if not image_bytes or len(image_bytes) > 6 * 1024 * 1024:
+        logger.info("Licensed image not cached because it is empty or larger than 6 MiB (source=%s)", source)
+        return result
+    try:
+        # Verify dimensions and decode successfully before storing bytes from any remote provider.
+        with Image.open(io.BytesIO(image_bytes)) as opened:
+            image_format = str(opened.format or "").upper()
+            width, height = opened.size
+            if image_format not in {"JPEG", "PNG", "WEBP"} or width < 300 or height < 180 or width * height > 30_000_000:
+                return result
+            opened.verify()
+
+        # Persist a standard, optimized 16:9-ish web image rather than large originals.
+        # The original source, creator and exact license URL remain attached to this row.
+        with Image.open(io.BytesIO(image_bytes)) as opened:
+            oriented = ImageOps.exif_transpose(opened)
+            if "A" in oriented.getbands() or "transparency" in oriented.info:
+                rgba = oriented.convert("RGBA")
+                optimized = Image.new("RGB", rgba.size, "#ffffff")
+                optimized.paste(rgba, mask=rgba.getchannel("A"))
+            else:
+                optimized = oriented.convert("RGB")
+            optimized.thumbnail((1600, 1200), Image.Resampling.LANCZOS)
+            optimized_buffer = io.BytesIO()
+            optimized.save(optimized_buffer, format="JPEG", quality=82, optimize=True, progressive=True)
+            image_bytes = optimized_buffer.getvalue()
+            mime_type = "image/jpeg"
+        if not image_bytes or len(image_bytes) > 2 * 1024 * 1024:
+            logger.info("Licensed image not cached because optimized payload exceeds 2 MiB (source=%s)", source)
+            return result
+    except Exception as exc:
+        logger.debug("Licensed image bytes failed verification/optimization (source=%s error=%s)", source, type(exc).__name__)
+        return result
+
+    if not _ensure_schema():
+        return result
+    conn = _connect_db()
+    if conn is None:
+        return result
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO world_pulse_catalogued_images (image_id, source_url, mime_type, image_data)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (source_url) DO NOTHING
+            """, (image_id, source_url, mime_type, image_bytes))
+        conn.commit()
+        cached = dict(result)
+        cached["image_url"] = "/media/catalogued/" + image_id
+        cached.pop("image_cache_url", None)
+        logger.info("Licensed image cached in Supabase (source=%s bytes=%d)", source, len(image_bytes))
+        return cached
+    except Exception as exc:
+        conn.rollback()
+        logger.warning("Could not persist licensed source image (source=%s error=%s)", source, type(exc).__name__)
+        return result
+    finally:
+        _release_db_connection(conn)
+
+
+def _read_catalogued_image(image_id: str) -> tuple[bytes, str] | None:
+    if not re.fullmatch(r"[a-f0-9]{40}", image_id or "") or not _ensure_schema():
+        return None
+    conn = _connect_db()
+    if conn is None:
+        return None
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT image_data, mime_type
+                FROM world_pulse_catalogued_images
+                WHERE image_id = %s
+            """, (image_id,))
+            row = cur.fetchone()
+            if not row or not row[0]:
+                return None
+            mime_type = str(row[1] or "")
+            if mime_type not in {"image/jpeg", "image/png", "image/webp"}:
+                return None
+            return bytes(row[0]), mime_type
+    except Exception as exc:
+        logger.debug("Cached source image read failed (%s)", type(exc).__name__)
+        return None
+    finally:
+        _release_db_connection(conn)
+
 
 def _db_count_gemini_images_last_24h() -> int | None:
     if not _ensure_schema():
@@ -2231,6 +2301,7 @@ def _resolve_article_image(raw: dict[str, Any]) -> dict[str, Any]:
         str(raw.get("category") or "world"),
     )
     if result:
+        result = _cache_reusable_image(result)
         result["image_checked_at"] = datetime.now(timezone.utc)
         return result
     # Only use the separately budgeted Gemini feature when no eligible sourced image was found.
@@ -3663,10 +3734,6 @@ def _image_license_label(license_url: str, source: str = "") -> str:
         return "Original locally generated editorial illustration"
     if source == "loc_open_access":
         return "Item marked public domain / no known restrictions (verify item record)"
-    if source == "pexels_api":
-        return "Pexels License"
-    if source == "unsplash_api":
-        return "Unsplash License"
     if source == "presskit_approved":
         return "Approved press-kit licence"
     if source == "gemini_generated":
@@ -3679,8 +3746,6 @@ def _image_provider_label(source: str) -> str:
         "openverse_licensed": "Openverse · openly licensed media",
         "loc_open_access": "Library of Congress (item marked reusable)",
         "nasa_images": "NASA Image and Video Library",
-        "unsplash_api": "Unsplash",
-        "pexels_api": "Pexels",
         "presskit_approved": "Approved press kit",
         "gemini_generated": "Gemini AI illustration",
         "editorial_generated": "World Pulse topic-specific editorial art",
@@ -3764,7 +3829,6 @@ def _normalise_story(row: dict[str, Any], lang: str) -> dict[str, Any]:
         story.get("image_source") not in TRUSTED_REUSABLE_IMAGE_SOURCES
         or not _image_license_verified(story)
     ):
-        # Provider membership alone is not proof of permission; require item-level licence data.
         story.update({"image_url": "", "image_source": "none", "image_credit": "",
                       "image_credit_url": "", "image_provider_url": "", "image_license_url": ""})
     if not story.get("slug"):
@@ -3783,10 +3847,15 @@ def _normalise_story(row: dict[str, Any], lang: str) -> dict[str, Any]:
             else "Headline and source link only. Open the publisher's original page for full details, context, and updates."
         )
         story["content"] = ""
+    story["image_fallback_url"] = "/media/editorial.svg?" + urlencode({
+        "title": story["title"] or story.get("source_name") or story.get("category") or "News",
+        "category": story.get("category", "world"),
+        "lang": lang,
+        "seed": story["slug"],
+    })
     if not story.get("image_url"):
-        # Brand-owned A/E images are the final fallback when no reusable photo passes review.
-        story["image_url"] = "/static/A.jpg" if lang == "ar" else "/static/E.jpg"
-        story["image_source"] = "fallback_ar" if lang == "ar" else "fallback_en"
+        story["image_url"] = story["image_fallback_url"]
+        story["image_source"] = "editorial_generated"
     story["image_license_name"] = _image_license_label(str(story.get("image_license_url") or ""), str(story.get("image_source") or ""))
     story["image_provider_name"] = _image_provider_label(str(story.get("image_source") or ""))
     story["ai_enriched"] = bool(
@@ -3910,7 +3979,7 @@ def inject_shared_template_data() -> dict[str, Any]:
     return {
         "lang": lang,
         "site_csrf_token": site_csrf_token,
-        "public_image_url": lambda value: (_site_origin() + value if str(value or "").startswith(("/media/generated/", "/media/editorial.svg")) else str(value or "")),
+        "public_image_url": lambda value: (_site_origin() + value if str(value or "").startswith(("/media/generated/", "/media/catalogued/", "/media/editorial.svg")) else str(value or "")),
         "ui": UI_TEXT[lang],
         "site_name": SITE_NAME_AR if lang == "ar" else SITE_NAME_EN,
         "site_name_other": SITE_NAME_EN if lang == "ar" else SITE_NAME_AR,
@@ -4055,10 +4124,7 @@ def news_status():
             "wikimedia_commons": _control_enabled("image:wikimedia_relevant", True),
             "loc_open_access": _control_enabled("image:loc_open_access", True),
             "presskit_manifest_configured": _presskit_provider_configured(),
-            "pexels_configured": bool(PEXELS_API_KEY),
-            "pexels_enabled": _control_enabled("image:pexels_api", True),
-            "unsplash_configured": bool(UNSPLASH_ACCESS_KEY),
-            "unsplash_enabled": _control_enabled("image:unsplash_api", True),
+            "stock_image_apis_enabled": False,
         },
         "image_status": dict(_LAST_IMAGE_STATUS),
         "last_gemini_error": dict(_LAST_GEMINI_ERROR),
@@ -4435,6 +4501,18 @@ def editorial_fallback_image():
     response.headers["X-Content-Type-Options"] = "nosniff"
     return response
 
+@app.get("/media/catalogued/<image_id>")
+def catalogued_image(image_id: str):
+    stored = _read_catalogued_image(image_id)
+    if not stored:
+        abort(404)
+    image_bytes, mime_type = stored
+    response = Response(image_bytes, mimetype=mime_type)
+    response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Cross-Origin-Resource-Policy"] = "same-site"
+    return response
+
 @app.get("/media/generated/<image_id>")
 def generated_image(image_id: str):
     stored = _read_gemini_generated_image(image_id)
@@ -4688,12 +4766,12 @@ def admin_sources():
                     _REFRESHING = True
                     thread = threading.Thread(
                         target=_refresh_existing_article_images_job,
-                        kwargs={"limit": min(12, MAX_IMAGE_LOOKUPS_PER_REFRESH)},
+                        kwargs={"limit": min(24, MAX_IMAGE_LOOKUPS_PER_REFRESH)},
                         name="world-pulse-admin-image-refresh",
                         daemon=True,
                     )
                     thread.start()
-                    notice = "تم مسح ذاكرة العرض المؤقتة وبدأ البحث الإجباري عن صور حتى 12 خبراً. إذا كان تحديث الأخبار جارياً، ستنتظر مهمة الصور انتهاءه بدل إلغاء البحث. تبقى البيانات الدائمة في Supabase محفوظة."
+                    notice = "تم مسح ذاكرة العرض المؤقتة وبدأ البحث الإجباري عن صور حتى 24 خبراً، مع حفظ الملفات المتاحة محلياً في Supabase. إذا كان تحديث الأخبار جارياً، ستنتظر مهمة الصور انتهاءه. تبقى البيانات الدائمة في Supabase محفوظة."
         else:
             abort(400)
     return render_template(
