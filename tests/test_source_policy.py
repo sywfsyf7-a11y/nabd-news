@@ -711,8 +711,10 @@ class SourcePolicyTests(unittest.TestCase):
         }
         payload = {"query": {"pages": [page]}}
         raw = json.dumps(payload).encode("utf-8")
-        with patch.object(world_pulse, "urlopen", side_effect=[io.BytesIO(raw), io.BytesIO(raw)]):
+        with patch.object(world_pulse, "urlopen", return_value=io.BytesIO(raw)) as mock_urlopen:
             result = world_pulse._search_commons_image("NASA Artemis lunar rocket launch", "en", "science")
+        self.assertEqual(mock_urlopen.call_count, 1)
+        self.assertIn("gsrsearch=NASA", mock_urlopen.call_args.args[0].full_url)
         self.assertEqual(result["image_source"], "wikimedia_relevant")
         self.assertEqual(result["image_credit"], "Example photographer")
         self.assertIn("by-sa/4.0", result["image_license_url"])
