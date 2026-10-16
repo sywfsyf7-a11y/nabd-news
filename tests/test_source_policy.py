@@ -121,6 +121,54 @@ class SourcePolicyTests(unittest.TestCase):
         self.assertNotIn("Breaking", query)
         self.assertNotIn("today", query.casefold())
 
+    def test_image_search_variants_retry_the_short_headline_after_context_query(self):
+        variants = world_pulse._image_search_query_variants(
+            "NASA Artemis mission",
+            "The spacecraft carries astronauts around the Moon and returns near Earth.",
+        )
+        self.assertEqual(len(variants), 3)
+        self.assertTrue(variants[0].startswith("NASA Artemis"))
+        self.assertIn("astronauts", variants[0].casefold())
+        self.assertEqual(variants[1], "NASA Artemis mission")
+        self.assertEqual(variants[2], "NASA Artemis")
+
+    def test_image_match_score_accepts_one_entity_for_a_two_term_query_but_not_a_long_query(self):
+        self.assertEqual(
+            world_pulse._image_match_score("Trump tariff China", "China city skyline"),
+            0.0,
+        )
+        self.assertGreater(
+            world_pulse._image_match_score("Mourinho Vinicius", "Vinicius Jr football portrait"),
+            0,
+        )
+
+    def test_image_search_falls_back_to_short_headline_for_open_catalogues(self):
+        from unittest.mock import patch
+
+        match = {
+            "image_url": "https://images.example.test/vinicius.jpg",
+            "image_source": "openverse_licensed",
+            "image_credit": "Photographer",
+            "image_credit_url": "https://openverse.example.test/item",
+            "image_provider_url": "https://openverse.example.test/item",
+            "image_license_url": "https://creativecommons.org/licenses/by/4.0/",
+        }
+        article = {
+            "slug": "story-image-retry",
+            "source_url": "https://example.test/story",
+            "category": "sports",
+            "original_title": "Mourinho Vinicius ban timing",
+            "original_summary": "The football manager commented on the player's suspension.",
+            "image_search_title": "Mourinho Vinicius ban timing",
+            "image_search_context": "The football manager commented on the player's suspension.",
+            "original_language": "en",
+        }
+        with patch.object(world_pulse, "_search_any_reusable_image", side_effect=[{}, match]) as search:
+            result = world_pulse._resolve_article_image(article)
+        self.assertEqual(result["image_source"], "openverse_licensed")
+        self.assertEqual(search.call_count, 2)
+        self.assertEqual(search.call_args_list[1].kwargs, {"open_only": True})
+
     def test_image_match_score_prefers_related_metadata(self):
         self.assertGreater(
             world_pulse._image_match_score("NASA Artemis mission", "NASA Artemis rocket launch"),
@@ -230,7 +278,8 @@ class SourcePolicyTests(unittest.TestCase):
         with patch.object(world_pulse, "_search_any_reusable_image", return_value={}) as reusable:
             with patch.object(world_pulse, "_generate_gemini_article_image", return_value=generated) as generator:
                 result = world_pulse._resolve_article_image(article)
-        reusable.assert_called_once()
+        self.assertEqual(reusable.call_count, 2)
+        self.assertEqual(reusable.call_args_list[1].kwargs, {"open_only": True})
         generator.assert_called_once_with(article)
         self.assertEqual(result["image_source"], "gemini_generated")
         self.assertEqual(result["image_url"], generated["image_url"])
@@ -666,31 +715,22 @@ class SourcePolicyTests(unittest.TestCase):
         self.assertEqual(result["image_credit"], "Example photographer")
         self.assertIn("by-sa/4.0", result["image_license_url"])
 
-    def test_active_image_search_tries_stock_api_fallbacks_after_open_sources_fail(self):
+    def test_active_image_search_does_not_call_stopped_stock_apis(self):
         from unittest.mock import patch
 
         headline = "NASA Artemis lunar mission launch"
-        unsplash_result = {
-            "image_url": "https://images.unsplash.com/photo-example",
-            "image_source": "unsplash_api",
-            "image_credit": "Example Photographer",
-            "image_credit_url": "https://unsplash.com/@example?utm_source=world_pulse&utm_medium=referral",
-            "image_provider_url": "https://unsplash.com/photos/example?utm_source=world_pulse&utm_medium=referral",
-            "image_license_url": "https://unsplash.com/license",
-        }
         with patch.object(world_pulse, "_control_enabled", return_value=True):
             with patch.object(world_pulse, "_search_commons_image", return_value={}):
                 with patch.object(world_pulse, "_search_openverse_image", return_value={}):
                     with patch.object(world_pulse, "_search_loc_open_access_image", return_value={}):
                         with patch.object(world_pulse, "_search_nasa_image", return_value={}):
                             with patch.object(world_pulse, "_search_approved_presskit_image", return_value={}):
-                                with patch.object(world_pulse, "_search_pexels_image", return_value={}) as pexels:
-                                    with patch.object(world_pulse, "_search_unsplash_image", return_value=unsplash_result) as unsplash:
+                                with patch.object(world_pulse, "_search_pexels_image", side_effect=AssertionError("Pexels API is inactive")) as pexels:
+                                    with patch.object(world_pulse, "_search_unsplash_image", side_effect=AssertionError("Unsplash API is inactive")) as unsplash:
                                         result = world_pulse._search_any_reusable_image(headline, "en", "science")
-        pexels.assert_called_once_with(headline)
-        unsplash.assert_called_once_with(headline)
-        self.assertEqual(result["image_source"], "unsplash_api")
-        self.assertEqual(result["image_credit"], "Example Photographer")
+        self.assertEqual(result, {})
+        pexels.assert_not_called()
+        unsplash.assert_not_called()
 
     def test_pexels_search_uses_title_keywords_and_retains_attribution(self):
         import io

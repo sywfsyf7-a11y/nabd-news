@@ -1292,15 +1292,18 @@ def _image_tokens(value: str) -> set[str]:
     return {t.casefold() for t in re.findall(r"[\w\u0600-\u06ff]{3,}", value or "") if t.casefold() not in _IMAGE_STOPWORDS}
 
 def _image_match_score(title: str, description: str) -> float:
-    """Conservative relevance score; query-based API ranking supplements metadata overlap."""
+    """Score a rights-filtered catalogue result without demanding exact headline wording."""
     title_tokens = _image_tokens(title)
     if not title_tokens:
         return 0.0
     image_tokens = _image_tokens(description)
     overlap_count = len(title_tokens & image_tokens)
+    # Open photo records often name the person/place but not the full news headline.
+    # For short API queries, one distinctive overlapping token is enough because
+    # each provider has already searched the supplied query and its item licence is checked.
     required = 1 if len(title_tokens) <= 2 else 2
     overlap_ratio = overlap_count / max(1, len(title_tokens))
-    if overlap_count < required or overlap_ratio < 0.12:
+    if overlap_count < required or overlap_ratio < 0.08:
         return 0.0
     return overlap_ratio + min(overlap_count, 4) * 0.025
 
@@ -1350,6 +1353,24 @@ def _image_search_query(title: str, context: str = "") -> str:
             break
     query = " ".join(part for part in (headline_phrase, " ".join(tail)) if part)
     return _clean_text(query or headline_phrase or title, 180)
+
+
+def _image_search_query_variants(title: str, context: str = "") -> list[str]:
+    """Return one context-rich search followed by a headline-only alternative."""
+    candidates = (
+        _image_search_query(title, context),
+        _image_search_phrase(title, 4),
+        _image_search_phrase(title, 2),
+    )
+    variants: list[str] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        candidate = _clean_text(candidate, 180)
+        key = candidate.casefold()
+        if candidate and key not in seen:
+            seen.add(key)
+            variants.append(candidate)
+    return variants[:3]
 
 
 def _https_url(value: Any, allowed_hosts: set[str] | None = None) -> str:
@@ -2045,25 +2066,53 @@ def _search_image_provider_group(
     return {}
 
 
-def _search_any_reusable_image(title: str, lang: str = "en", category: str = "world") -> dict[str, str]:
+def _search_any_reusable_image(
+    title: str,
+    lang: str = "en",
+    category: str = "world",
+    *,
+    open_only: bool = False,
+) -> dict[str, str]:
     # Sources in each group are searched concurrently to avoid spending one full
-    # timeout per provider. We still prefer openly licensed catalogues over stock sites.
+    # timeout per provider. Open catalogues always come first.
     open_catalogues = (
         ("image:wikimedia_relevant", lambda: _search_commons_image(title, lang, category)),
         ("image:openverse_licensed", lambda: _search_openverse_image(title, lang, category)),
         ("image:loc_open_access", lambda: _search_loc_open_access_image(title, lang, category)),
     )
     result = _search_image_provider_group("open_catalogues", open_catalogues)
-    if result:
+    if result or open_only:
         return result
 
+    # The user no longer relies on the Pexels/Unsplash APIs; their keys and quotas
+    # are not assumed. Use public-domain/NASA records and explicitly approved press kits.
     fallback_catalogues = (
         ("image:nasa_images", lambda: _search_nasa_image(title, lang, category)),
         ("image:presskit_approved", lambda: _search_approved_presskit_image(title, category)),
-        ("image:pexels_api", lambda: _search_pexels_image(title)),
-        ("image:unsplash_api", lambda: _search_unsplash_image(title)),
     )
     return _search_image_provider_group("fallback_catalogues", fallback_catalogues)
+
+def _search_article_image_with_variants(
+    title: str,
+    context: str,
+    lang: str = "en",
+    category: str = "world",
+) -> dict[str, Any]:
+    """Try context-rich, headline-only and two-term headline queries."""
+    variants = _image_search_query_variants(title, context)
+    for index, query in enumerate(variants):
+        if index == 0:
+            result = _search_any_reusable_image(query, lang, category)
+        else:
+            # The context query already tried NASA/approved press kits; use shorter
+            # headline alternatives only with open catalogues to keep requests bounded.
+            result = _search_any_reusable_image(query, lang, category, open_only=True)
+        if result:
+            if index:
+                logger.info("Image search matched on shorter headline query (source=%s)", result.get("image_source", "unknown"))
+            return result
+    return {}
+
 
 def _reserve_gemini_image_slots(pending_count: int) -> int:
     global _AI_IMAGE_REFRESH_MARKER, _AI_IMAGE_CALLS_THIS_REFRESH
@@ -2128,13 +2177,16 @@ def _resolve_article_image(raw: dict[str, Any]) -> dict[str, Any]:
     search_context = _clean_text(
         raw.get("image_search_context") or raw.get("original_summary") or "", 600
     )
-    search_query = _image_search_query(search_title, search_context)
-    # Prefer specific headline terms plus source-excerpt context, with strict item-level reuse checks.
-    if search_query:
-        result = _search_any_reusable_image(search_query, str(raw.get("original_language") or "en"), str(raw.get("category") or "world"))
-        if result:
-            result["image_checked_at"] = datetime.now(timezone.utc)
-            return result
+    # Search context + headline first, then fall back to a concise headline search.
+    result = _search_article_image_with_variants(
+        search_title,
+        search_context,
+        str(raw.get("original_language") or "en"),
+        str(raw.get("category") or "world"),
+    )
+    if result:
+        result["image_checked_at"] = datetime.now(timezone.utc)
+        return result
     # Only use the separately budgeted Gemini feature when no eligible sourced image was found.
     if search_title and raw.get("_allow_ai_image_generation"):
         generated = _generate_gemini_article_image(raw)
@@ -4178,7 +4230,7 @@ def admin_monitor():
         action = str(request.form.get("action") or "")
         if action == "test_image_search":
             query = _clean_text(request.form.get("image_query") or "NASA Artemis lunar mission", 180)
-            result = _search_any_reusable_image(query, "en", "science")
+            result = _search_article_image_with_variants(query, "", "en", "science")
             image_test = {
                 "query": query,
                 "found": bool(result.get("image_url")),
