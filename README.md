@@ -70,6 +70,8 @@ Article pages include a prominent original-source link, an optional Arabic/Engli
 
 ## Run locally and test
 ```bash
+npm install --no-audit --no-fund
+npm run build:css
 pip install -r requirements.txt
 python app.py
 python -m unittest discover -s tests -v
