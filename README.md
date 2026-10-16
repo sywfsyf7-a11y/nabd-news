@@ -76,6 +76,24 @@ python -m unittest discover -s tests -v
 
 The automated test suite covers language/source enforcement, Openverse licence filtering (CC0/PDM/CC BY/CC BY-SA), attribution metadata, inactive stock-provider exclusion, title/context query variants, image relevance scoring, image fallback rendering, and NASA/Commons rights policy. Live credentials, the production database, external API quotas and the actual rights status of individual images cannot be certified by unit tests alone; monitor `/api/news-status`, `/admin/monitor` and Render logs.
 
+### Scheduled refresh and connection guardrails
+
+The web service has a per-worker PostgreSQL connection concurrency cap (`DB_MAX_CONCURRENT_CONNECTIONS`, default 3; maximum 6) and a bounded wait (`DB_CONNECTION_WAIT_SECONDS`, default 2). With two Gunicorn workers and the default cap, application code opens at most six DB connections concurrently in that web-service instance. Every checked-out connection is closed in a `finally` block and releases its slot. This is a concurrency guard, not a substitute for using the Supabase Transaction Pooler URL on the configured pooler port.
+
+The public `/api/news-status` endpoint reports cached database health instead of issuing a separate `SELECT 1` connection on every poll. The protected admin monitor keeps an active database probe for diagnostics.
+
+For reliable scheduled triggering independent of homepage visits, `trigger_news_refresh.py` can be run by a Render Cron Job every 30 minutes with:
+
+- Command: `python trigger_news_refresh.py`
+- Schedule: `*/30 * * * *` (Render schedules are in UTC).
+- `NEWS_REFRESH_TARGET_URL=https://nabd-news.onrender.com`
+- `NEWS_REFRESH_WEBHOOK_TOKEN`: the same random value (at least 32 characters) set on the web service and the Cron Job.
+
+The trigger uses HTTPS and sends the token only in an Authorization header. The web app's `POST /api/internal/refresh` endpoint is disabled until a valid token is configured and returns a non-disclosing response for incorrect tokens. The Cron Job does not need the Supabase URL or Gemini API key.
+
+Once the Cron Job is created and verified, set `NEWS_SCHEDULER_ENABLED=false` on the web service so the in-process scheduler does not compete with the external schedule. Keep it enabled when no external scheduler is configured. Creating a Render Cron Job may incur a separate recurring charge; the code path alone does not create or enable that paid service.
+
+
 ### Fast article navigation
 
 The sorted and deduplicated display pool is cached per language for a short period to avoid repeating a full article-list scan on every article click. Database writes invalidate both the database-row cache and display-pool cache. This is a performance cache only; article records remain in Supabase.
