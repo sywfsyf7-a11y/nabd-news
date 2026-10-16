@@ -1329,6 +1329,9 @@ _REFRESHING = False
 _LAST_REFRESH_ATTEMPT = 0.0
 _LAST_REFRESH_SUCCESS = 0.0
 _MEMORY_ARTICLES: dict[str, dict[str, Any]] = {}
+# Supabase is the durable archive; this in-process dictionary is only a bounded working set.
+MAX_MEMORY_ARTICLES = max(120, min(240, int(os.getenv("MAX_MEMORY_ARTICLES", "180"))))
+_MEMORY_ARTICLES_LOCK = threading.Lock()
 _IMAGE_STATUS_LOCK = threading.Lock()
 _AI_IMAGE_BUDGET_LOCK = threading.Lock()
 _AI_IMAGE_REFRESH_MARKER = 0.0
@@ -1341,6 +1344,46 @@ _GEMINI_TRANSIENT_ERROR_UNTIL = 0.0
 _LAST_REFRESH_AT: datetime | None = None
 _LAST_REFRESH_STATE = "idle"
 _LAST_REFRESH_ERROR = ""
+
+def _memory_article_timestamp(row: dict[str, Any]) -> float:
+    for key in ("published_at", "fetched_at"):
+        value = row.get(key)
+        if isinstance(value, str):
+            try:
+                value = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            except ValueError:
+                value = None
+        if isinstance(value, datetime):
+            if value.tzinfo is None:
+                value = value.replace(tzinfo=timezone.utc)
+            try:
+                return value.timestamp()
+            except (OverflowError, OSError, ValueError):
+                continue
+    return 0.0
+
+
+def _remember_articles(articles: list[dict[str, Any]]) -> None:
+    """Keep only recent articles in process memory; the permanent archive remains in Supabase."""
+    global _MEMORY_ARTICLES
+    if not articles:
+        return
+    with _MEMORY_ARTICLES_LOCK:
+        updated = dict(_MEMORY_ARTICLES)
+        for article in articles:
+            source_url = str(article.get("source_url") or "").strip()
+            if source_url:
+                updated[source_url] = article
+        if len(updated) > MAX_MEMORY_ARTICLES:
+            newest = sorted(
+                updated.items(),
+                key=lambda pair: _memory_article_timestamp(pair[1]),
+                reverse=True,
+            )[:MAX_MEMORY_ARTICLES]
+            updated = dict(newest)
+        # Copy-on-write leaves readers with a stable dictionary while refreshing.
+        _MEMORY_ARTICLES = updated
+
 
 def _clean_text(value: Any, limit: int = 2500) -> str:
     text = html.unescape(str(value or ""))
@@ -4028,8 +4071,7 @@ def _refresh_news_job() -> None:
             _LAST_REFRESH_ERROR = "Supabase/PostgreSQL write failed; stories were not published. The scheduler will retry."
             logger.error("News refresh stopped after database write failed; no memory-only publication")
             return
-        for article_data in ready:
-            _MEMORY_ARTICLES[article_data["source_url"]] = article_data
+        _remember_articles(ready)
 
         image_candidates = [raw for _index, raw in raw_to_publish]
         image_updates = 0
