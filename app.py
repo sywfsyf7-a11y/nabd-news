@@ -1301,7 +1301,7 @@ def _image_match_score(title: str, description: str) -> float:
     # Open photo records often name the person/place but not the full news headline.
     # For short API queries, one distinctive overlapping token is enough because
     # each provider has already searched the supplied query and its item licence is checked.
-    required = 1 if len(title_tokens) <= 6 else 2
+    required = 1 if len(title_tokens) <= 2 else 2
     overlap_ratio = overlap_count / max(1, len(title_tokens))
     if overlap_count < required or overlap_ratio < 0.08:
         return 0.0
@@ -1360,6 +1360,7 @@ def _image_search_query_variants(title: str, context: str = "") -> list[str]:
     candidates = (
         _image_search_query(title, context),
         _image_search_phrase(title, 4),
+        _image_search_phrase(title, 2),
     )
     variants: list[str] = []
     seen: set[str] = set()
@@ -1369,7 +1370,7 @@ def _image_search_query_variants(title: str, context: str = "") -> list[str]:
         if candidate and key not in seen:
             seen.add(key)
             variants.append(candidate)
-    return variants[:2]
+    return variants[:3]
 
 
 def _https_url(value: Any, allowed_hosts: set[str] | None = None) -> str:
@@ -2097,14 +2098,14 @@ def _search_article_image_with_variants(
     lang: str = "en",
     category: str = "world",
 ) -> dict[str, Any]:
-    """Try a context-rich title query, then a shorter headline-only query."""
+    """Try context-rich, headline-only and two-term headline queries."""
     variants = _image_search_query_variants(title, context)
     for index, query in enumerate(variants):
         if index == 0:
             result = _search_any_reusable_image(query, lang, category)
         else:
-            # The context query already tried NASA/approved press kits; use the
-            # shorter alternate only with open catalogues to keep requests bounded.
+            # The context query already tried NASA/approved press kits; use shorter
+            # headline alternatives only with open catalogues to keep requests bounded.
             result = _search_any_reusable_image(query, lang, category, open_only=True)
         if result:
             if index:
