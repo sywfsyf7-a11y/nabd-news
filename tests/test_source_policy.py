@@ -229,7 +229,7 @@ class SourcePolicyTests(unittest.TestCase):
             "original_summary": "ملخص قصير عن الأجهزة المتصلة",
         }
         with patch.object(world_pulse.genai, "Client", return_value=fake_client):
-            with patch.object(world_pulse, "GEMINI_API_KEY", "test-key"):
+            with patch.object(world_pulse, "GEMINI_API_KEY", "test-key"), patch.object(world_pulse, "MAX_GEMINI_API_CALLS_PER_REFRESH", 4):
                 with patch.object(world_pulse, "GEMINI_IMAGE_GENERATION_ENABLED", True):
                     with patch.object(world_pulse, "_control_enabled", return_value=True):
                         with patch.object(world_pulse, "_store_gemini_generated_image", return_value="b" * 32) as store:
