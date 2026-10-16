@@ -88,13 +88,13 @@ class SourcePolicyTests(unittest.TestCase):
         self.assertEqual(story["content"], "")
         self.assertIn("Headline and source link only", story["summary"])
 
-    def test_missing_images_use_the_language_specific_brand_fallbacks(self):
+    def test_missing_images_use_distinct_topic_specific_art_not_A_or_E(self):
         base = {
             "slug": "story-fallback",
             "source_url": "https://example.test/story",
-            "category": "world",
-            "title_ar": "عنوان",
-            "title_en": "Headline",
+            "category": "science",
+            "title_ar": "إطلاق مهمة القمر",
+            "title_en": "Lunar mission launch",
             "summary_ar": "",
             "summary_en": "",
             "content_ar": "",
@@ -105,10 +105,14 @@ class SourcePolicyTests(unittest.TestCase):
         }
         arabic = world_pulse._normalise_story(dict(base), "ar")
         english = world_pulse._normalise_story(dict(base, original_language="en"), "en")
-        self.assertEqual(arabic["image_url"], "/static/A.jpg")
-        self.assertEqual(arabic["image_source"], "fallback_ar")
-        self.assertEqual(english["image_url"], "/static/E.jpg")
-        self.assertEqual(english["image_source"], "fallback_en")
+        self.assertTrue(arabic["image_url"].startswith("/media/editorial.svg?"))
+        self.assertIn("lang=ar", arabic["image_url"])
+        self.assertEqual(arabic["image_source"], "editorial_generated")
+        self.assertTrue(english["image_url"].startswith("/media/editorial.svg?"))
+        self.assertIn("lang=en", english["image_url"])
+        self.assertEqual(english["image_source"], "editorial_generated")
+        self.assertNotEqual(arabic["image_url"], "/static/A.jpg")
+        self.assertNotEqual(english["image_url"], "/static/E.jpg")
 
     def test_headline_image_query_removes_editorial_filler(self):
         query = world_pulse._image_search_phrase(
@@ -713,74 +717,16 @@ class SourcePolicyTests(unittest.TestCase):
         self.assertEqual(result["image_credit"], "Example photographer")
         self.assertIn("by-sa/4.0", result["image_license_url"])
 
-    def test_active_image_search_does_not_call_stopped_stock_apis(self):
-        from unittest.mock import patch
-
-        headline = "NASA Artemis lunar mission launch"
-        with patch.object(world_pulse, "_control_enabled", return_value=True):
-            with patch.object(world_pulse, "_search_commons_image", return_value={}):
-                with patch.object(world_pulse, "_search_openverse_image", return_value={}):
-                    with patch.object(world_pulse, "_search_loc_open_access_image", return_value={}):
-                        with patch.object(world_pulse, "_search_nasa_image", return_value={}):
-                            with patch.object(world_pulse, "_search_approved_presskit_image", return_value={}):
-                                with patch.object(world_pulse, "_search_pexels_image", side_effect=AssertionError("Pexels API is inactive")) as pexels:
-                                    with patch.object(world_pulse, "_search_unsplash_image", side_effect=AssertionError("Unsplash API is inactive")) as unsplash:
-                                        result = world_pulse._search_any_reusable_image(headline, "en", "science")
-        self.assertEqual(result, {})
-        pexels.assert_not_called()
-        unsplash.assert_not_called()
-
-    def test_pexels_search_uses_title_keywords_and_retains_attribution(self):
-        import io
-        import json
-        from unittest.mock import patch
-
-        payload = {
-            "photos": [{
-                "id": 123,
-                "url": "https://www.pexels.com/photo/trump-tariff-china-123/",
-                "src": {"large": "https://images.pexels.com/photos/123/landscape.jpeg"},
-                "photographer": "Example Photographer",
-                "photographer_url": "https://www.pexels.com/@example/",
-                "alt": "Trump tariff dispute with China and trade policy",
-            }]
-        }
-        with patch.object(world_pulse, "PEXELS_API_KEY", "test-pexels-key"):
-            with patch.object(world_pulse, "urlopen", return_value=io.BytesIO(json.dumps(payload).encode("utf-8"))) as opener:
-                result = world_pulse._search_pexels_image("Trump tariff China trade dispute")
-        request_obj = opener.call_args.args[0]
-        self.assertIn("Trump", request_obj.full_url)
-        self.assertEqual(request_obj.get_header("Authorization"), "test-pexels-key")
-        self.assertEqual(result["image_source"], "pexels_api")
-        self.assertEqual(result["image_credit"], "Example Photographer")
-        self.assertEqual(result["image_provider_url"], payload["photos"][0]["url"])
-        self.assertIn("license", result["image_license_url"])
-
-    def test_unsplash_search_uses_title_keywords_and_retains_attribution(self):
-        import io
-        import json
-        from unittest.mock import patch
-
-        payload = {
-            "results": [{
-                "urls": {"regular": "https://images.unsplash.com/photo-example?auto=format&fit=crop"},
-                "links": {"html": "https://unsplash.com/photos/example"},
-                "user": {"name": "Example Photographer", "links": {"html": "https://unsplash.com/@example"}},
-                "alt_description": "Trump tariff trade dispute with China",
-                "description": "International trade policy",
-                "tags": [{"title": "tariff"}, {"title": "China"}],
-            }]
-        }
-        with patch.object(world_pulse, "UNSPLASH_ACCESS_KEY", "test-unsplash-key"):
-            with patch.object(world_pulse, "urlopen", return_value=io.BytesIO(json.dumps(payload).encode("utf-8"))) as opener:
-                result = world_pulse._search_unsplash_image("Trump tariff China trade dispute")
-        request_obj = opener.call_args.args[0]
-        self.assertIn("query=Trump", request_obj.full_url)
-        self.assertEqual(request_obj.get_header("Authorization"), "Client-ID test-unsplash-key")
-        self.assertEqual(result["image_source"], "unsplash_api")
-        self.assertEqual(result["image_credit"], "Example Photographer")
-        self.assertIn("utm_source=world_pulse", result["image_provider_url"])
-        self.assertIn("unsplash.com/license", result["image_license_url"])
+    def test_stock_image_apis_are_removed_from_runtime(self):
+        self.assertFalse(hasattr(world_pulse, "_search_pexels_image"))
+        self.assertFalse(hasattr(world_pulse, "_search_unsplash_image"))
+        self.assertFalse(hasattr(world_pulse, "PEXELS_API_KEY"))
+        self.assertFalse(hasattr(world_pulse, "UNSPLASH_ACCESS_KEY"))
+        self.assertNotIn("pexels_api", world_pulse.TRUSTED_REUSABLE_IMAGE_SOURCES)
+        self.assertNotIn("unsplash_api", world_pulse.TRUSTED_REUSABLE_IMAGE_SOURCES)
+        source = __import__("inspect").getsource(world_pulse._search_any_reusable_image)
+        self.assertNotIn("_search_pexels_image(", source)
+        self.assertNotIn("_search_unsplash_image(", source)
 
     def test_openverse_license_policy_only_accepts_commercially_reusable_cc_licenses(self):
         self.assertTrue(world_pulse._openverse_license_url_ok("cc0", "https://creativecommons.org/publicdomain/zero/1.0/"))
@@ -842,6 +788,8 @@ class SourcePolicyTests(unittest.TestCase):
         self.assertEqual(result["image_license_url"], "https://creativecommons.org/licenses/by-sa/4.0/")
         request = mock_open.call_args.args[0]
         self.assertIn("license=cc0%2Cpdm%2Cby%2Cby-sa", request.full_url)
+        self.assertIn("license_type=commercial", request.full_url)
+        self.assertIn("/v1/images/image-cc-by-sa/thumb/", result["image_cache_url"])
 
     def test_active_image_search_uses_openverse_without_unsplash_or_pexels_keys(self):
         from unittest.mock import patch
@@ -890,6 +838,46 @@ class SourcePolicyTests(unittest.TestCase):
         self.assertEqual(story["image_source"], "fallback_ar")
         self.assertEqual(story["image_credit"], "")
         self.assertEqual(story["image_license_url"], "")
+
+
+    def test_cached_catalogued_image_url_passes_only_with_item_license_metadata(self):
+        good = {
+            "image_url": "/media/catalogued/" + "a" * 40,
+            "image_source": "openverse_licensed",
+            "image_license_url": "https://creativecommons.org/licenses/by/4.0/",
+        }
+        self.assertTrue(world_pulse._image_license_verified(good))
+        self.assertFalse(world_pulse._image_license_verified(dict(good, image_source="unknown_provider")))
+        self.assertFalse(world_pulse._image_license_verified(dict(good, image_license_url="")))
+        self.assertFalse(world_pulse._image_license_verified(dict(good, image_url="/media/catalogued/not-a-hash")))
+
+    def test_backfill_query_includes_legacy_A_E_and_stopped_api_rows(self):
+        from unittest.mock import MagicMock, patch
+
+        fake_connection = MagicMock()
+        fake_cursor = fake_connection.cursor.return_value.__enter__.return_value
+        fake_cursor.fetchall.return_value = []
+        with patch.object(world_pulse, "_ensure_schema", return_value=True):
+            with patch.object(world_pulse, "_connect_db", return_value=fake_connection):
+                world_pulse._db_fetch_articles_needing_images(24)
+        query = fake_cursor.execute.call_args.args[0]
+        self.assertIn("fallback_ar", query)
+        self.assertIn("fallback_en", query)
+        self.assertIn("pexels_api", query)
+        self.assertIn("unsplash_api", query)
+        self.assertIn("/static/A.jpg", query)
+        self.assertIn("/static/E.jpg", query)
+
+    def test_catalogued_image_route_serves_persisted_bytes_and_cache_headers(self):
+        from unittest.mock import patch
+
+        client = world_pulse.app.test_client()
+        with patch.object(world_pulse, "_read_catalogued_image", return_value=(b"fake-webp-image-bytes", "image/webp")):
+            response = client.get("/media/catalogued/" + "a" * 40)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content_type, "image/webp")
+        self.assertEqual(response.data, b"fake-webp-image-bytes")
+        self.assertIn("immutable", response.headers["Cache-Control"])
 
 
 if __name__ == "__main__":
