@@ -556,7 +556,7 @@ class SiteExperienceTests(unittest.TestCase):
             world_pulse._get_display_stories("ar")
             self.assertEqual(builder.call_count, 2)
 
-    def test_news_status_poll_checks_whether_auto_refresh_is_due(self):
+    def test_news_status_poll_reports_state_without_triggering_refresh(self):
         with patch.object(world_pulse, "_maybe_start_refresh") as maybe_refresh:
             with patch.object(world_pulse, "_db_last_fetched_at", return_value=None):
                 with patch.object(world_pulse, "_probe_database", return_value={"state": "not_configured", "error_code": "", "checked_at": None}):
@@ -566,7 +566,7 @@ class SiteExperienceTests(unittest.TestCase):
                                 with patch.object(world_pulse, "_news_setup_issues", return_value=[]):
                                     response = world_pulse.app.test_client().get("/api/news-status")
         self.assertEqual(response.status_code, 200)
-        maybe_refresh.assert_called_once_with()
+        maybe_refresh.assert_not_called()
 
     def test_image_provider_group_returns_first_configured_priority_match(self):
         first = {"image_url": "https://images.example.com/commons.jpg", "image_source": "wikimedia_relevant"}

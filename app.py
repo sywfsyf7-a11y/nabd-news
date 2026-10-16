@@ -2684,12 +2684,16 @@ def _fallback_summary_from_excerpt(title: Any, excerpt: Any, lang: str) -> str:
         sentences = [part.strip() for part in re.split(r"(?<=[.!?؟])\s+", value) if part.strip()]
         for sentence in sentences:
             if len(_editorial_text_key(sentence)) >= 18 and not _summary_repeats_title(title, sentence):
-                return sentence[:280].rsplit(" ", 1)[0].rstrip(" ,،:;؛—-") + ("…" if len(sentence) > 280 else "")
-        return value[:280].rsplit(" ", 1)[0].rstrip(" ,،:;؛—-") + ("…" if len(value) > 280 else "")
+                if len(sentence) > 280:
+                    return sentence[:280].rsplit(" ", 1)[0].rstrip(" ,،:;؛—-") + "…"
+                return sentence
+        if len(value) > 280:
+            return value[:280].rsplit(" ", 1)[0].rstrip(" ,،:;؛—-") + "…"
+        return value
     return (
         "لم يتضمن مقتطف الناشر معلومات كافية لصياغة ملخص مستقل دون تخمين. افتح المصدر الأصلي للتفاصيل."
         if lang == "ar"
-        else "The publisher excerpt does not contain enough information for a distinct summary without guessing. Open the original source for details."
+        else "The source did not include an excerpt with enough information for a distinct summary without guessing. Open the original publisher for details."
     )
 
 
