@@ -1,0 +1,84 @@
+name: World Pulse automation checks
+
+on:
+  schedule:
+    # Wake the free Render service twice an hour; the app's guarded scheduler
+    # performs the refresh and serializes work across Gunicorn workers.
+    - cron: "7,37 * * * *"
+  push:
+    branches: [main]
+    paths:
+      - "app.py"
+      - "image_sources.py"
+      - "trigger_news_refresh.py"
+      - "render.yaml"
+      - "requirements.txt"
+      - "tests/**"
+      - ".github/workflows/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: world-pulse-newsroom
+  cancel-in-progress: false
+
+jobs:
+  unit-tests:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+      - name: Install application dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+      - name: Compile Python modules
+        run: python -m py_compile app.py image_sources.py trigger_news_refresh.py
+      - name: Run regression tests
+        run: python -m unittest discover -s tests -v
+
+  wake-and-check:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Wake Render and initialize its guarded scheduler
+        env:
+          SITE_URL: https://nabd-news.onrender.com
+        shell: bash
+        run: |
+          set -euo pipefail
+          # A homepage request initializes the scheduler via Flask before_request.
+          # Retries account for Render free-instance cold starts without exposing secrets.
+          curl --fail --silent --show-error --location \
+            --connect-timeout 15 --max-time 150 \
+            --retry 6 --retry-delay 10 --retry-all-errors \
+            "$SITE_URL/?lang=en" --output /dev/null
+          sleep 5
+          curl --fail --silent --show-error --location \
+            --connect-timeout 15 --max-time 45 \
+            "$SITE_URL/api/news-status" --output /tmp/news-status.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          status = json.loads(Path("/tmp/news-status.json").read_text(encoding="utf-8"))
+          print("World Pulse runtime check:")
+          print("  refresh_state:", status.get("state", "unknown"))
+          print("  refresh_running:", status.get("running", False))
+          print("  last_refresh_at:", status.get("last_refresh_at"))
+          print("  database_url_configured:", status.get("database_url_configured", False))
+          print("  database_state:", (status.get("database") or {}).get("state", "unknown"))
+          if not status.get("database_url_configured", False):
+              raise SystemExit("Database connection URL is not configured on the live service.")
+          PY
