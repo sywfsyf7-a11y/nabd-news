@@ -14,6 +14,15 @@ on:
       - "requirements.txt"
       - "tests/**"
       - ".github/workflows/**"
+  pull_request:
+    paths:
+      - "app.py"
+      - "image_sources.py"
+      - "trigger_news_refresh.py"
+      - "render.yaml"
+      - "requirements.txt"
+      - "tests/**"
+      - ".github/workflows/**"
   workflow_dispatch:
 
 permissions:

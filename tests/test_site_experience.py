@@ -10,6 +10,51 @@ import app as world_pulse
 
 
 class SiteExperienceTests(unittest.TestCase):
+    def test_rss_excerpt_is_displayed_as_details_when_editorial_ai_is_unavailable(self):
+        excerpt = (
+            "The city council approved the transit plan after a public vote. "
+            "The first phase will add three bus routes, according to the council's release."
+        )
+        raw = world_pulse._base_article({
+            "slug": "rss-details-fallback",
+            "source_url": "https://example.com/transit-plan",
+            "category": "world",
+            "source_name": "Example News",
+            "source_domain": "example.com",
+            "original_title": "City council approves transit plan",
+            "original_summary": excerpt,
+            "original_language": "en",
+            "published_at": datetime(2026, 10, 16, tzinfo=timezone.utc),
+        })
+
+        story = world_pulse._normalise_story(raw, "en")
+
+        self.assertEqual(raw["content_en"], excerpt)
+        self.assertTrue(story["content"])
+        self.assertIn("three bus routes", story["content"])
+        self.assertTrue(story["details_from_source_excerpt"])
+
+    def test_single_sentence_excerpt_is_not_silently_hidden_as_details(self):
+        excerpt = "The city council approved the plan after a public vote."
+        raw = world_pulse._base_article({
+            "slug": "single-sentence-details",
+            "source_url": "https://example.com/one-sentence",
+            "category": "world",
+            "source_name": "Example News",
+            "source_domain": "example.com",
+            "original_title": "City council approves plan",
+            "original_summary": excerpt,
+            "original_language": "en",
+            "published_at": datetime(2026, 10, 16, tzinfo=timezone.utc),
+        })
+
+        story = world_pulse._normalise_story(raw, "en")
+
+        self.assertTrue(story["content"])
+        self.assertIn("public vote", story["content"])
+        self.assertTrue(story["details_from_source_excerpt"])
+
+
     def test_missing_photo_uses_language_specific_brand_fallback(self):
         published = datetime(2026, 10, 15, tzinfo=timezone.utc)
         common = {
@@ -599,6 +644,28 @@ class SiteExperienceTests(unittest.TestCase):
                                     response = world_pulse.app.test_client().get("/api/news-status")
         self.assertEqual(response.status_code, 200)
         maybe_refresh.assert_not_called()
+
+    def test_image_provider_group_prefers_higher_relevance_over_provider_order(self):
+        low_relevance = {
+            "image_url": "https://images.example.com/weak-match.jpg",
+            "image_source": "wikimedia_relevant",
+            "_image_relevance_score": 0.18,
+        }
+        high_relevance = {
+            "image_url": "https://images.example.com/topic-match.jpg",
+            "image_source": "openverse_licensed",
+            "_image_relevance_score": 0.86,
+        }
+        finders = (
+            ("image:wikimedia_relevant", lambda: low_relevance),
+            ("image:openverse_licensed", lambda: high_relevance),
+        )
+
+        with patch.object(world_pulse, "_control_enabled", return_value=True):
+            result = world_pulse._search_image_provider_group("test", finders)
+
+        self.assertEqual(result["image_url"], high_relevance["image_url"])
+        self.assertEqual(result["_image_relevance_score"], 0.86)
 
     def test_image_provider_group_returns_first_configured_priority_match(self):
         first = {"image_url": "https://images.example.com/commons.jpg", "image_source": "wikimedia_relevant"}

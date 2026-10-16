@@ -150,6 +150,68 @@ class RSSDeadlineSeparationTests(unittest.TestCase):
 
 
 class GeminiRequestBudgetTests(unittest.TestCase):
+    def test_model_specific_429_uses_single_alternate_model_attempt(self):
+        def success_response(**kwargs):
+            payload = json.loads(kwargs["contents"])
+            stories = []
+            for article in payload:
+                index = article["index"]
+                stories.append({
+                    "index": index,
+                    "title_ar": "عنوان صحفي عربي واضح",
+                    "title_en": "A clear English news headline",
+                    "summary_ar": "ملخص عربي مستقل يذكر الوقائع الموجودة في المقتطف.",
+                    "summary_en": "An independent English summary containing the facts in the excerpt.",
+                    "content_ar": "تفاصيل الخبر اعتماداً على النص المتاح دون اختلاق معلومات. " + ("تفصيل متاح. " * 18),
+                    "content_en": "Story details from the available source text without invented facts. " + ("Available detail. " * 18),
+                })
+            return SimpleNamespace(text=json.dumps({"stories": stories}))
+
+        def respond(**kwargs):
+            if kwargs["model"] == "gemini-3.5-flash-lite":
+                raise RuntimeError("429 RESOURCE_EXHAUSTED model-specific rate limit")
+            return success_response(**kwargs)
+
+        generate = Mock(side_effect=respond)
+        client = SimpleNamespace(models=SimpleNamespace(generate_content=generate))
+        fake_genai = SimpleNamespace(Client=Mock(return_value=client))
+        fake_types = SimpleNamespace(
+            HttpOptions=lambda **kwargs: SimpleNamespace(**kwargs),
+            HttpRetryOptions=lambda attempts: SimpleNamespace(attempts=attempts),
+            GenerateContentConfig=lambda **kwargs: SimpleNamespace(**kwargs),
+        )
+        payload = [{
+            "category": "world",
+            "source_name": "Test publisher",
+            "source_url": "https://example.com/model-failover-story",
+            "original_title": "An important policy decision announced today",
+            "original_summary": "The committee approved the proposal following a public vote.",
+            "original_language": "en",
+        }]
+
+        with (
+            patch.object(world_pulse, "GEMINI_API_KEY", "test-key"),
+            patch.object(world_pulse, "GEMINI_MODEL", "gemini-3.5-flash-lite"),
+            patch.object(world_pulse, "GEMINI_FALLBACK_MODEL", "gemini-3.8-flash"),
+            patch.object(world_pulse, "genai", fake_genai),
+            patch.object(world_pulse, "types", fake_types),
+            patch.object(world_pulse, "MAX_GEMINI_API_CALLS_PER_REFRESH", 2),
+            patch.object(world_pulse, "_shared_gemini_cooldown_remaining", return_value=(0, "")),
+            patch.object(world_pulse, "_persist_shared_gemini_cooldown", return_value=True) as persist,
+            patch.object(world_pulse, "_build_editorial_prompt", side_effect=lambda items: json.dumps(items)),
+            patch.object(world_pulse, "_GEMINI_RATE_LIMIT_UNTIL", 0),
+            patch.object(world_pulse, "_GEMINI_TRANSIENT_ERROR_UNTIL", 0),
+        ):
+            translated = world_pulse._translate_batch(payload)
+
+        self.assertEqual(generate.call_count, 2)
+        self.assertEqual(generate.call_args_list[0].kwargs["model"], "gemini-3.5-flash-lite")
+        self.assertEqual(generate.call_args_list[1].kwargs["model"], "gemini-3.8-flash")
+        self.assertEqual(set(translated), {0})
+        persist.assert_called_once_with(
+            "rate_limited_429", state_key="gemini_cooldown:gemini-3.5-flash-lite"
+        )
+
     def test_translation_stops_after_configured_api_call_budget(self):
         def fake_generate_content(**kwargs):
             payload = json.loads(kwargs["contents"])
@@ -171,8 +233,9 @@ class GeminiRequestBudgetTests(unittest.TestCase):
         client = SimpleNamespace(models=SimpleNamespace(generate_content=generate))
         fake_genai = SimpleNamespace(Client=Mock(return_value=client))
         fake_types = SimpleNamespace(
-            HttpOptions=Mock(return_value=None),
-            GenerateContentConfig=Mock(return_value=None),
+            HttpOptions=lambda **kwargs: SimpleNamespace(**kwargs),
+            HttpRetryOptions=lambda attempts: SimpleNamespace(attempts=attempts),
+            GenerateContentConfig=lambda **kwargs: SimpleNamespace(**kwargs),
         )
         raw_articles = [
             {
@@ -199,7 +262,9 @@ class GeminiRequestBudgetTests(unittest.TestCase):
             result = world_pulse._translate_batch(raw_articles)
 
         self.assertEqual(generate.call_count, 2)
-        self.assertEqual(set(result), set(range(8)))
+        self.assertEqual(set(result), set(range(12)))
+        client_options = fake_genai.Client.call_args.kwargs["http_options"]
+        self.assertEqual(client_options.retry_options.attempts, 1)
 
 
 class DatabaseURLTests(unittest.TestCase):

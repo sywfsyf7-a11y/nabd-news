@@ -89,8 +89,8 @@ NEWS_SCHEDULER_POLL_SECONDS = max(15, min(120, int(os.getenv("NEWS_SCHEDULER_POL
 RSS_TIMEOUT_SECONDS = max(2, int(os.getenv("RSS_TIMEOUT_SECONDS", "6")))
 RSS_BATCH_TIMEOUT_SECONDS = max(8, min(60, int(os.getenv("RSS_BATCH_TIMEOUT_SECONDS", "35"))))
 IMAGE_ENRICHMENT_BATCH_TIMEOUT_SECONDS = max(5, min(120, int(os.getenv("IMAGE_ENRICHMENT_BATCH_TIMEOUT_SECONDS", "65"))))
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
-GEMINI_FALLBACK_MODEL = os.getenv("GEMINI_FALLBACK_MODEL", "gemini-3.5-flash-lite").strip()
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite").strip()
+GEMINI_FALLBACK_MODEL = os.getenv("GEMINI_FALLBACK_MODEL", "gemini-3.8-flash").strip()
 GEMINI_IMAGE_MODEL = os.getenv("GEMINI_IMAGE_MODEL", "gemini-nano-banana-2.1").strip()
 GEMINI_IMAGE_GENERATION_ENABLED = os.getenv("GEMINI_IMAGE_GENERATION_ENABLED", "false").lower() not in {"0", "false", "no"}
 MAX_GEMINI_IMAGES_PER_REFRESH = max(0, min(4, int(os.getenv("MAX_GEMINI_IMAGES_PER_REFRESH", "1"))))
@@ -103,14 +103,14 @@ MAX_GEMINI_API_CALLS_PER_REFRESH = max(1, min(4, int(os.getenv("MAX_GEMINI_API_C
 CONTACT_EMAIL = os.getenv("CONTACT_EMAIL", "syfsywf86@gmail.com").strip() or "syfsywf86@gmail.com"
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 NEWS_REFRESH_WEBHOOK_TOKEN = os.getenv("NEWS_REFRESH_WEBHOOK_TOKEN", "").strip()
-MAX_ARTICLES_PER_REFRESH = max(8, min(32, int(os.getenv("MAX_ARTICLES_PER_REFRESH", "24"))))
+MAX_ARTICLES_PER_REFRESH = max(8, min(32, int(os.getenv("MAX_ARTICLES_PER_REFRESH", "12"))))
 MAX_ARTICLES_PER_CATEGORY = max(1, min(5, int(os.getenv("MAX_ARTICLES_PER_CATEGORY", "3"))))
 RSS_CANDIDATES_PER_CATEGORY = max(3, min(8, int(os.getenv("RSS_CANDIDATES_PER_CATEGORY", "6"))))
 MAX_RSS_CANDIDATES = max(32, min(96, MAX_ARTICLES_PER_REFRESH * 4))
 RSS_ENTRIES_PER_FEED = max(24, min(60, int(os.getenv("RSS_ENTRIES_PER_FEED", "24"))))
 IMAGE_SEARCH_TIMEOUT_SECONDS = max(3, min(12, int(os.getenv("IMAGE_SEARCH_TIMEOUT_SECONDS", "5"))))
 IMAGE_DOWNLOAD_TIMEOUT_SECONDS = max(5, min(20, int(os.getenv("IMAGE_DOWNLOAD_TIMEOUT_SECONDS", "10"))))
-MAX_IMAGE_LOOKUPS_PER_REFRESH = max(0, min(32, int(os.getenv("MAX_IMAGE_LOOKUPS_PER_REFRESH", "24"))))
+MAX_IMAGE_LOOKUPS_PER_REFRESH = max(0, min(32, int(os.getenv("MAX_IMAGE_LOOKUPS_PER_REFRESH", "12"))))
 IMAGE_RETRY_AFTER_HOURS = max(1, min(168, int(os.getenv("IMAGE_RETRY_AFTER_HOURS", "1"))))
 IMAGE_CACHE_MAX_AGE_SECONDS = max(3600, int(os.getenv("IMAGE_CACHE_MAX_AGE_HOURS", "24")) * 3600)
 TRUSTED_REUSABLE_IMAGE_SOURCES = {
@@ -1440,11 +1440,11 @@ def _image_search_query(title: str, context: str = "") -> str:
 
 
 def _image_search_query_variants(title: str, context: str = "") -> list[str]:
-    """Return one context-rich search followed by a headline-only alternative."""
+    """Use context-rich, headline, and source-context queries for topic-specific photos."""
     candidates = (
         _image_search_query(title, context),
         _image_search_phrase(title, 4),
-        _image_search_phrase(title, 2),
+        _image_search_phrase(context, 4) if context else "",
     )
     variants: list[str] = []
     seen: set[str] = set()
@@ -1550,6 +1550,8 @@ def _search_commons_image(title: str, lang: str, category: str = "world") -> dic
             "image_provider_url": file_page_url,
             "image_license_url": license_url,
             "image_checked_at": datetime.now(timezone.utc),
+            "image_title": page_title,
+            "_image_relevance_score": score,
         }
         if best is None or score > best[0]:
             best = (score, result)
@@ -1623,6 +1625,8 @@ def _search_loc_open_access_image(title: str, lang: str = "en", category: str = 
                 "image_provider_url": item_url,
                 "image_license_url": item_url,
                 "image_checked_at": datetime.now(timezone.utc),
+                "image_title": item_title,
+                "_image_relevance_score": score,
             }
             if best is None or score > best[0]:
                 best = (score, result)
@@ -1714,6 +1718,8 @@ def _search_nasa_image(title: str, lang: str = "en", category: str = "world") ->
                 "image_provider_url": source_page,
                 "image_license_url": "https://www.nasa.gov/nasa-brand-center/images-and-media/",
                 "image_checked_at": datetime.now(timezone.utc),
+                "image_title": item_title,
+                "_image_relevance_score": score,
             }
             if best is None or score > best[0]:
                 best = (score, result)
@@ -1761,6 +1767,8 @@ def _search_approved_presskit_image(title: str, category: str) -> dict[str, str]
             "image_provider_url": image_page,
             "image_license_url": license_url,
             "image_checked_at": datetime.now(timezone.utc),
+            "image_title": _clean_text(entry.get("title") or "", 240),
+            "_image_relevance_score": score,
         }
         if best is None or score > best[0]:
             best = (score, result)
@@ -2166,7 +2174,7 @@ def _search_image_provider_group(
     group_name: str,
     finders: tuple[tuple[str, Any], ...],
 ) -> dict[str, str]:
-    """Query a small group of image catalogues concurrently, then keep configured priority."""
+    """Search a small group concurrently and choose the best topic-match score."""
     active = [(key, finder) for key, finder in finders if _control_enabled(key, True)]
     if not active:
         return {}
@@ -2194,10 +2202,19 @@ def _search_image_provider_group(
                 future.cancel()
         executor.shutdown(wait=False, cancel_futures=True)
 
-    for key, _finder in active:
-        if results.get(key):
-            logger.info("Image provider matched: provider=%s group=%s", key.removeprefix("image:"), group_name)
-            return results[key]
+    ranked = [
+        (float(results[key].get("_image_relevance_score") or 0.0), -index, key, results[key])
+        for index, (key, _finder) in enumerate(active)
+        if results.get(key)
+    ]
+    if ranked:
+        score, _priority, key, selected = max(ranked, key=lambda entry: (entry[0], entry[1]))
+        result = dict(selected)
+        logger.info(
+            "Image provider matched: provider=%s group=%s relevance=%.3f",
+            key.removeprefix("image:"), group_name, score,
+        )
+        return result
     logger.info("Image provider group had no match: group=%s checked=%d", group_name, len(active))
     return {}
 
@@ -2212,8 +2229,8 @@ def _search_any_reusable_image(
     # Sources in each group are searched concurrently to avoid spending one full
     # timeout per provider. Open catalogues always come first.
     open_catalogues = (
-        ("image:wikimedia_relevant", lambda: _search_commons_image(title, lang, category)),
         ("image:openverse_licensed", lambda: _search_openverse_image(title, lang, category)),
+        ("image:wikimedia_relevant", lambda: _search_commons_image(title, lang, category)),
         ("image:loc_open_access", lambda: _search_loc_open_access_image(title, lang, category)),
     )
     result = _search_image_provider_group("open_catalogues", open_catalogues)
@@ -2234,20 +2251,35 @@ def _search_article_image_with_variants(
     lang: str = "en",
     category: str = "world",
 ) -> dict[str, Any]:
-    """Try context-rich, headline-only and two-term headline queries."""
+    """Try bounded headline/context variants and prefer a stronger topic match."""
     variants = _image_search_query_variants(title, context)
+    best: dict[str, Any] = {}
+    best_score = -1.0
     for index, query in enumerate(variants):
         if index == 0:
             result = _search_any_reusable_image(query, lang, category)
         else:
-            # The context query already tried NASA/approved press kits; use shorter
-            # headline alternatives only with open catalogues to keep requests bounded.
+            # The full query already tried fallback catalogues; keep alternatives to the
+            # three concurrently searched, openly licensed catalogues to bound latency.
             result = _search_any_reusable_image(query, lang, category, open_only=True)
-        if result:
-            if index:
-                logger.info("Image search matched on shorter headline query (source=%s)", result.get("image_source", "unknown"))
-            return result
-    return {}
+        if not result:
+            continue
+        score = float(result.get("_image_relevance_score") or 0.0)
+        if score > best_score:
+            best_score = score
+            best = dict(result)
+        # A strong first-query match needs no extra provider requests.
+        if score >= 0.42:
+            break
+    if not best:
+        return {}
+    best.pop("_image_relevance_score", None)
+    if best.get("image_url"):
+        logger.info(
+            "Image search selected source=%s relevance=%.3f",
+            best.get("image_source", "unknown"), max(0.0, best_score),
+        )
+    return best
 
 
 def _reserve_gemini_image_slots(pending_count: int) -> int:
@@ -2565,9 +2597,23 @@ def _parse_any_rss(feed_url: str, category: str, lang: str, default_source: str)
                     else "Headline and source link only. Open the publisher's original page for full details, context, and updates."
                 )
             else:
-                summary_raw = entry.get("summary", "") or entry.get("description", "")
-                if not summary_raw and entry.get("content"):
-                    summary_raw = entry.get("content", [{}])[0].get("value", "")
+                # Feeds may provide a short summary and a richer description/content.
+                # Use the longest short excerpt (still capped at 900 chars) as evidence,
+                # rather than silently discarding the publisher's more useful excerpt.
+                excerpt_candidates = [
+                    entry.get("summary", ""),
+                    entry.get("description", ""),
+                ]
+                content_entries = entry.get("content") or []
+                if content_entries and isinstance(content_entries, list):
+                    excerpt_candidates.extend(
+                        item.get("value", "") for item in content_entries[:2] if isinstance(item, dict)
+                    )
+                summary_raw = max(
+                    (_clean_text(value, 900) for value in excerpt_candidates),
+                    key=len,
+                    default="",
+                )
             items.append({
                 "category": category, "source_url": url, "source_name": publisher, "source_domain": publisher_host,
                 "image_url": "", "image_source": "none", "image_credit": "",
@@ -2967,9 +3013,10 @@ def _base_article(raw: dict[str, Any]) -> dict[str, Any]:
         "title_en": title if original_lang == "en" else "",
         "summary_ar": summary if original_lang == "ar" else "",
         "summary_en": summary if original_lang == "en" else "",
-        # RSS excerpts are used for the brief, not presented as a full article body.
-        "content_ar": "",
-        "content_en": "",
+        # When Gemini is unavailable, preserve only the publisher's short RSS excerpt
+        # as source-language detail text. Do not invent a full report or translate it.
+        "content_ar": usable_excerpt if original_lang == "ar" and not headline_only else "",
+        "content_en": usable_excerpt if original_lang == "en" and not headline_only else "",
         "published_at": raw.get("published_at"),
         "read_minutes": 1,
         "original_language": original_lang,
@@ -3227,35 +3274,38 @@ def _translate_batch(raw_articles: list[dict[str, Any]]) -> dict[int, dict[str, 
     global _GEMINI_RATE_LIMIT_UNTIL, _GEMINI_TRANSIENT_ERROR_UNTIL
     if not raw_articles or not GEMINI_API_KEY or genai is None or types is None:
         return {}
-    with _GEMINI_STATUS_LOCK:
-        now = time.monotonic()
-        if now < _GEMINI_RATE_LIMIT_UNTIL:
-            return {}
-        if now < _GEMINI_TRANSIENT_ERROR_UNTIL:
-            return {}
+    primary_model = GEMINI_MODEL
+    fallback_model = GEMINI_FALLBACK_MODEL
+    primary_cooldown_key = f"gemini_cooldown:{primary_model}"
+    fallback_cooldown_key = f"gemini_cooldown:{fallback_model}" if fallback_model else ""
+    initial_model = primary_model
 
-    shared_remaining, shared_reason = _shared_gemini_cooldown_remaining()
+    # Cool down only the model that received the 429/5xx. If another configured
+    # Gemini model remains available, use it directly instead of pausing the whole
+    # newsroom for an unrelated model-specific limit.
+    shared_remaining, shared_reason = _shared_gemini_cooldown_remaining(primary_cooldown_key)
     if shared_remaining > 0:
-        deadline = time.monotonic() + shared_remaining
-        with _GEMINI_STATUS_LOCK:
-            if shared_reason == "rate_limited_429":
-                _GEMINI_RATE_LIMIT_UNTIL = max(_GEMINI_RATE_LIMIT_UNTIL, deadline)
-            else:
-                _GEMINI_TRANSIENT_ERROR_UNTIL = max(_GEMINI_TRANSIENT_ERROR_UNTIL, deadline)
-            _LAST_GEMINI_ERROR.update({
-                "stage": "editorial",
-                "type": shared_reason,
-                "at": datetime.now(timezone.utc).isoformat(),
-                "cooldown_until": (datetime.now(timezone.utc) + timedelta(seconds=shared_remaining)).isoformat(),
-            })
-        logger.info(
-            "Gemini editorial enrichment skipped due to shared cooldown (%s, about %d seconds remaining)",
-            shared_reason, shared_remaining,
+        fallback_remaining, fallback_reason = (
+            _shared_gemini_cooldown_remaining(fallback_cooldown_key)
+            if fallback_cooldown_key and fallback_model != primary_model else (0, "")
         )
-        return {}
+        if fallback_model and fallback_model != primary_model and fallback_remaining <= 0:
+            initial_model = fallback_model
+            logger.info(
+                "Gemini primary model cooldown active (%s, about %d seconds remaining); trying alternate model=%s",
+                shared_reason, shared_remaining, initial_model,
+            )
+        else:
+            logger.info(
+                "Gemini models are in cooldown (primary=%s remaining=%ds fallback=%s remaining=%ds); source-language articles continue",
+                primary_model, shared_remaining, fallback_model or "none", fallback_remaining,
+            )
+            return {}
 
     result: dict[int, dict[str, str]] = {}
-    batch_size = 4
+    # Six stories per request lets the two-call refresh budget cover all twelve new
+    # stories when no backlog is waiting, without returning to the old retry storm.
+    batch_size = 6
     client = None
     api_calls_used = 0
 
@@ -3280,10 +3330,20 @@ def _translate_batch(raw_articles: list[dict[str, Any]]) -> dict[int, dict[str, 
             for i in range(batch_start, batch_end)
         ]
         prompt = _build_editorial_prompt(payload)
-        active_model = GEMINI_MODEL
+        active_model = initial_model
+        primary_error: Exception | None = None
+        primary_error_model: str | None = None
         try:
             if client is None:
-                client = genai.Client(api_key=GEMINI_API_KEY, http_options=types.HttpOptions(timeout=GEMINI_TIMEOUT_SECONDS * 1000))
+                # The SDK otherwise retries 429/5xx responses several times internally.
+                # Set attempts=1 so the app's explicit two-call budget is the real request budget.
+                client = genai.Client(
+                    api_key=GEMINI_API_KEY,
+                    http_options=types.HttpOptions(
+                        timeout=GEMINI_TIMEOUT_SECONDS * 1000,
+                        retry_options=types.HttpRetryOptions(attempts=1),
+                    ),
+                )
             generation_config = types.GenerateContentConfig(
                 response_mime_type="application/json",
                 temperature=0.25,
@@ -3297,24 +3357,43 @@ def _translate_batch(raw_articles: list[dict[str, Any]]) -> dict[int, dict[str, 
                     config=generation_config,
                 )
             except Exception as primary_exc:
-                # A single alternative model attempt is reserved for upstream 5xx errors.
-                # Do not retry a 429 with a second model; that can worsen quota pressure.
-                if (
-                    not _is_gemini_transient_server_error(primary_exc)
-                    or not GEMINI_FALLBACK_MODEL
-                    or GEMINI_FALLBACK_MODEL == GEMINI_MODEL
-                ):
+                primary_error = primary_exc
+                primary_error_model = active_model
+                primary_was_rate_limited = _is_gemini_rate_limit_error(primary_exc)
+                primary_was_transient = _is_gemini_transient_server_error(primary_exc)
+                can_fail_over = (
+                    (primary_was_rate_limited or primary_was_transient)
+                    and fallback_model
+                    and fallback_model != active_model
+                )
+                if not can_fail_over:
                     raise
+
+                # Persist this model's cooldown, not a project-wide lock, then try the
+                # alternate model once. This is bounded failover, not a retry loop.
+                primary_reason = "rate_limited_429" if primary_was_rate_limited else "transient_server_error"
+                _persist_shared_gemini_cooldown(primary_reason, state_key=f"gemini_cooldown:{active_model}")
+
                 if api_calls_used >= MAX_GEMINI_API_CALLS_PER_REFRESH:
                     logger.warning(
                         "Gemini fallback skipped: per-refresh API-call budget reached after primary failure"
                     )
                     raise primary_exc
+                fallback_remaining, fallback_reason = _shared_gemini_cooldown_remaining(fallback_cooldown_key)
+                if fallback_remaining > 0:
+                    logger.warning(
+                        "Gemini alternate model is also cooling down (%s, about %d seconds); retaining source-language article",
+                        fallback_reason, fallback_remaining,
+                    )
+                    raise primary_exc
+
                 api_calls_used += 1
-                active_model = GEMINI_FALLBACK_MODEL
+                failed_model = active_model
+                active_model = fallback_model
                 logger.warning(
-                    "Gemini primary model unavailable (model=%s); trying configured fallback model=%s once",
-                    GEMINI_MODEL,
+                    "Gemini primary model unavailable (model=%s error=%s); trying alternate model=%s once",
+                    failed_model,
+                    "429" if primary_was_rate_limited else "5xx",
                     active_model,
                 )
                 response = client.models.generate_content(
@@ -3388,9 +3467,13 @@ def _translate_batch(raw_articles: list[dict[str, Any]]) -> dict[int, dict[str, 
             if rate_limited or transient_server_error:
                 cooldown_minutes = GEMINI_429_COOLDOWN_MINUTES if rate_limited else GEMINI_TRANSIENT_ERROR_COOLDOWN_MINUTES
                 reason = "429 quota/rate limit" if rate_limited else "temporary 5xx server error"
-                _persist_shared_gemini_cooldown(
-                    "rate_limited_429" if rate_limited else "transient_server_error"
-                )
+                failed_reason = "rate_limited_429" if rate_limited else "transient_server_error"
+                _persist_shared_gemini_cooldown(failed_reason, state_key=f"gemini_cooldown:{active_model}")
+                if primary_error_model == primary_model and primary_error is not None and (
+                    _is_gemini_rate_limit_error(primary_error) or _is_gemini_transient_server_error(primary_error)
+                ):
+                    primary_reason = "rate_limited_429" if _is_gemini_rate_limit_error(primary_error) else "transient_server_error"
+                    _persist_shared_gemini_cooldown(primary_reason, state_key=primary_cooldown_key)
                 logger.warning(
                     "Gemini request circuit breaker enabled for %d minutes after %s; shared cooldown saved for all workers; source-language news and image search will continue",
                     cooldown_minutes, reason,
@@ -3439,6 +3522,7 @@ def _avoid_repeated_news_photos(raw_articles: list[dict[str, Any]]) -> None:
         candidate = urlparse(candidate_url)
         candidate_identity = f"{candidate.scheme.lower()}://{candidate.netloc.lower()}{candidate.path.rstrip('/')}" if candidate.netloc else candidate_url
         if candidate_url and candidate_identity not in seen:
+            alternative.pop("_image_relevance_score", None)
             item.update(alternative)
             seen.add(candidate_identity)
         else:
@@ -3759,9 +3843,9 @@ def _refresh_news_job() -> None:
                 type(image_exc).__name__,
             )
 
-        backfilled = _backfill_missing_article_images(limit=min(8, MAX_IMAGE_LOOKUPS_PER_REFRESH)) if schema_available and MAX_IMAGE_LOOKUPS_PER_REFRESH > 0 else 0
-        if backfilled:
-            logger.info("Repaired/refreshed %d existing article image matches", backfilled)
+        # New stories have priority in this refresh. Backfill is intentionally deferred
+        # to the next idle/no-new-story cycle so a second image batch cannot double the
+        # time before the newly published news becomes fully responsive.
         _LAST_REFRESH_SUCCESS = time.monotonic()
         _LAST_REFRESH_AT = datetime.now(timezone.utc)
         _LAST_REFRESH_STATE = "success" if saved else "memory_only"
@@ -4014,6 +4098,11 @@ def _normalise_story(row: dict[str, Any], lang: str) -> dict[str, Any]:
     raw_summary = story.get(f"summary_{lang}") or ""
     raw_content = story.get(f"content_{lang}") or ""
     story["content"] = _normalise_summary_body(raw_summary, raw_content)
+    # A one-sentence RSS excerpt can be identical to its executive summary. Keep the
+    # clearly source-attributed excerpt visible in Details instead of rendering an empty block.
+    source_headline_only = _is_headline_only_domain(str(story.get("source_domain") or ""))
+    if not story["content"] and raw_content.strip() and not source_headline_only:
+        story["content"] = _clean_text(raw_content, 1200)
     story["title"] = _compact_display_title(raw_title, lang)
     story["summary"] = _distinct_executive_summary(raw_title, raw_summary, story["content"], lang)
     story["headline_only"] = _is_headline_only_domain(str(story.get("source_domain") or ""))
@@ -4037,6 +4126,9 @@ def _normalise_story(row: dict[str, Any], lang: str) -> dict[str, Any]:
         and len(str(story.get("title_en") or "").strip()) > 0
         and len(str(story.get("content_ar") or "").strip()) >= 100
         and len(str(story.get("content_en") or "").strip()) >= 100
+    )
+    story["details_from_source_excerpt"] = bool(
+        not story["headline_only"] and not story["ai_enriched"] and raw_content.strip()
     )
     story["category_label"] = CATEGORY_NAMES.get(story.get("category", "world"), CATEGORY_NAMES["world"])[lang]
     story["published_label"] = _format_date(story.get("published_at"), lang)
