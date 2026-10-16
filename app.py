@@ -1788,10 +1788,10 @@ def _cache_reusable_image(result: dict[str, Any]) -> dict[str, Any]:
         if not any(host == domain or host.endswith("." + domain) for domain in ("wikimedia.org", "wikipedia.org")):
             return result
     elif source == "loc_open_access":
-        if not source_parsed.hostname.casefold().endswith("loc.gov"):
+        if not _domain_matches(source_parsed.hostname, "loc.gov"):
             return result
     elif source == "nasa_images":
-        if not source_parsed.hostname.casefold().endswith("nasa.gov"):
+        if not _domain_matches(source_parsed.hostname, "nasa.gov"):
             return result
     elif source == "presskit_approved":
         # This host is listed in the owner's explicitly approved press-kit manifest.
