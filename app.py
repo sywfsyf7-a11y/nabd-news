@@ -3303,7 +3303,9 @@ def _translate_batch(raw_articles: list[dict[str, Any]]) -> dict[int, dict[str, 
             return {}
 
     result: dict[int, dict[str, str]] = {}
-    batch_size = 4
+    # Six stories per request lets the two-call refresh budget cover all twelve new
+    # stories when no backlog is waiting, without returning to the old retry storm.
+    batch_size = 6
     client = None
     api_calls_used = 0
 
