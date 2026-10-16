@@ -100,6 +100,9 @@ CONTACT_EMAIL = os.getenv("CONTACT_EMAIL", "syfsywf86@gmail.com").strip() or "sy
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 MAX_ARTICLES_PER_REFRESH = max(8, min(32, int(os.getenv("MAX_ARTICLES_PER_REFRESH", "24"))))
 MAX_ARTICLES_PER_CATEGORY = max(1, min(5, int(os.getenv("MAX_ARTICLES_PER_CATEGORY", "3"))))
+RSS_CANDIDATES_PER_CATEGORY = max(3, min(8, int(os.getenv("RSS_CANDIDATES_PER_CATEGORY", "6"))))
+MAX_RSS_CANDIDATES = max(32, min(96, MAX_ARTICLES_PER_REFRESH * 4))
+RSS_ENTRIES_PER_FEED = max(24, min(60, int(os.getenv("RSS_ENTRIES_PER_FEED", "48"))))
 IMAGE_SEARCH_TIMEOUT_SECONDS = max(3, min(12, int(os.getenv("IMAGE_SEARCH_TIMEOUT_SECONDS", "5"))))
 MAX_IMAGE_LOOKUPS_PER_REFRESH = max(0, min(32, int(os.getenv("MAX_IMAGE_LOOKUPS_PER_REFRESH", "24"))))
 IMAGE_RETRY_AFTER_HOURS = max(1, min(168, int(os.getenv("IMAGE_RETRY_AFTER_HOURS", "1"))))
@@ -169,7 +172,7 @@ UI_TEXT = {
         "photo_license": "الترخيص",
         "photo_provider": "المصدر",
         "illustrative_image": "صورة توضيحية",
-        "body_unavailable": "لا تتوفر تفاصيل إضافية موثوقة في المادة المتاحة.",
+        "body_unavailable": "لم يوفّر مقتطف المصدر تفاصيل إضافية كافية للتحقق؛ لم نضف معلومات بالتخمين. افتح المصدر الأصلي لقراءة التفاصيل الكاملة.",
         "sample_badge": "محتوى توضيحي — ليس خبراً حياً",
     },
     "en": {
@@ -206,7 +209,7 @@ UI_TEXT = {
         "photo_license": "License",
         "photo_provider": "Image provider",
         "illustrative_image": "Illustrative image",
-        "body_unavailable": "The available source material does not support additional detail.",
+        "body_unavailable": "The available source excerpt does not contain enough verifiable detail; we have not filled gaps with guesses. Open the original publisher for the full report.",
         "sample_badge": "EXPLANATORY SAMPLE — NOT LIVE NEWS",
     },
 }
@@ -1129,6 +1132,7 @@ def _raw_from_stored_article(row: dict[str, Any]) -> dict[str, Any]:
         "original_language": original_language,
         "published_at": row.get("published_at"),
         "_database_backfill": True,
+        "headline_only": _is_headline_only_domain(str(row.get("source_domain") or "")),
     }
 
 def _db_last_fetched_at() -> datetime | None:
@@ -2386,7 +2390,7 @@ def _parse_any_rss(feed_url: str, category: str, lang: str, default_source: str)
             raw = response.read(2_000_000)
         feed = feedparser.parse(raw)
         items: list[dict[str, Any]] = []
-        for entry in feed.entries[:24]:
+        for entry in feed.entries[:RSS_ENTRIES_PER_FEED]:
             title = _clean_text(entry.get("title", ""), 350)
             url = str(entry.get("link", "")).strip()
             if not title or not url.startswith(("https://", "http://")):
@@ -2542,7 +2546,7 @@ def _log_rss_selection(stories: list[dict[str, Any]], candidates_before_selectio
         for category in CATEGORY_NAMES
     }
     logger.info(
-        "RSS discovery summary: candidates=%d selected=%d languages=%s categories=%s",
+        "RSS discovery summary: candidates=%d candidate_pool=%d languages=%s categories=%s",
         candidates_before_selection, len(stories), languages, categories,
     )
 
@@ -2633,12 +2637,15 @@ def _collect_rss_articles() -> list[dict[str, Any]]:
 
     candidates_before_selection = sum(len(items) for items in cleaned.values())
     selected: list[dict[str, Any]] = []
-    for round_index in range(MAX_ARTICLES_PER_CATEGORY):
+    # Collect a wider candidate pool than the publish batch. The refresh job filters
+    # already-stored canonical URLs first; otherwise the first page can be entirely
+    # old stories and prevent newer entries further down the RSS results from being considered.
+    for round_index in range(RSS_CANDIDATES_PER_CATEGORY):
         for category in CATEGORY_NAMES:
             candidates = cleaned[category]
             if round_index < len(candidates):
                 selected.append(candidates[round_index])
-                if len(selected) >= MAX_ARTICLES_PER_REFRESH:
+                if len(selected) >= MAX_RSS_CANDIDATES:
                     selected.sort(key=lambda item: item.get("published_at") or item.get("fetched_at") or datetime(1970, 1, 1, tzinfo=timezone.utc), reverse=True)
                     _log_rss_selection(selected, candidates_before_selection)
                     return selected
@@ -2649,16 +2656,51 @@ def _collect_rss_articles() -> list[dict[str, Any]]:
 def _looks_arabic(value: str) -> bool:
     return bool(re.search(r"[\u0600-\u06FF]", value or ""))
 
+def _excerpt_without_headline(title: Any, excerpt: Any) -> str:
+    """Use only a short RSS excerpt, removing a repeated headline where possible."""
+    value = _clean_text(excerpt, 1200)
+    title_text = _clean_text(title, 350).strip()
+    if not value:
+        return ""
+    if title_text and value.casefold().startswith(title_text.casefold()):
+        value = value[len(title_text):].lstrip(" \t\r\n—–-:؛،|.،")
+    if not value or _summary_repeats_title(title, value):
+        sentences = [part.strip() for part in re.split(r"(?<=[.!?؟])\s+", value) if part.strip()]
+        sentences = [part for part in sentences if not _summary_repeats_title(title, part)]
+        value = " ".join(sentences)
+    return value.strip()
+
+
+def _fallback_summary_from_excerpt(title: Any, excerpt: Any, lang: str) -> str:
+    """Create a modest extractive brief from RSS text without inventing facts."""
+    value = _excerpt_without_headline(title, excerpt)
+    if value and not _summary_repeats_title(title, value):
+        sentences = [part.strip() for part in re.split(r"(?<=[.!?؟])\s+", value) if part.strip()]
+        for sentence in sentences:
+            if len(_editorial_text_key(sentence)) >= 18 and not _summary_repeats_title(title, sentence):
+                return sentence[:280].rsplit(" ", 1)[0].rstrip(" ,،:;؛—-") + ("…" if len(sentence) > 280 else "")
+        return value[:280].rsplit(" ", 1)[0].rstrip(" ,،:;؛—-") + ("…" if len(value) > 280 else "")
+    return (
+        "لم يتضمن مقتطف الناشر معلومات كافية لصياغة ملخص مستقل دون تخمين. افتح المصدر الأصلي للتفاصيل."
+        if lang == "ar"
+        else "The publisher excerpt does not contain enough information for a distinct summary without guessing. Open the original source for details."
+    )
+
+
 def _base_article(raw: dict[str, Any]) -> dict[str, Any]:
     title = raw.get("original_title", "").strip()
-    summary = _clean_text(raw.get("original_summary", ""), 280).strip()
     original_lang = raw.get("original_language", "ar" if _looks_arabic(title) else "en")
-    if not summary:
+    headline_only = bool(raw.get("headline_only"))
+    source_excerpt = _clean_text(raw.get("original_summary", ""), 1200)
+    usable_excerpt = "" if headline_only else _excerpt_without_headline(title, source_excerpt)
+    if headline_only:
         summary = (
-            "لم يتضمن موجز المصدر تفاصيل إضافية. افتح رابط الناشر الأصلي لقراءة الخبر كاملًا."
+            "هذا المصدر يوفّر العنوان والرابط فقط؛ افتح صفحة الناشر للتفاصيل والتحديثات."
             if original_lang == "ar"
-            else "The source feed did not include an excerpt. Open the original publisher for the full report and details."
+            else "This source is available as a headline and link only; open the publisher for details and updates."
         )
+    else:
+        summary = _fallback_summary_from_excerpt(title, usable_excerpt, original_lang)
     return {
         "slug": raw["slug"],
         "source_url": raw["source_url"],
@@ -2676,8 +2718,8 @@ def _base_article(raw: dict[str, Any]) -> dict[str, Any]:
         "title_en": title if original_lang == "en" else "",
         "summary_ar": summary if original_lang == "ar" else "",
         "summary_en": summary if original_lang == "en" else "",
-        "content_ar": "",
-        "content_en": "",
+        "content_ar": usable_excerpt if original_lang == "ar" else "",
+        "content_en": usable_excerpt if original_lang == "en" else "",
         "published_at": raw.get("published_at"),
         "read_minutes": 1,
         "original_language": original_lang,
@@ -3132,22 +3174,50 @@ def _refresh_news_job() -> None:
             _LAST_REFRESH_ERROR = ""
 
         schema_available = _ensure_schema()
-        raw_articles = _collect_rss_articles()
-        logger.info("News refresh started with %d RSS/editorial candidates; database_available=%s",
-                    len(raw_articles), schema_available)
-        known_urls = {str(item.get("source_url", "")) for item in raw_articles}
+        rss_candidates = _collect_rss_articles()
+        database_rows = _db_fetch_all() if schema_available else []
+        existing_urls = {str(row.get("source_url", "")) for row in database_rows if row.get("source_url")}
+        existing_urls.update(str(row.get("source_url", "")) for row in _MEMORY_ARTICLES.values() if row.get("source_url"))
+        existing_url_keys = {_canonical_story_url(url) for url in existing_urls if url}
+
+        # Filter the wider RSS discovery pool against stored canonical URLs before
+        # translation. Tracking parameters and minor URL variants must not hide new stories.
+        fresh_candidates: list[dict[str, Any]] = []
+        seen_fresh_keys: set[str] = set()
+        for raw in rss_candidates:
+            key = _canonical_story_url(raw.get("source_url"))
+            if not key or key in existing_url_keys or key in seen_fresh_keys:
+                continue
+            fresh_candidates.append(raw)
+            seen_fresh_keys.add(key)
+            if len(fresh_candidates) >= MAX_ARTICLES_PER_REFRESH:
+                break
+
+        editorial_retry_candidates: list[dict[str, Any]] = []
+        retry_keys: set[str] = set()
         if schema_available:
             for stored in _db_fetch_articles_needing_editorial(limit=4):
                 source_url = str(stored.get("source_url", ""))
-                if source_url and source_url not in known_urls:
-                    raw_articles.append(_raw_from_stored_article(stored))
-                    known_urls.add(source_url)
+                key = _canonical_story_url(source_url)
+                if not key or key in seen_fresh_keys or key in retry_keys:
+                    continue
+                editorial_retry_candidates.append(_raw_from_stored_article(stored))
+                retry_keys.add(key)
 
+        raw_articles = fresh_candidates + editorial_retry_candidates
+        unseen_count = sum(1 for raw in rss_candidates if _canonical_story_url(raw.get("source_url")) not in existing_url_keys)
+        logger.info(
+            "News refresh discovery: rss_candidates=%d unseen_candidates=%d selected_new=%d editorial_retries=%d database_available=%s",
+            len(rss_candidates), unseen_count, len(fresh_candidates), len(editorial_retry_candidates), schema_available,
+        )
         if not raw_articles:
-            if schema_available and MAX_IMAGE_LOOKUPS_PER_REFRESH > 0:
-                _backfill_missing_article_images(limit=min(6, MAX_IMAGE_LOOKUPS_PER_REFRESH))
-            raise RuntimeError("No eligible RSS stories were returned.")
-
+            backfilled = _backfill_missing_article_images(limit=min(12, MAX_IMAGE_LOOKUPS_PER_REFRESH)) if schema_available and MAX_IMAGE_LOOKUPS_PER_REFRESH > 0 else 0
+            _LAST_REFRESH_SUCCESS = time.monotonic()
+            _LAST_REFRESH_AT = datetime.now(timezone.utc)
+            _LAST_REFRESH_STATE = "success"
+            _LAST_REFRESH_ERROR = "No unseen publisher URLs among %d RSS candidates; existing stories retained. Images repaired: %d." % (len(rss_candidates), backfilled)
+            logger.info("News refresh found no unseen publisher URLs in %d candidates; image_repairs=%d", len(rss_candidates), backfilled)
+            return
         translatable_indices = [i for i, raw in enumerate(raw_articles) if not raw.get("headline_only")]
         translated_subset = _translate_batch([raw_articles[i] for i in translatable_indices])
         translations = {
@@ -3155,8 +3225,6 @@ def _refresh_news_job() -> None:
             for i, value in translated_subset.items()
             if 0 <= i < len(translatable_indices)
         }
-        existing_urls = {str(row.get("source_url", "")) for row in _db_fetch_all()} if schema_available else set()
-        existing_urls.update(str(row.get("source_url", "")) for row in _MEMORY_ARTICLES.values())
         raw_to_publish: list[tuple[int, dict[str, Any]]] = []
         for index, raw in enumerate(raw_articles):
             enriched = translations.get(index)
@@ -3164,7 +3232,7 @@ def _refresh_news_job() -> None:
             if not enriched:
                 # Keep verified source-language headlines available during a Gemini outage.
                 # Existing records are left intact; translation can be retried in a later refresh.
-                if source_url in existing_urls:
+                if _canonical_story_url(source_url) in existing_url_keys:
                     continue
                 raw["image_search_title"] = raw.get("original_title", "")
                 raw["image_search_context"] = raw.get("original_summary", "")
@@ -3180,7 +3248,7 @@ def _refresh_news_job() -> None:
         )
         not_in_recent_db_read = sum(
             1 for _index, raw in raw_to_publish
-            if str(raw.get("source_url") or "") not in existing_urls
+            if _canonical_story_url(raw.get("source_url")) not in existing_url_keys
         )
         logger.info(
             "News refresh selection: candidates=%d translations=%d publish_candidates=%d urls_not_in_recent_db_read=%d source_language_fallbacks=%d",
@@ -3189,7 +3257,7 @@ def _refresh_news_job() -> None:
 
         if not raw_to_publish:
             logger.info("News refresh found no unseen publishable URLs among %d candidates", len(raw_articles))
-            backfilled = _backfill_missing_article_images(limit=min(6, MAX_IMAGE_LOOKUPS_PER_REFRESH)) if schema_available and MAX_IMAGE_LOOKUPS_PER_REFRESH > 0 else 0
+            backfilled = _backfill_missing_article_images(limit=min(12, MAX_IMAGE_LOOKUPS_PER_REFRESH)) if schema_available and MAX_IMAGE_LOOKUPS_PER_REFRESH > 0 else 0
             _LAST_REFRESH_SUCCESS = time.monotonic()
             _LAST_REFRESH_AT = datetime.now(timezone.utc)
             _LAST_REFRESH_STATE = "success"
@@ -3468,11 +3536,9 @@ def _normalise_story(row: dict[str, Any], lang: str) -> dict[str, Any]:
         )
         story["content"] = ""
     if not story.get("image_url"):
-        story["image_url"] = "/media/editorial.svg?" + urlencode({
-            "title": story["title"] or story.get("source_name") or story.get("category") or "News",
-            "category": story.get("category", "world"), "lang": lang, "seed": story["slug"],
-        })
-        story["image_source"] = "editorial_generated"
+        # Deliberately use a labelled fallback asset rather than a fabricated news photo.
+        story["image_url"] = "/static/images/fallback-ar.svg" if lang == "ar" else "/static/images/fallback-en.svg"
+        story["image_source"] = "fallback_ar" if lang == "ar" else "fallback_en"
     story["image_license_name"] = _image_license_label(str(story.get("image_license_url") or ""), str(story.get("image_source") or ""))
     story["image_provider_name"] = _image_provider_label(str(story.get("image_source") or ""))
     story["ai_enriched"] = bool(
