@@ -89,8 +89,8 @@ NEWS_SCHEDULER_POLL_SECONDS = max(15, min(120, int(os.getenv("NEWS_SCHEDULER_POL
 RSS_TIMEOUT_SECONDS = max(2, int(os.getenv("RSS_TIMEOUT_SECONDS", "6")))
 RSS_BATCH_TIMEOUT_SECONDS = max(8, min(60, int(os.getenv("RSS_BATCH_TIMEOUT_SECONDS", "35"))))
 IMAGE_ENRICHMENT_BATCH_TIMEOUT_SECONDS = max(5, min(120, int(os.getenv("IMAGE_ENRICHMENT_BATCH_TIMEOUT_SECONDS", "65"))))
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
-GEMINI_FALLBACK_MODEL = os.getenv("GEMINI_FALLBACK_MODEL", "gemini-3.5-flash-lite").strip()
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite").strip()
+GEMINI_FALLBACK_MODEL = os.getenv("GEMINI_FALLBACK_MODEL", "gemini-3.8-flash").strip()
 GEMINI_IMAGE_MODEL = os.getenv("GEMINI_IMAGE_MODEL", "gemini-nano-banana-2.1").strip()
 GEMINI_IMAGE_GENERATION_ENABLED = os.getenv("GEMINI_IMAGE_GENERATION_ENABLED", "false").lower() not in {"0", "false", "no"}
 MAX_GEMINI_IMAGES_PER_REFRESH = max(0, min(4, int(os.getenv("MAX_GEMINI_IMAGES_PER_REFRESH", "1"))))
@@ -1440,11 +1440,12 @@ def _image_search_query(title: str, context: str = "") -> str:
 
 
 def _image_search_query_variants(title: str, context: str = "") -> list[str]:
-    """Return one context-rich search followed by a headline-only alternative."""
+    """Use context-rich, headline, and source-context queries for topic-specific photos."""
     candidates = (
         _image_search_query(title, context),
         _image_search_phrase(title, 4),
         _image_search_phrase(title, 2),
+        _image_search_phrase(context, 4) if context else "",
     )
     variants: list[str] = []
     seen: set[str] = set()
@@ -1454,7 +1455,7 @@ def _image_search_query_variants(title: str, context: str = "") -> list[str]:
         if candidate and key not in seen:
             seen.add(key)
             variants.append(candidate)
-    return variants[:3]
+    return variants[:4]
 
 
 def _https_url(value: Any, allowed_hosts: set[str] | None = None) -> str:
@@ -2212,8 +2213,8 @@ def _search_any_reusable_image(
     # Sources in each group are searched concurrently to avoid spending one full
     # timeout per provider. Open catalogues always come first.
     open_catalogues = (
-        ("image:wikimedia_relevant", lambda: _search_commons_image(title, lang, category)),
         ("image:openverse_licensed", lambda: _search_openverse_image(title, lang, category)),
+        ("image:wikimedia_relevant", lambda: _search_commons_image(title, lang, category)),
         ("image:loc_open_access", lambda: _search_loc_open_access_image(title, lang, category)),
     )
     result = _search_image_provider_group("open_catalogues", open_catalogues)
@@ -2967,9 +2968,10 @@ def _base_article(raw: dict[str, Any]) -> dict[str, Any]:
         "title_en": title if original_lang == "en" else "",
         "summary_ar": summary if original_lang == "ar" else "",
         "summary_en": summary if original_lang == "en" else "",
-        # RSS excerpts are used for the brief, not presented as a full article body.
-        "content_ar": "",
-        "content_en": "",
+        # When Gemini is unavailable, preserve only the publisher's short RSS excerpt
+        # as source-language detail text. Do not invent a full report or translate it.
+        "content_ar": usable_excerpt if original_lang == "ar" and not headline_only else "",
+        "content_en": usable_excerpt if original_lang == "en" and not headline_only else "",
         "published_at": raw.get("published_at"),
         "read_minutes": 1,
         "original_language": original_lang,
@@ -4014,6 +4016,11 @@ def _normalise_story(row: dict[str, Any], lang: str) -> dict[str, Any]:
     raw_summary = story.get(f"summary_{lang}") or ""
     raw_content = story.get(f"content_{lang}") or ""
     story["content"] = _normalise_summary_body(raw_summary, raw_content)
+    # A one-sentence RSS excerpt can be identical to its executive summary. Keep the
+    # clearly source-attributed excerpt visible in Details instead of rendering an empty block.
+    if not story["content"] and raw_content.strip() and not _is_headline_only_domain(str(story.get("source_domain") or "")):
+        story["content"] = _clean_text(raw_content, 1200)
+        story["details_from_source_excerpt"] = True
     story["title"] = _compact_display_title(raw_title, lang)
     story["summary"] = _distinct_executive_summary(raw_title, raw_summary, story["content"], lang)
     story["headline_only"] = _is_headline_only_domain(str(story.get("source_domain") or ""))
