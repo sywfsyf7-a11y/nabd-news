@@ -2,11 +2,11 @@
 
 This allowlist contains 270 category-and-language assignments covering 168 distinct publisher domains across eight sections. It is a maintained catalog, not a claim that every publisher worldwide is integrated. Google News RSS is used for discovery only; the original publisher's article URL remains the destination for readers.
 
-Arabic-origin stories are displayed only on the Arabic site; English-origin stories only on the English site. Each discovered host must match the configured source allowlist for the story category and language. Some publishers may return no eligible stories because of regional feeds, robots restrictions, or the rights gate.
+Arabic- and English-origin stories are displayed together in one feed and grouped by the same eight editorial sections. A translated brief is shown in the selected interface language when it is available; for headline-only sources, the original headline and link remain available rather than fabricating or translating protected article text. Each publisher is validated against the allowlist for its category and native language. Some publishers may return no eligible stories because of regional feeds, robots restrictions, or the rights gate.
 
 ## Publisher allowlist
 
-The lists below are generated from the current category/language catalog (270 category-language publisher assignments across 168 distinct domains). A domain appearing in several categories is counted once in the distinct-domain total.
+The lists below define the native language in which each publisher is discovered; they no longer determine which interface can display an accepted article. The catalog has 270 category-language publisher assignments across 168 distinct domains. A domain appearing in several categories is counted once in the distinct-domain total. Saudi Gamer (`saudigamer.com`) is present under Arabic gaming and is discovered through allowlisted Google News RSS results; inclusion does not guarantee that every scan returns a current article.
 
 ### Politics
 - Arabic: `aljazeera.net`, `bbc.com`, `alarabiya.net`, `skynewsarabia.com`, `aawsat.com`, `alquds.co.uk`, `alghad.com`, `almamlakatv.com`, `roya.tv`, `arabic.rt.com`, `cnn.com`, `france24.com`, `dw.com`, `euronews.com`, `aa.com.tr`, `alhurra.com`, `independentarabia.com`, `wam.ae`, `petra.gov.jo`
