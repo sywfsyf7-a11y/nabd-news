@@ -145,6 +145,7 @@ def search_openverse_image(
                 "image_checked_at": now_fn(),
                 "image_title": item_title,
                 "image_license_label": license_label,
+                "_image_relevance_score": score,
             }
             if best is None or score > best[0]:
                 best = (score, result)
