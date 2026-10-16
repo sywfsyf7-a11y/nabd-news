@@ -2727,6 +2727,139 @@ def _base_article(raw: dict[str, Any]) -> dict[str, Any]:
         "fetched_at": datetime.now(timezone.utc),
     }
 
+
+def _repair_existing_articles_from_rss(
+    raw_articles: list[dict[str, Any]],
+    stored_rows: list[dict[str, Any]],
+    *,
+    limit: int = 12,
+) -> int:
+    """Repair thin old article pages from a current, allowed RSS excerpt without using AI."""
+    if not raw_articles or not stored_rows or not _ensure_schema():
+        return 0
+
+    rows_by_key: dict[str, dict[str, Any]] = {}
+    for row in stored_rows:
+        key = _canonical_story_url(row.get("source_url"))
+        if key and key not in rows_by_key:
+            rows_by_key[key] = row
+
+    fallback_markers = (
+        "لا تتضمن المادة المتاحة معلومات كافية",
+        "لم يتضمن مقتطف الناشر معلومات كافية",
+        "لم يتضمن موجز المصدر تفاصيل إضافية",
+        "the available source material does not support a separate summary",
+        "the publisher excerpt does not contain enough information",
+        "the source feed did not include an excerpt",
+        "no additional reliable details are available",
+    )
+    repairs: list[dict[str, Any]] = []
+    seen_keys: set[str] = set()
+    for raw in raw_articles:
+        key = _canonical_story_url(raw.get("source_url"))
+        if not key or key in seen_keys:
+            continue
+        seen_keys.add(key)
+        stored = rows_by_key.get(key)
+        if not stored or stored.get("is_demo"):
+            continue
+
+        lang = str(raw.get("original_language") or "").casefold()
+        stored_lang = str(stored.get("original_language") or "").casefold()
+        if lang not in {"ar", "en"} or lang != stored_lang:
+            continue
+        source_domain = str(raw.get("source_domain") or stored.get("source_domain") or "")
+        if raw.get("headline_only") or _is_headline_only_domain(source_domain):
+            continue
+
+        title = str(stored.get(f"title_{lang}") or raw.get("original_title") or "")
+        excerpt = _excerpt_without_headline(title, raw.get("original_summary"))
+        if not excerpt:
+            continue
+
+        summary_col = f"summary_{lang}"
+        content_col = f"content_{lang}"
+        current_summary = stored.get(summary_col)
+        current_content = stored.get(content_col)
+        summary_text = _clean_text(current_summary, 1400)
+        current_content_text = _clean_text(current_content, 12000)
+        summary_needs_repair = (
+            not summary_text
+            or _summary_repeats_title(title, summary_text)
+            or any(marker in summary_text.casefold() for marker in fallback_markers)
+        )
+        content_needs_repair = len(current_content_text) < 80
+        if not summary_needs_repair and not content_needs_repair:
+            continue
+
+        repairs.append({
+            "source_url": str(stored.get("source_url") or ""),
+            "lang": lang,
+            "summary_col": summary_col,
+            "content_col": content_col,
+            "old_summary": current_summary,
+            "old_content": current_content,
+            "summary_needs_repair": summary_needs_repair,
+            "new_summary": _fallback_summary_from_excerpt(title, excerpt, lang) if summary_needs_repair else current_summary,
+            "content_needs_repair": content_needs_repair,
+            "new_content": excerpt if content_needs_repair else current_content,
+        })
+        if len(repairs) >= max(1, min(16, int(limit))):
+            break
+
+    if not repairs:
+        return 0
+
+    conn = _connect_db()
+    if conn is None:
+        return 0
+    updated_keys: set[str] = set()
+    updated = 0
+    try:
+        with conn.cursor() as cur:
+            for item in repairs:
+                # Columns are selected only from the hard-coded ar/en allowlist above.
+                summary_col = item["summary_col"]
+                content_col = item["content_col"]
+                cur.execute(
+                    f"""UPDATE world_pulse_articles
+                        SET {summary_col} = CASE WHEN %s THEN %s ELSE {summary_col} END,
+                            {content_col} = CASE WHEN %s THEN %s ELSE {content_col} END
+                        WHERE source_url = %s AND is_demo = FALSE AND original_language = %s
+                          AND {summary_col} IS NOT DISTINCT FROM %s
+                          AND {content_col} IS NOT DISTINCT FROM %s""",
+                    (
+                        item["summary_needs_repair"], item["new_summary"],
+                        item["content_needs_repair"], item["new_content"],
+                        item["source_url"], item["lang"],
+                        item["old_summary"], item["old_content"],
+                    ),
+                )
+                if cur.rowcount > 0:
+                    updated += cur.rowcount
+                    updated_keys.add(_canonical_story_url(item["source_url"]))
+        conn.commit()
+    except Exception as exc:
+        conn.rollback()
+        logger.warning("Existing RSS excerpt repair failed (%s)", type(exc).__name__)
+        return 0
+    finally:
+        conn.close()
+
+    if updated:
+        for memory_row in _MEMORY_ARTICLES.values():
+            key = _canonical_story_url(memory_row.get("source_url"))
+            if key not in updated_keys:
+                continue
+            item = next((repair for repair in repairs if _canonical_story_url(repair["source_url"]) == key), None)
+            if item:
+                if item["summary_needs_repair"]:
+                    memory_row[f"summary_{item['lang']}"] = item["new_summary"]
+                if item["content_needs_repair"]:
+                    memory_row[f"content_{item['lang']}"] = item["new_content"]
+        _invalidate_db_articles_cache()
+    return updated
+
 def _build_editorial_prompt(payload: list[dict[str, Any]]) -> str:
     """Build a fact-constrained bilingual brief prompt from limited source metadata."""
     return f'''You are the bilingual editorial desk of World Pulse. Produce an accurate, original news brief from source metadata.
@@ -3176,6 +3309,11 @@ def _refresh_news_job() -> None:
         schema_available = _ensure_schema()
         rss_candidates = _collect_rss_articles()
         database_rows = _db_fetch_all() if schema_available else []
+        repaired_excerpts = _repair_existing_articles_from_rss(
+            rss_candidates, database_rows, limit=min(12, MAX_ARTICLES_PER_REFRESH)
+        ) if schema_available and database_rows else 0
+        if repaired_excerpts:
+            logger.info("Repaired %d existing article summaries/details from current RSS excerpts", repaired_excerpts)
         existing_urls = {str(row.get("source_url", "")) for row in database_rows if row.get("source_url")}
         existing_urls.update(str(row.get("source_url", "")) for row in _MEMORY_ARTICLES.values() if row.get("source_url"))
         existing_url_keys = {_canonical_story_url(url) for url in existing_urls if url}
