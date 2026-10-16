@@ -455,7 +455,16 @@ class SourcePolicyTests(unittest.TestCase):
                         with patch.object(world_pulse, "GEMINI_TRANSIENT_ERROR_COOLDOWN_MINUTES", 10):
                             result = world_pulse._translate_batch(articles)
                             self.assertEqual(result, {})
-                            self.assertEqual(fake_client.models.generate_content.call_count, 1)
+                            # One primary attempt and one bounded 5xx-only fallback, then stop all later batches.
+                            self.assertEqual(fake_client.models.generate_content.call_count, 2)
+                            self.assertEqual(
+                                fake_client.models.generate_content.call_args_list[0].kwargs["model"],
+                                world_pulse.GEMINI_MODEL,
+                            )
+                            self.assertEqual(
+                                fake_client.models.generate_content.call_args_list[1].kwargs["model"],
+                                world_pulse.GEMINI_FALLBACK_MODEL,
+                            )
                             self.assertGreater(
                                 world_pulse._GEMINI_TRANSIENT_ERROR_UNTIL,
                                 world_pulse.time.monotonic(),
