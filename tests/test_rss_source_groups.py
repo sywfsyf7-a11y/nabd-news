@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import os
 import unittest
+import time
+from datetime import datetime, timezone, timedelta
 from unittest.mock import patch
 from urllib.parse import parse_qs, urlparse
 
@@ -92,6 +94,57 @@ class RSSPublisherGroupTests(unittest.TestCase):
             sum(1 for c, l, _ in calls if (c, l) == pair)
             for pair in expected_pairs
         )))
+
+
+class RSSDeadlineSeparationTests(unittest.TestCase):
+    def test_ready_feed_results_are_not_lost_to_classification_time(self):
+        now = datetime.now(timezone.utc)
+        stories = {
+            "en": {
+                "source_url": "https://cnn.com/unique-english-story",
+                "source_domain": "cnn.com",
+                "source_name": "CNN",
+                "original_title": "A distinct English headline about a major technology launch",
+                "original_summary": "A short source excerpt.",
+                "original_language": "en",
+                "published_at": now,
+            },
+            "ar": {
+                "source_url": "https://arabnews.com/unique-arabic-story",
+                "source_domain": "arabnews.com",
+                "source_name": "Arab News",
+                "original_title": "عنوان عربي مختلف حول إطلاق تقني مهم اليوم",
+                "original_summary": "مقتطف قصير من المصدر.",
+                "original_language": "ar",
+                "published_at": now - timedelta(seconds=5),
+            },
+        }
+
+        def fake_parse(category, lang, source_group=None):
+            # Both I/O jobs finish inside the deadline. English finishes first, which
+            # used to trigger slow classification before as_completed yielded Arabic.
+            time.sleep(0.01 if lang == "en" else 0.03)
+            return category, lang, [dict(stories[lang])]
+
+        def slow_classification(title, summary, fallback, source_domain=""):
+            time.sleep(0.09)
+            return fallback
+
+        with (
+            patch.object(world_pulse, "CATEGORY_NAMES", {"politics": {"ar": "سياسة", "en": "Politics"}}),
+            patch.object(world_pulse, "CATEGORY_SOURCE_DOMAINS", {"politics": {"ar": ["arabnews.com"], "en": ["cnn.com"]}}),
+            patch.object(world_pulse, "_prime_source_control_cache"),
+            patch.object(world_pulse, "_control_enabled", return_value=True),
+            patch.object(world_pulse, "_domain_needs_license", return_value=False),
+            patch.object(world_pulse, "_is_headline_only_domain", return_value=False),
+            patch.object(world_pulse, "_parse_feed_task", side_effect=fake_parse),
+            patch.object(world_pulse, "_classify_story", side_effect=slow_classification),
+            patch.object(world_pulse, "RSS_BATCH_TIMEOUT_SECONDS", 0.06),
+        ):
+            result = world_pulse._collect_rss_articles()
+
+        self.assertEqual(len(result), 2)
+        self.assertEqual({story["original_language"] for story in result}, {"ar", "en"})
 
 
 class DatabaseURLTests(unittest.TestCase):
