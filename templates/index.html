@@ -61,24 +61,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
   <noscript><link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet"></noscript>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script>
-    tailwind.config = {
-      theme: {
-        extend: {
-          colors: {
-            ink: '#111827',
-            paper: '#F7F7F5',
-            pulse: '#E53945',
-            muted: '#64748B'
-          },
-          boxShadow: {
-            soft: '0 16px 45px rgba(15, 23, 42, 0.07)'
-          }
-        }
-      }
-    };
-  </script>
+  <link href="{{ url_for('static', filename='css/site.css') }}" rel="stylesheet">
   <script>
     try {
       document.documentElement.dataset.theme = localStorage.getItem('world-pulse-theme') || 'light';
