@@ -868,6 +868,48 @@ class SourcePolicyTests(unittest.TestCase):
         self.assertIn("/static/A.jpg", query)
         self.assertIn("/static/E.jpg", query)
 
+    def test_licensed_photo_is_optimized_and_cached_to_supabase(self):
+        import io
+        from unittest.mock import MagicMock, patch
+        from PIL import Image
+
+        image_buffer = io.BytesIO()
+        Image.new("RGB", (1800, 1000), "#5d7a9b").save(image_buffer, format="PNG")
+        source_bytes = image_buffer.getvalue()
+
+        fake_connection = MagicMock()
+        fake_cursor = fake_connection.cursor.return_value.__enter__.return_value
+        response_context = MagicMock()
+        response_context.__enter__.return_value.read.return_value = source_bytes
+        candidate = {
+            "image_url": "https://upload.wikimedia.org/wikipedia/commons/test.png",
+            "image_source": "wikimedia_relevant",
+            "image_credit": "Example photographer",
+            "image_credit_url": "https://commons.wikimedia.org/wiki/File:Test.png",
+            "image_provider_url": "https://commons.wikimedia.org/wiki/File:Test.png",
+            "image_license_url": "https://creativecommons.org/licenses/by-sa/4.0/",
+        }
+
+        with patch.object(world_pulse, "_image_license_verified", return_value=True):
+            with patch.object(world_pulse, "_catalogued_image_exists", return_value=False):
+                with patch.object(world_pulse, "_ensure_schema", return_value=True):
+                    with patch.object(world_pulse, "_connect_db", return_value=fake_connection):
+                        with patch.object(world_pulse, "urlopen", return_value=response_context):
+                            cached = world_pulse._cache_reusable_image(dict(candidate))
+
+        self.assertTrue(cached["image_url"].startswith("/media/catalogued/"))
+        self.assertEqual(cached["image_source"], "wikimedia_relevant")
+        self.assertEqual(cached["image_license_url"], candidate["image_license_url"])
+        fake_connection.commit.assert_called_once()
+        sql, params = fake_cursor.execute.call_args.args
+        self.assertIn("INSERT INTO world_pulse_catalogued_images", sql)
+        self.assertEqual(params[2], "image/jpeg")
+        self.assertLess(len(params[3]), len(source_bytes))
+        with Image.open(io.BytesIO(params[3])) as stored:
+            self.assertEqual(stored.format, "JPEG")
+            self.assertLessEqual(stored.width, 1600)
+            self.assertLessEqual(stored.height, 1200)
+
     def test_catalogued_image_route_serves_persisted_bytes_and_cache_headers(self):
         from unittest.mock import patch
 
