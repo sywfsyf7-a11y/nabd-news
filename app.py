@@ -1746,6 +1746,148 @@ def _search_approved_presskit_image(title: str, category: str) -> dict[str, str]
             best = (score, result)
     return best[1] if best else {}
 
+def _catalogued_image_exists(image_id: str) -> bool:
+    if not re.fullmatch(r"[a-f0-9]{40}", image_id or "") or not _ensure_schema():
+        return False
+    conn = _connect_db()
+    if conn is None:
+        return False
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1 FROM world_pulse_catalogued_images WHERE image_id = %s", (image_id,))
+            return cur.fetchone() is not None
+    except Exception as exc:
+        logger.debug("Cached source image lookup failed (%s)", type(exc).__name__)
+        return False
+    finally:
+        _release_db_connection(conn)
+
+
+def _cache_reusable_image(result: dict[str, Any]) -> dict[str, Any]:
+    """Save licensed image bytes to Supabase so browser hotlink failures cannot leave A/E placeholders."""
+    image_url = str(result.get("image_url") or "").strip()
+    source = str(result.get("image_source") or "")
+    if not image_url.startswith("https://") or not _image_license_verified(result):
+        return result
+    source_url = image_url
+    cache_url = str(result.get("image_cache_url") or image_url).strip()
+    try:
+        source_parsed = urlparse(source_url)
+        cache_parsed = urlparse(cache_url)
+    except ValueError:
+        return result
+    if source_parsed.scheme != "https" or not source_parsed.hostname or cache_parsed.scheme != "https" or not cache_parsed.hostname:
+        return result
+
+    # Do not fetch arbitrary Openverse index hosts server-side. Use the official thumbnail endpoint instead.
+    if source == "openverse_licensed":
+        if cache_parsed.hostname.casefold() != "api.openverse.org" or not cache_parsed.path.startswith("/v1/images/"):
+            return result
+    elif source == "wikimedia_relevant":
+        host = source_parsed.hostname.casefold()
+        if not any(host == domain or host.endswith("." + domain) for domain in ("wikimedia.org", "wikipedia.org")):
+            return result
+    elif source == "loc_open_access":
+        if not source_parsed.hostname.casefold().endswith("loc.gov"):
+            return result
+    elif source == "nasa_images":
+        if not source_parsed.hostname.casefold().endswith("nasa.gov"):
+            return result
+    elif source == "presskit_approved":
+        # This host is listed in the owner's explicitly approved press-kit manifest.
+        pass
+    else:
+        return result
+
+    image_id = hashlib.sha256(source_url.encode("utf-8")).hexdigest()[:40]
+    if _catalogued_image_exists(image_id):
+        cached = dict(result)
+        cached["image_url"] = "/media/catalogued/" + image_id
+        cached.pop("image_cache_url", None)
+        return cached
+
+    try:
+        request_obj = Request(
+            cache_url,
+            headers={
+                "Accept": "image/jpeg,image/png,image/webp",
+                "User-Agent": "WorldPulseNews/2.1 (+licensed image caching)",
+            },
+        )
+        with urlopen(request_obj, timeout=IMAGE_SEARCH_TIMEOUT_SECONDS) as response:
+            image_bytes = response.read(6 * 1024 * 1024 + 1)
+    except Exception as exc:
+        logger.debug("Licensed image download failed (source=%s error=%s)", source, type(exc).__name__)
+        return result
+
+    if not image_bytes or len(image_bytes) > 6 * 1024 * 1024:
+        logger.info("Licensed image not cached because it is empty or larger than 6 MiB (source=%s)", source)
+        return result
+    try:
+        with Image.open(io.BytesIO(image_bytes)) as opened:
+            image_format = str(opened.format or "").upper()
+            width, height = opened.size
+            if image_format not in {"JPEG", "PNG", "WEBP"} or width < 300 or height < 180 or width * height > 30_000_000:
+                return result
+            opened.verify()
+        mime_type = {"JPEG": "image/jpeg", "PNG": "image/png", "WEBP": "image/webp"}[image_format]
+    except Exception as exc:
+        logger.debug("Licensed image bytes failed verification (source=%s error=%s)", source, type(exc).__name__)
+        return result
+
+    if not _ensure_schema():
+        return result
+    conn = _connect_db()
+    if conn is None:
+        return result
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO world_pulse_catalogued_images (image_id, source_url, mime_type, image_data)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (source_url) DO NOTHING
+            """, (image_id, source_url, mime_type, image_bytes))
+        conn.commit()
+        cached = dict(result)
+        cached["image_url"] = "/media/catalogued/" + image_id
+        cached.pop("image_cache_url", None)
+        logger.info("Licensed image cached in Supabase (source=%s bytes=%d)", source, len(image_bytes))
+        return cached
+    except Exception as exc:
+        conn.rollback()
+        logger.warning("Could not persist licensed source image (source=%s error=%s)", source, type(exc).__name__)
+        return result
+    finally:
+        _release_db_connection(conn)
+
+
+def _read_catalogued_image(image_id: str) -> tuple[bytes, str] | None:
+    if not re.fullmatch(r"[a-f0-9]{40}", image_id or "") or not _ensure_schema():
+        return None
+    conn = _connect_db()
+    if conn is None:
+        return None
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT image_data, mime_type
+                FROM world_pulse_catalogued_images
+                WHERE image_id = %s
+            """, (image_id,))
+            row = cur.fetchone()
+            if not row or not row[0]:
+                return None
+            mime_type = str(row[1] or "")
+            if mime_type not in {"image/jpeg", "image/png", "image/webp"}:
+                return None
+            return bytes(row[0]), mime_type
+    except Exception as exc:
+        logger.debug("Cached source image read failed (%s)", type(exc).__name__)
+        return None
+    finally:
+        _release_db_connection(conn)
+
+
 def _db_count_gemini_images_last_24h() -> int | None:
     if not _ensure_schema():
         return None
@@ -2140,6 +2282,7 @@ def _resolve_article_image(raw: dict[str, Any]) -> dict[str, Any]:
         str(raw.get("category") or "world"),
     )
     if result:
+        result = _cache_reusable_image(result)
         result["image_checked_at"] = datetime.now(timezone.utc)
         return result
     # Only use the separately budgeted Gemini feature when no eligible sourced image was found.
@@ -3667,7 +3810,6 @@ def _normalise_story(row: dict[str, Any], lang: str) -> dict[str, Any]:
         story.get("image_source") not in TRUSTED_REUSABLE_IMAGE_SOURCES
         or not _image_license_verified(story)
     ):
-        # Provider membership alone is not proof of permission; require item-level licence data.
         story.update({"image_url": "", "image_source": "none", "image_credit": "",
                       "image_credit_url": "", "image_provider_url": "", "image_license_url": ""})
     if not story.get("slug"):
@@ -3686,10 +3828,15 @@ def _normalise_story(row: dict[str, Any], lang: str) -> dict[str, Any]:
             else "Headline and source link only. Open the publisher's original page for full details, context, and updates."
         )
         story["content"] = ""
+    story["image_fallback_url"] = "/media/editorial.svg?" + urlencode({
+        "title": story["title"] or story.get("source_name") or story.get("category") or "News",
+        "category": story.get("category", "world"),
+        "lang": lang,
+        "seed": story["slug"],
+    })
     if not story.get("image_url"):
-        # Brand-owned A/E images are the final fallback when no reusable photo passes review.
-        story["image_url"] = "/static/A.jpg" if lang == "ar" else "/static/E.jpg"
-        story["image_source"] = "fallback_ar" if lang == "ar" else "fallback_en"
+        story["image_url"] = story["image_fallback_url"]
+        story["image_source"] = "editorial_generated"
     story["image_license_name"] = _image_license_label(str(story.get("image_license_url") or ""), str(story.get("image_source") or ""))
     story["image_provider_name"] = _image_provider_label(str(story.get("image_source") or ""))
     story["ai_enriched"] = bool(
@@ -3813,7 +3960,7 @@ def inject_shared_template_data() -> dict[str, Any]:
     return {
         "lang": lang,
         "site_csrf_token": site_csrf_token,
-        "public_image_url": lambda value: (_site_origin() + value if str(value or "").startswith(("/media/generated/", "/media/editorial.svg")) else str(value or "")),
+        "public_image_url": lambda value: (_site_origin() + value if str(value or "").startswith(("/media/generated/", "/media/catalogued/", "/media/editorial.svg")) else str(value or "")),
         "ui": UI_TEXT[lang],
         "site_name": SITE_NAME_AR if lang == "ar" else SITE_NAME_EN,
         "site_name_other": SITE_NAME_EN if lang == "ar" else SITE_NAME_AR,
@@ -4335,6 +4482,18 @@ def editorial_fallback_image():
     response.headers["X-Content-Type-Options"] = "nosniff"
     return response
 
+@app.get("/media/catalogued/<image_id>")
+def catalogued_image(image_id: str):
+    stored = _read_catalogued_image(image_id)
+    if not stored:
+        abort(404)
+    image_bytes, mime_type = stored
+    response = Response(image_bytes, mimetype=mime_type)
+    response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Cross-Origin-Resource-Policy"] = "same-site"
+    return response
+
 @app.get("/media/generated/<image_id>")
 def generated_image(image_id: str):
     stored = _read_gemini_generated_image(image_id)
@@ -4588,12 +4747,12 @@ def admin_sources():
                     _REFRESHING = True
                     thread = threading.Thread(
                         target=_refresh_existing_article_images_job,
-                        kwargs={"limit": min(12, MAX_IMAGE_LOOKUPS_PER_REFRESH)},
+                        kwargs={"limit": min(24, MAX_IMAGE_LOOKUPS_PER_REFRESH)},
                         name="world-pulse-admin-image-refresh",
                         daemon=True,
                     )
                     thread.start()
-                    notice = "تم مسح ذاكرة العرض المؤقتة وبدأ البحث الإجباري عن صور حتى 12 خبراً. إذا كان تحديث الأخبار جارياً، ستنتظر مهمة الصور انتهاءه بدل إلغاء البحث. تبقى البيانات الدائمة في Supabase محفوظة."
+                    notice = "تم مسح ذاكرة العرض المؤقتة وبدأ البحث الإجباري عن صور حتى 24 خبراً، مع حفظ الملفات المتاحة محلياً في Supabase. إذا كان تحديث الأخبار جارياً، ستنتظر مهمة الصور انتهاءه. تبقى البيانات الدائمة في Supabase محفوظة."
         else:
             abort(400)
     return render_template(
