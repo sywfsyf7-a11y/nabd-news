@@ -1489,16 +1489,16 @@ def _search_commons_image(title: str, lang: str, category: str = "world") -> dic
         if mime not in {"image/jpeg", "image/png", "image/webp"}:
             continue
         page_title = str(page.get("title", ""))
-        if re.search(r"(?i)\\b(logo|icon|wordmark|commons-logo|flag icon|map icon|banner logo|coat of arms|seal of)\\b", page_title):
+        if re.search(r"(?i)\b(logo|icon|wordmark|commons-logo|flag icon|map icon|banner logo|coat of arms|seal of)\b", page_title):
             continue
         ext = info.get("extmetadata") or {}
         license_short = _clean_text((ext.get("LicenseShortName") or {}).get("value", ""), 100).casefold()
         license_url = _https_url(html.unescape((ext.get("LicenseUrl") or {}).get("value", "")), {"creativecommons.org"})
         license_path = urlparse(license_url).path.casefold() if license_url else ""
-        is_cc0 = bool(re.search(r"/publicdomain/zero/1\\.0/?$", license_path))
-        is_pd = bool(re.search(r"/publicdomain/mark/1\\.0/?$", license_path))
-        is_cc_by = bool(re.search(r"/licenses/by/(?:2\\.0|3\\.0|4\\.0)/?$", license_path))
-        is_cc_by_sa = bool(re.search(r"/licenses/by-sa/(?:2\\.0|3\\.0|4\\.0)/?$", license_path))
+        is_cc0 = bool(re.search(r"/publicdomain/zero/1\.0/?$", license_path))
+        is_pd = bool(re.search(r"/publicdomain/mark/1\.0/?$", license_path))
+        is_cc_by = bool(re.search(r"/licenses/by/(?:2\.0|3\.0|4\.0)/?$", license_path))
+        is_cc_by_sa = bool(re.search(r"/licenses/by-sa/(?:2\.0|3\.0|4\.0)/?$", license_path))
         if not (is_cc0 or is_pd or is_cc_by or is_cc_by_sa):
             continue
         forbidden = any(term in license_short for term in (
