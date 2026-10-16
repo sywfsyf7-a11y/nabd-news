@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 import re
 from typing import Any, Callable
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 
 def openverse_license_url_ok(license_code: str, license_url: str) -> bool:
@@ -59,6 +59,7 @@ def search_openverse_image(
     params = urlencode({
         "q": query,
         "license": "cc0,pdm,by,by-sa",
+        "license_type": "commercial",
         "extension": "jpg,jpeg,png,webp",
         "page_size": 20,
         "page": 1,
@@ -125,8 +126,17 @@ def search_openverse_image(
                 license_label = "CC BY-SA " + version if version else "CC BY-SA"
             else:
                 license_label = "CC BY " + version if version else "CC BY"
+            identifier = str(item.get("id") or "").strip()
+            # Fetch from Openverse's own thumbnail endpoint for safe, durable server-side caching.
+            # The original item URL remains the attribution destination.
+            thumbnail_url = (
+                "https://api.openverse.org/v1/images/" + quote(identifier, safe="") + "/thumb/"
+                if identifier and re.fullmatch(r"[A-Za-z0-9_-]{8,100}", identifier)
+                else ""
+            )
             result = {
                 "image_url": image_url,
+                "image_cache_url": thumbnail_url,
                 "image_source": "openverse_licensed",
                 "image_credit": creator or "Creator not listed · see original item",
                 "image_credit_url": creator_url or item_page,
