@@ -1,0 +1,11 @@
+{
+  "name": "world-pulse-frontend-assets",
+  "private": true,
+  "description": "Build-time Tailwind CSS for the World Pulse Flask templates",
+  "scripts": {
+    "build:css": "tailwindcss -c tailwind.config.js -i ./tailwind.input.css -o ./static/css/site.css --minify"
+  },
+  "devDependencies": {
+    "tailwindcss": "3.4.17"
+  }
+}
