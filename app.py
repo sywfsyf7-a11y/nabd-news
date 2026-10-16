@@ -1551,6 +1551,8 @@ def _search_commons_image(title: str, lang: str, category: str = "world") -> dic
             "image_provider_url": file_page_url,
             "image_license_url": license_url,
             "image_checked_at": datetime.now(timezone.utc),
+            "image_title": page_title,
+            "_image_relevance_score": score,
         }
         if best is None or score > best[0]:
             best = (score, result)
@@ -1624,6 +1626,8 @@ def _search_loc_open_access_image(title: str, lang: str = "en", category: str = 
                 "image_provider_url": item_url,
                 "image_license_url": item_url,
                 "image_checked_at": datetime.now(timezone.utc),
+                "image_title": item_title,
+                "_image_relevance_score": score,
             }
             if best is None or score > best[0]:
                 best = (score, result)
@@ -1715,6 +1719,8 @@ def _search_nasa_image(title: str, lang: str = "en", category: str = "world") ->
                 "image_provider_url": source_page,
                 "image_license_url": "https://www.nasa.gov/nasa-brand-center/images-and-media/",
                 "image_checked_at": datetime.now(timezone.utc),
+                "image_title": item_title,
+                "_image_relevance_score": score,
             }
             if best is None or score > best[0]:
                 best = (score, result)
@@ -1762,6 +1768,8 @@ def _search_approved_presskit_image(title: str, category: str) -> dict[str, str]
             "image_provider_url": image_page,
             "image_license_url": license_url,
             "image_checked_at": datetime.now(timezone.utc),
+            "image_title": _clean_text(entry.get("title") or "", 240),
+            "_image_relevance_score": score,
         }
         if best is None or score > best[0]:
             best = (score, result)
@@ -2167,7 +2175,7 @@ def _search_image_provider_group(
     group_name: str,
     finders: tuple[tuple[str, Any], ...],
 ) -> dict[str, str]:
-    """Query a small group of image catalogues concurrently, then keep configured priority."""
+    """Search a small group concurrently and choose the best topic-match score."""
     active = [(key, finder) for key, finder in finders if _control_enabled(key, True)]
     if not active:
         return {}
@@ -2195,10 +2203,20 @@ def _search_image_provider_group(
                 future.cancel()
         executor.shutdown(wait=False, cancel_futures=True)
 
-    for key, _finder in active:
-        if results.get(key):
-            logger.info("Image provider matched: provider=%s group=%s", key.removeprefix("image:"), group_name)
-            return results[key]
+    ranked = [
+        (float(results[key].get("_image_relevance_score") or 0.0), -index, key, results[key])
+        for index, (key, _finder) in enumerate(active)
+        if results.get(key)
+    ]
+    if ranked:
+        score, _priority, key, selected = max(ranked, key=lambda entry: (entry[0], entry[1]))
+        result = dict(selected)
+        result.pop("_image_relevance_score", None)
+        logger.info(
+            "Image provider matched: provider=%s group=%s relevance=%.3f",
+            key.removeprefix("image:"), group_name, score,
+        )
+        return result
     logger.info("Image provider group had no match: group=%s checked=%d", group_name, len(active))
     return {}
 
