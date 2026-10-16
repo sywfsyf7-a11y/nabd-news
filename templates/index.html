@@ -465,7 +465,7 @@
                       <img src="{{ story.image_url }}" alt="{{ story.title }}" loading="lazy" decoding="async" class="absolute inset-0 z-[1] h-full w-full object-cover" onerror="this.onerror=null;this.src={{ url_for('static', filename='images/fallback-' ~ lang ~ '.svg')|tojson }};">
                     {% else %}
                       <img src="{{ url_for('static', filename='images/fallback-' ~ lang ~ '.svg') }}" alt="{{ 'صورة تحريرية بديلة' if lang == 'ar' else 'Editorial fallback image' }}" loading="lazy" class="absolute inset-0 z-[1] h-full w-full object-cover">
-                    {% endif}
+                    {% endif %}
                   </span>
                   <span class="min-w-0">
                     <span class="mb-1 block text-[10px] font-extrabold text-pulse">{{ story.category_label }}</span>
