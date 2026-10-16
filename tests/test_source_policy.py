@@ -126,17 +126,19 @@ class SourcePolicyTests(unittest.TestCase):
             "NASA Artemis mission",
             "The spacecraft carries astronauts around the Moon and returns near Earth.",
         )
-        self.assertEqual(len(variants), 2)
+        self.assertEqual(len(variants), 3)
         self.assertTrue(variants[0].startswith("NASA Artemis"))
         self.assertIn("astronauts", variants[0].casefold())
         self.assertEqual(variants[1], "NASA Artemis mission")
+        self.assertEqual(variants[2], "NASA Artemis")
 
-    def test_image_match_score_accepts_one_distinctive_entity_from_a_ranked_photo_catalogue(self):
+    def test_image_match_score_accepts_one_entity_for_a_two_term_query_but_not_a_long_query(self):
+        self.assertEqual(
+            world_pulse._image_match_score("Trump tariff China", "China city skyline"),
+            0.0,
+        )
         self.assertGreater(
-            world_pulse._image_match_score(
-                "Mourinho Vinicius ban timing",
-                "Vinicius Jr football portrait",
-            ),
+            world_pulse._image_match_score("Mourinho Vinicius", "Vinicius Jr football portrait"),
             0,
         )
 
