@@ -108,6 +108,7 @@ RSS_CANDIDATES_PER_CATEGORY = max(3, min(8, int(os.getenv("RSS_CANDIDATES_PER_CA
 MAX_RSS_CANDIDATES = max(32, min(96, MAX_ARTICLES_PER_REFRESH * 4))
 RSS_ENTRIES_PER_FEED = max(24, min(60, int(os.getenv("RSS_ENTRIES_PER_FEED", "48"))))
 IMAGE_SEARCH_TIMEOUT_SECONDS = max(3, min(12, int(os.getenv("IMAGE_SEARCH_TIMEOUT_SECONDS", "5"))))
+IMAGE_DOWNLOAD_TIMEOUT_SECONDS = max(5, min(20, int(os.getenv("IMAGE_DOWNLOAD_TIMEOUT_SECONDS", "10"))))
 MAX_IMAGE_LOOKUPS_PER_REFRESH = max(0, min(32, int(os.getenv("MAX_IMAGE_LOOKUPS_PER_REFRESH", "24"))))
 IMAGE_RETRY_AFTER_HOURS = max(1, min(168, int(os.getenv("IMAGE_RETRY_AFTER_HOURS", "1"))))
 IMAGE_CACHE_MAX_AGE_SECONDS = max(3600, int(os.getenv("IMAGE_CACHE_MAX_AGE_HOURS", "24")) * 3600)
@@ -1453,87 +1454,84 @@ def _search_commons_image(title: str, lang: str, category: str = "world") -> dic
     title = _clean_text(title, 240)
     if not title:
         return {}
-    short_query = _image_search_phrase(title, 4)
-    queries = []
-    for query in (short_query, title):
-        query = _clean_text(query, 160)
-        if query and query.casefold() not in {existing.casefold() for existing in queries}:
-            queries.append(query)
-    best: tuple[float, dict[str, str]] | None = None
-    # Each query is isolated: a temporary first-query outage must not skip the alternate phrase.
-    for query_index, query in enumerate(queries[:2], start=1):
-        try:
-            params = {
-                "action": "query", "generator": "search", "gsrsearch": query,
-                "gsrnamespace": 6, "gsrlimit": 20, "prop": "imageinfo",
-                "iiprop": "url|extmetadata|mime", "iiurlwidth": 1400,
-                "format": "json", "formatversion": 2,
-            }
-            url = "https://commons.wikimedia.org/w/api.php?" + urlencode(params)
-            request_obj = Request(
-                url,
-                headers={"User-Agent": "WorldPulseNews/1.6 (rights-filtered editorial image discovery; Wikimedia Commons API)"},
-            )
-            with urlopen(request_obj, timeout=IMAGE_SEARCH_TIMEOUT_SECONDS) as response:
-                data = json.loads(response.read(1_800_000).decode("utf-8", errors="replace"))
-        except Exception as exc:
-            logger.debug("Wikimedia query failed (variant=%d error=%s)", query_index, type(exc).__name__)
-            continue
+    # The caller already retries context-rich, short-headline, and two-term queries.
+    # One Wikimedia request per query variant avoids repeatedly exceeding the group deadline.
+    query = _clean_text(_image_search_phrase(title, 4) or title, 160)
+    if not query:
+        return {}
+    best: tuple[float, dict[str, Any]] | None = None
+    try:
+        params = {
+            "action": "query", "generator": "search", "gsrsearch": query,
+            "gsrnamespace": 6, "gsrlimit": 20, "prop": "imageinfo",
+            "iiprop": "url|extmetadata|mime", "iiurlwidth": 1400,
+            "format": "json", "formatversion": 2,
+        }
+        url = "https://commons.wikimedia.org/w/api.php?" + urlencode(params)
+        request_obj = Request(
+            url,
+            headers={"User-Agent": "WorldPulseNews/1.7 (rights-filtered editorial image discovery; Wikimedia Commons API)"},
+        )
+        with urlopen(request_obj, timeout=IMAGE_SEARCH_TIMEOUT_SECONDS) as response:
+            data = json.loads(response.read(1_800_000).decode("utf-8", errors="replace"))
+    except Exception as exc:
+        logger.debug("Wikimedia image lookup failed (%s)", type(exc).__name__)
+        return {}
 
-        pages = data.get("query", {}).get("pages", [])
-        if isinstance(pages, dict):
-            pages = list(pages.values())
-        for page in pages:
-            imageinfos = page.get("imageinfo") or []
-            if not imageinfos:
-                continue
-            info = imageinfos[0]
-            mime = str(info.get("mime", "")).lower()
-            if mime not in {"image/jpeg", "image/png", "image/webp"}:
-                continue
-            page_title = str(page.get("title", ""))
-            if re.search(r"(?i)\b(logo|icon|wordmark|commons-logo|flag icon|map icon|banner logo|coat of arms|seal of)\b", page_title):
-                continue
-            ext = info.get("extmetadata") or {}
-            license_short = _clean_text((ext.get("LicenseShortName") or {}).get("value", ""), 100).casefold()
-            license_url = _https_url(html.unescape((ext.get("LicenseUrl") or {}).get("value", "")), {"creativecommons.org"})
-            license_path = urlparse(license_url).path.casefold() if license_url else ""
-            is_cc0 = bool(re.search(r"/publicdomain/zero/1\.0/?$", license_path))
-            is_pd = bool(re.search(r"/publicdomain/mark/1\.0/?$", license_path))
-            is_cc_by = bool(re.search(r"/licenses/by/(?:2\.0|3\.0|4\.0)/?$", license_path))
-            is_cc_by_sa = bool(re.search(r"/licenses/by-sa/(?:2\.0|3\.0|4\.0)/?$", license_path))
-            if not (is_cc0 or is_pd or is_cc_by or is_cc_by_sa):
-                continue
-            forbidden = any(term in license_short for term in (
-                "noncommercial", "non-commercial", "no derivatives", "no-derivatives",
-                "by-nc", "by-nd", "share alike prohibited",
-            ))
-            if forbidden:
-                continue
-            artist = _clean_text((ext.get("Artist") or {}).get("value", ""), 180)
-            if (is_cc_by or is_cc_by_sa) and not artist:
-                continue
-            image_url = _https_url(info.get("thumburl") or info.get("url"), {"wikimedia.org", "wikipedia.org"})
-            if not image_url:
-                continue
-            description = _clean_text((ext.get("ImageDescription") or {}).get("value", ""), 1200)
-            categories = _clean_text((ext.get("Categories") or {}).get("value", ""), 500)
-            evidence = page_title + " " + description + " " + categories
-            score = max(_image_match_score(title, evidence), _image_match_score(query, evidence))
-            if score <= 0:
-                continue
-            file_page_url = "https://commons.wikimedia.org/wiki/" + quote(page_title.replace(" ", "_"), safe=":_()!,.'-")
-            result = {
-                "image_url": image_url,
-                "image_source": "wikimedia_relevant",
-                "image_credit": artist or "Public-domain image via Wikimedia Commons",
-                "image_credit_url": file_page_url,
-                "image_provider_url": file_page_url,
-                "image_license_url": license_url,
-                "image_checked_at": datetime.now(timezone.utc),
-            }
-            if best is None or score > best[0]:
-                best = (score, result)
+    pages = data.get("query", {}).get("pages", [])
+    if isinstance(pages, dict):
+        pages = list(pages.values())
+    for page in pages:
+        imageinfos = page.get("imageinfo") or []
+        if not imageinfos:
+            continue
+        info = imageinfos[0]
+        mime = str(info.get("mime", "")).lower()
+        if mime not in {"image/jpeg", "image/png", "image/webp"}:
+            continue
+        page_title = str(page.get("title", ""))
+        if re.search(r"(?i)\b(logo|icon|wordmark|commons-logo|flag icon|map icon|banner logo|coat of arms|seal of)\b", page_title):
+            continue
+        ext = info.get("extmetadata") or {}
+        license_short = _clean_text((ext.get("LicenseShortName") or {}).get("value", ""), 100).casefold()
+        license_url = _https_url(html.unescape((ext.get("LicenseUrl") or {}).get("value", "")), {"creativecommons.org"})
+        license_path = urlparse(license_url).path.casefold() if license_url else ""
+        is_cc0 = bool(re.search(r"/publicdomain/zero/1\.0/?$", license_path))
+        is_pd = bool(re.search(r"/publicdomain/mark/1\.0/?$", license_path))
+        is_cc_by = bool(re.search(r"/licenses/by/(?:2\.0|3\.0|4\.0)/?$", license_path))
+        is_cc_by_sa = bool(re.search(r"/licenses/by-sa/(?:2\.0|3\.0|4\.0)/?$", license_path))
+        if not (is_cc0 or is_pd or is_cc_by or is_cc_by_sa):
+            continue
+        forbidden = any(term in license_short for term in (
+            "noncommercial", "non-commercial", "no derivatives", "no-derivatives",
+            "by-nc", "by-nd", "share alike prohibited",
+        ))
+        if forbidden:
+            continue
+        artist = _clean_text((ext.get("Artist") or {}).get("value", ""), 180)
+        if (is_cc_by or is_cc_by_sa) and not artist:
+            continue
+        image_url = _https_url(info.get("thumburl") or info.get("url"), {"wikimedia.org", "wikipedia.org"})
+        if not image_url:
+            continue
+        description = _clean_text((ext.get("ImageDescription") or {}).get("value", ""), 1200)
+        categories = _clean_text((ext.get("Categories") or {}).get("value", ""), 500)
+        evidence = page_title + " " + description + " " + categories
+        score = max(_image_match_score(title, evidence), _image_match_score(query, evidence))
+        if score <= 0:
+            continue
+        file_page_url = "https://commons.wikimedia.org/wiki/" + quote(page_title.replace(" ", "_"), safe=":_()!,.'-")
+        result = {
+            "image_url": image_url,
+            "image_source": "wikimedia_relevant",
+            "image_credit": artist or "Public-domain image via Wikimedia Commons",
+            "image_credit_url": file_page_url,
+            "image_provider_url": file_page_url,
+            "image_license_url": license_url,
+            "image_checked_at": datetime.now(timezone.utc),
+        }
+        if best is None or score > best[0]:
+            best = (score, result)
     return best[1] if best else {}
 
 def _search_loc_open_access_image(title: str, lang: str = "en", category: str = "world") -> dict[str, str]:
@@ -1815,7 +1813,7 @@ def _cache_reusable_image(result: dict[str, Any]) -> dict[str, Any]:
                 "User-Agent": "WorldPulseNews/2.1 (+licensed image caching)",
             },
         )
-        with urlopen(request_obj, timeout=IMAGE_SEARCH_TIMEOUT_SECONDS) as response:
+        with urlopen(request_obj, timeout=IMAGE_DOWNLOAD_TIMEOUT_SECONDS) as response:
             image_bytes = response.read(6 * 1024 * 1024 + 1)
     except Exception as exc:
         logger.debug("Licensed image download failed (source=%s error=%s)", source, type(exc).__name__)
