@@ -99,6 +99,7 @@ GEMINI_429_COOLDOWN_MINUTES = max(5, min(1440, int(os.getenv("GEMINI_429_COOLDOW
 GEMINI_TRANSIENT_ERROR_COOLDOWN_MINUTES = max(1, min(60, int(os.getenv("GEMINI_TRANSIENT_ERROR_COOLDOWN_MINUTES", "10"))))
 GEMINI_IMAGE_TIMEOUT_SECONDS = max(15, min(120, int(os.getenv("GEMINI_IMAGE_TIMEOUT_SECONDS", "75"))))
 GEMINI_TIMEOUT_SECONDS = max(8, min(45, int(os.getenv("GEMINI_TIMEOUT_SECONDS", "20"))))
+MAX_GEMINI_API_CALLS_PER_REFRESH = max(1, min(4, int(os.getenv("MAX_GEMINI_API_CALLS_PER_REFRESH", "2"))))
 CONTACT_EMAIL = os.getenv("CONTACT_EMAIL", "syfsywf86@gmail.com").strip() or "syfsywf86@gmail.com"
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 NEWS_REFRESH_WEBHOOK_TOKEN = os.getenv("NEWS_REFRESH_WEBHOOK_TOKEN", "").strip()
@@ -3256,8 +3257,15 @@ def _translate_batch(raw_articles: list[dict[str, Any]]) -> dict[int, dict[str, 
     result: dict[int, dict[str, str]] = {}
     batch_size = 4
     client = None
+    api_calls_used = 0
 
     for batch_start in range(0, len(raw_articles), batch_size):
+        if api_calls_used >= MAX_GEMINI_API_CALLS_PER_REFRESH:
+            logger.info(
+                "Gemini request budget reached: api_calls=%d max=%d translated=%d; remaining source-language stories will still be published",
+                api_calls_used, MAX_GEMINI_API_CALLS_PER_REFRESH, len(result),
+            )
+            break
         batch_end = min(len(raw_articles), batch_start + batch_size)
         payload = [
             {
@@ -3281,6 +3289,7 @@ def _translate_batch(raw_articles: list[dict[str, Any]]) -> dict[int, dict[str, 
                 temperature=0.25,
                 max_output_tokens=6144,
             )
+            api_calls_used += 1
             try:
                 response = client.models.generate_content(
                     model=active_model,
@@ -3296,6 +3305,12 @@ def _translate_batch(raw_articles: list[dict[str, Any]]) -> dict[int, dict[str, 
                     or GEMINI_FALLBACK_MODEL == GEMINI_MODEL
                 ):
                     raise
+                if api_calls_used >= MAX_GEMINI_API_CALLS_PER_REFRESH:
+                    logger.warning(
+                        "Gemini fallback skipped: per-refresh API-call budget reached after primary failure"
+                    )
+                    raise primary_exc
+                api_calls_used += 1
                 active_model = GEMINI_FALLBACK_MODEL
                 logger.warning(
                     "Gemini primary model unavailable (model=%s); trying configured fallback model=%s once",
@@ -3381,6 +3396,10 @@ def _translate_batch(raw_articles: list[dict[str, Any]]) -> dict[int, dict[str, 
                     cooldown_minutes, reason,
                 )
                 break
+    logger.info(
+        "Gemini editorial pass complete: api_calls=%d max_calls=%d translated_stories=%d queued_stories=%d",
+        api_calls_used, MAX_GEMINI_API_CALLS_PER_REFRESH, len(result), len(raw_articles),
+    )
     return result
 
 def _reading_minutes(article: dict[str, Any]) -> int:
@@ -3620,7 +3639,9 @@ def _refresh_news_job() -> None:
                 editorial_retry_candidates.append(_raw_from_stored_article(stored))
                 retry_keys.add(key)
 
-        raw_articles = fresh_candidates + editorial_retry_candidates
+        # Retry existing untranslated stories before newer headlines so they do not starve
+        # behind each refresh’s fresh ingestion batch when Gemini quota is tight.
+        raw_articles = editorial_retry_candidates + fresh_candidates
         unseen_count = sum(1 for raw in rss_candidates if _canonical_story_url(raw.get("source_url")) not in existing_url_keys)
         logger.info(
             "News refresh discovery: rss_candidates=%d unseen_candidates=%d selected_new=%d editorial_retries=%d database_available=%s",
