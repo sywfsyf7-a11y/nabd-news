@@ -84,6 +84,8 @@ TIMEZONE = ZoneInfo(os.getenv("SITE_TIMEZONE", "Asia/Amman"))
 NEWS_REFRESH_MINUTES = max(15, int(os.getenv("NEWS_REFRESH_MINUTES", "30")))
 NEWS_RETRY_MINUTES = max(5, int(os.getenv("NEWS_RETRY_MINUTES", "10")))
 NEWS_AUTO_FETCH = os.getenv("NEWS_AUTO_FETCH", "true").lower() not in {"0", "false", "no"}
+NEWS_SCHEDULER_ENABLED = os.getenv("NEWS_SCHEDULER_ENABLED", "true").lower() not in {"0", "false", "no"}
+NEWS_SCHEDULER_POLL_SECONDS = max(15, min(120, int(os.getenv("NEWS_SCHEDULER_POLL_SECONDS", "30"))))
 RSS_TIMEOUT_SECONDS = max(2, int(os.getenv("RSS_TIMEOUT_SECONDS", "6")))
 RSS_BATCH_TIMEOUT_SECONDS = max(8, min(60, int(os.getenv("RSS_BATCH_TIMEOUT_SECONDS", "20"))))
 IMAGE_ENRICHMENT_BATCH_TIMEOUT_SECONDS = max(5, min(120, int(os.getenv("IMAGE_ENRICHMENT_BATCH_TIMEOUT_SECONDS", "65"))))
@@ -487,6 +489,10 @@ _DB_ARTICLES_CACHE_LOCK = threading.Lock()
 _DISPLAY_STORIES_CACHE_TTL_SECONDS = max(2, min(30, int(os.getenv("DISPLAY_STORIES_CACHE_TTL_SECONDS", "15"))))
 _DISPLAY_STORIES_CACHE: dict[str, tuple[float, list[dict[str, Any]]]] = {}
 _DISPLAY_STORIES_CACHE_LOCK = threading.Lock()
+_SCHEDULER_START_LOCK = threading.Lock()
+_SCHEDULER_THREAD: threading.Thread | None = None
+_SCHEDULER_LOCK_FILE_HANDLE = None
+_SCHEDULER_LAST_LOCK_ATTEMPT = 0.0
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS world_pulse_articles (
@@ -2678,12 +2684,16 @@ def _fallback_summary_from_excerpt(title: Any, excerpt: Any, lang: str) -> str:
         sentences = [part.strip() for part in re.split(r"(?<=[.!?؟])\s+", value) if part.strip()]
         for sentence in sentences:
             if len(_editorial_text_key(sentence)) >= 18 and not _summary_repeats_title(title, sentence):
-                return sentence[:280].rsplit(" ", 1)[0].rstrip(" ,،:;؛—-") + ("…" if len(sentence) > 280 else "")
-        return value[:280].rsplit(" ", 1)[0].rstrip(" ,،:;؛—-") + ("…" if len(value) > 280 else "")
+                if len(sentence) > 280:
+                    return sentence[:280].rsplit(" ", 1)[0].rstrip(" ,،:;؛—-") + "…"
+                return sentence
+        if len(value) > 280:
+            return value[:280].rsplit(" ", 1)[0].rstrip(" ,،:;؛—-") + "…"
+        return value
     return (
         "لم يتضمن مقتطف الناشر معلومات كافية لصياغة ملخص مستقل دون تخمين. افتح المصدر الأصلي للتفاصيل."
         if lang == "ar"
-        else "The publisher excerpt does not contain enough information for a distinct summary without guessing. Open the original source for details."
+        else "The source did not include an excerpt with enough information for a distinct summary without guessing. Open the original publisher for details."
     )
 
 
@@ -2718,8 +2728,9 @@ def _base_article(raw: dict[str, Any]) -> dict[str, Any]:
         "title_en": title if original_lang == "en" else "",
         "summary_ar": summary if original_lang == "ar" else "",
         "summary_en": summary if original_lang == "en" else "",
-        "content_ar": usable_excerpt if original_lang == "ar" else "",
-        "content_en": usable_excerpt if original_lang == "en" else "",
+        # RSS excerpts are used for the brief, not presented as a full article body.
+        "content_ar": "",
+        "content_en": "",
         "published_at": raw.get("published_at"),
         "read_minutes": 1,
         "original_language": original_lang,
@@ -3307,8 +3318,14 @@ def _refresh_news_job() -> None:
             _LAST_REFRESH_ERROR = ""
 
         schema_available = _ensure_schema()
+        if not schema_available:
+            _LAST_REFRESH_AT = datetime.now(timezone.utc)
+            _LAST_REFRESH_STATE = "error"
+            _LAST_REFRESH_ERROR = "Database unavailable; stories were not published. The scheduler will retry."
+            logger.error("News refresh aborted before RSS ingestion: database/schema unavailable")
+            return
         rss_candidates = _collect_rss_articles()
-        database_rows = _db_fetch_all() if schema_available else []
+        database_rows = _db_fetch_all()
         repaired_excerpts = _repair_existing_articles_from_rss(
             rss_candidates, database_rows, limit=min(12, MAX_ARTICLES_PER_REFRESH)
         ) if schema_available and database_rows else 0
@@ -3414,12 +3431,18 @@ def _refresh_news_job() -> None:
             ready.append(article_data)
 
         saved = _db_upsert_many(ready)
-        for article_data in ready:
-            _MEMORY_ARTICLES[article_data["source_url"]] = article_data
         logger.info(
             "News headlines saved before image lookup: candidates=%d database_saved=%s source_language_fallbacks=%d",
             len(ready), saved, source_language_fallbacks,
         )
+        if not saved:
+            _LAST_REFRESH_AT = datetime.now(timezone.utc)
+            _LAST_REFRESH_STATE = "error"
+            _LAST_REFRESH_ERROR = "Supabase/PostgreSQL write failed; stories were not published. The scheduler will retry."
+            logger.error("News refresh stopped after database write failed; no memory-only publication")
+            return
+        for article_data in ready:
+            _MEMORY_ARTICLES[article_data["source_url"]] = article_data
 
         image_candidates = [raw for _index, raw in raw_to_publish]
         image_updates = 0
@@ -3497,6 +3520,53 @@ def _maybe_start_refresh() -> None:
         _REFRESHING = True
     thread = threading.Thread(target=_refresh_news_job, name="world-pulse-rss-refresh", daemon=True)
     thread.start()
+
+
+def _background_news_scheduler_loop() -> None:
+    """Check refresh cadence rather than relying on frequent page visits."""
+    logger.info("Background scheduler started: refresh_minutes=%d poll_seconds=%d", NEWS_REFRESH_MINUTES, NEWS_SCHEDULER_POLL_SECONDS)
+    while True:
+        try:
+            _maybe_start_refresh()
+        except Exception as exc:
+            logger.warning("Background scheduler check failed (%s)", type(exc).__name__)
+        time.sleep(NEWS_SCHEDULER_POLL_SECONDS)
+
+
+def _ensure_background_scheduler() -> bool:
+    """Elect one scheduler leader among local Gunicorn workers using an OS lock."""
+    global _SCHEDULER_THREAD, _SCHEDULER_LOCK_FILE_HANDLE, _SCHEDULER_LAST_LOCK_ATTEMPT
+    if not NEWS_AUTO_FETCH or not NEWS_SCHEDULER_ENABLED:
+        return False
+    if _SCHEDULER_THREAD is not None and _SCHEDULER_THREAD.is_alive():
+        return True
+    with _SCHEDULER_START_LOCK:
+        if _SCHEDULER_THREAD is not None and _SCHEDULER_THREAD.is_alive():
+            return True
+        now = time.monotonic()
+        if now - _SCHEDULER_LAST_LOCK_ATTEMPT < NEWS_SCHEDULER_POLL_SECONDS:
+            return False
+        _SCHEDULER_LAST_LOCK_ATTEMPT = now
+        lock_path = os.getenv("NEWS_SCHEDULER_LOCK_FILE", "/tmp/world-pulse-scheduler.lock")
+        try:
+            lock_handle = open(lock_path, "a+", encoding="utf-8")
+        except OSError as exc:
+            logger.warning("Scheduler lock could not be opened (%s)", type(exc).__name__)
+            return False
+        try:
+            fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            lock_handle.close()
+            logger.debug("Background scheduler leader already exists on this instance")
+            return False
+        except OSError as exc:
+            lock_handle.close()
+            logger.warning("Scheduler lock failed (%s)", type(exc).__name__)
+            return False
+        _SCHEDULER_LOCK_FILE_HANDLE = lock_handle
+        _SCHEDULER_THREAD = threading.Thread(target=_background_news_scheduler_loop, name="world-pulse-scheduler", daemon=True)
+        _SCHEDULER_THREAD.start()
+        return True
 
 def _normalise_summary_body(summary: str, content: str) -> str:
     summary = str(summary or "").strip()
@@ -3654,7 +3724,11 @@ def _normalise_story(row: dict[str, Any], lang: str) -> dict[str, Any]:
         story.setdefault(key, "")
     if story.get("original_language") not in {"ar", "en"}:
         story["original_language"] = "ar" if _looks_arabic(story.get("title_ar", "")) else "en"
-    if story.get("image_url") and story.get("image_source") not in TRUSTED_REUSABLE_IMAGE_SOURCES:
+    if story.get("image_url") and (
+        story.get("image_source") not in TRUSTED_REUSABLE_IMAGE_SOURCES
+        or not _image_license_verified(story)
+    ):
+        # Provider membership alone is not proof of permission; require item-level licence data.
         story.update({"image_url": "", "image_source": "none", "image_credit": "",
                       "image_credit_url": "", "image_provider_url": "", "image_license_url": ""})
     if not story.get("slug"):
@@ -3674,8 +3748,8 @@ def _normalise_story(row: dict[str, Any], lang: str) -> dict[str, Any]:
         )
         story["content"] = ""
     if not story.get("image_url"):
-        # Deliberately use a labelled fallback asset rather than a fabricated news photo.
-        story["image_url"] = "/static/images/fallback-ar.svg" if lang == "ar" else "/static/images/fallback-en.svg"
+        # Brand-owned A/E images are the final fallback when no reusable photo passes review.
+        story["image_url"] = "/static/A.jpg" if lang == "ar" else "/static/E.jpg"
         story["image_source"] = "fallback_ar" if lang == "ar" else "fallback_en"
     story["image_license_name"] = _image_license_label(str(story.get("image_license_url") or ""), str(story.get("image_source") or ""))
     story["image_provider_name"] = _image_provider_label(str(story.get("image_source") or ""))
@@ -3781,6 +3855,7 @@ def _format_date(value: Any, lang: str) -> str:
 
 @app.before_request
 def remember_language() -> None:
+    _ensure_background_scheduler()
     requested = request.args.get("lang", "").lower()
     if requested in ("ar", "en"):
         session["lang"] = requested
@@ -3817,7 +3892,6 @@ HOME_STORIES_PER_PAGE = max(12, min(36, int(os.getenv("HOME_STORIES_PER_PAGE", "
 
 @app.get("/")
 def index():
-    _maybe_start_refresh()
     lang = current_language()
     category = request.args.get("category", "all").lower()
     if category not in CATEGORY_NAMES and category != "all":
@@ -3904,10 +3978,7 @@ def article(slug: str):
 
 @app.get("/api/news-status")
 def news_status():
-    # The browser polls this endpoint while a page stays open. Check whether a
-    # scheduled refresh is due here too; status polling alone previously never
-    # started a new cycle until another homepage request arrived.
-    _maybe_start_refresh()
+    # The scheduler runs independently; this endpoint only reports current status.
     persisted_at = _db_last_fetched_at()
     db_status = _probe_database()
     timestamps = [value for value in (persisted_at, _LAST_REFRESH_AT) if isinstance(value, datetime)]
@@ -4577,5 +4648,5 @@ if __name__ == "__main__":
             _REFRESHING = True
             _LAST_REFRESH_ATTEMPT = time.monotonic()
         _refresh_news_job()
-        raise SystemExit(0 if _LAST_REFRESH_STATE in {"success", "memory_only"} else 1)
+        raise SystemExit(0 if _LAST_REFRESH_STATE == "success" else 1)
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", "5000")), debug=False)
