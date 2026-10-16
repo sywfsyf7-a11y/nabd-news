@@ -10,6 +10,36 @@ import app as world_pulse
 
 
 class SiteExperienceTests(unittest.TestCase):
+    def test_missing_photo_uses_language_specific_brand_fallback(self):
+        published = datetime(2026, 10, 15, tzinfo=timezone.utc)
+        common = {
+            "slug": "fallback-story",
+            "source_url": "https://example.com/fallback-story",
+            "category": "world",
+            "source_name": "Example publisher",
+            "source_domain": "example.com",
+            "title_en": "An example international story",
+            "title_ar": "خبر دولي تجريبي",
+            "summary_en": "A distinct English summary from the available source excerpt.",
+            "summary_ar": "ملخص عربي مستقل من المقتطف المتاح للمصدر.",
+            "content_en": "",
+            "content_ar": "",
+            "image_url": "",
+            "image_source": "none",
+            "published_at": published,
+        }
+
+        english = world_pulse._normalise_story(dict(common, original_language="en"), "en")
+        arabic = world_pulse._normalise_story(dict(common, original_language="ar"), "ar")
+
+        self.assertEqual(english["image_url"], "/static/E.jpg")
+        self.assertEqual(english["image_fallback_url"], "/static/E.jpg")
+        self.assertEqual(english["image_source"], "fallback_en")
+        self.assertEqual(arabic["image_url"], "/static/A.jpg")
+        self.assertEqual(arabic["image_fallback_url"], "/static/A.jpg")
+        self.assertEqual(arabic["image_source"], "fallback_ar")
+
+
     def test_long_headline_is_shortened_and_duplicate_summary_is_repaired(self):
         headline = (
             "Government announces a major new energy support plan for households as "
