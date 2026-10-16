@@ -30,20 +30,53 @@ class SiteExperienceTests(unittest.TestCase):
                     {f"https://example.com/memory-{index}" for index in (4, 5, 6)},
                 )
 
-    def test_background_status_poll_does_not_force_reload_current_article(self):
+    def test_homepage_hides_manual_refresh_and_status_ui_but_keeps_compiled_css(self):
         template_path = os.path.join(os.path.dirname(world_pulse.__file__), "templates", "index.html")
         with open(template_path, encoding="utf-8") as handle:
             template = handle.read()
-        self.assertIn("if (!document.hidden) loadStatus();", template)
-        self.assertIn("}, 120000);", template)
+        self.assertNotIn('id="refreshNews"', template)
+        self.assertNotIn('id="newsStatusText"', template)
+        self.assertNotIn("/api/news-status", template)
+        self.assertNotIn("/api/refresh", template)
         self.assertIn("filename='css/site.css'", template)
         self.assertNotIn("cdn.tailwindcss.com", template)
-        self.assertNotIn(
-            "if (knownRefreshAt !== null && status.last_refresh_at && status.last_refresh_at !== knownRefreshAt)",
-            template,
-        )
+        self.assertIn("الأخبار تتجدد باستمرار", world_pulse.UI_TEXT["ar"]["live"])
+        self.assertIn("Continuously updated", world_pulse.UI_TEXT["en"]["live"])
         tailwind_config_path = os.path.join(os.path.dirname(world_pulse.__file__), "tailwind.config.js")
         self.assertTrue(os.path.exists(tailwind_config_path))
+
+    def test_persistent_news_queue_serialises_metadata_without_losing_native_language(self):
+        item = {
+            "slug": "queue-story",
+            "source_url": "https://saudigamer.com/story",
+            "category": "gaming",
+            "source_name": "Saudi Gamer",
+            "source_domain": "saudigamer.com",
+            "original_title": "عنوان من سعودي جيمر",
+            "original_summary": "مقتطف قصير من المصدر",
+            "published_at": datetime(2026, 10, 16, tzinfo=timezone.utc),
+            "original_language": "ar",
+            "headline_only": False,
+            "image_url": "https://not-needed.example/photo.jpg",
+            "content_en": "This body is intentionally not part of the pending queue.",
+        }
+        stored = world_pulse._serialise_news_queue_item(item)
+        restored = world_pulse._deserialise_news_queue_item(stored)
+        self.assertEqual(restored["source_url"], item["source_url"])
+        self.assertEqual(restored["original_language"], "ar")
+        self.assertEqual(restored["category"], "gaming")
+        self.assertEqual(restored["published_at"], item["published_at"])
+        self.assertNotIn("image_url", stored)
+        self.assertNotIn("content_en", stored)
+
+    def test_persistent_news_discovery_interval_is_separate_from_publish_interval(self):
+        now = datetime(2026, 10, 16, 12, 30, tzinfo=timezone.utc)
+        state = {"discovered_at": (now - timedelta(minutes=29)).isoformat(), "items": []}
+        with patch.object(world_pulse, "NEWS_DISCOVERY_REFRESH_MINUTES", 30):
+            self.assertFalse(world_pulse._news_queue_discovery_due(state, now))
+            self.assertTrue(world_pulse._news_queue_discovery_due(
+                {"discovered_at": (now - timedelta(minutes=31)).isoformat(), "items": []}, now
+            ))
 
     def test_rss_excerpt_is_displayed_as_details_when_editorial_ai_is_unavailable(self):
         excerpt = (
