@@ -3924,6 +3924,8 @@ def _image_provider_label(source: str) -> str:
         "presskit_approved": "Approved press kit",
         "gemini_generated": "Gemini AI illustration",
         "editorial_generated": "World Pulse topic-specific editorial art",
+        "fallback_ar": "World Pulse Arabic brand fallback",
+        "fallback_en": "World Pulse English brand fallback",
     }.get(source or "", "")
 
 def _editorial_text_key(value: Any) -> str:
@@ -4022,15 +4024,12 @@ def _normalise_story(row: dict[str, Any], lang: str) -> dict[str, Any]:
             else "Headline and source link only. Open the publisher's original page for full details, context, and updates."
         )
         story["content"] = ""
-    story["image_fallback_url"] = "/media/editorial.svg?" + urlencode({
-        "title": story["title"] or story.get("source_name") or story.get("category") or "News",
-        "category": story.get("category", "world"),
-        "lang": lang,
-        "seed": story["slug"],
-    })
+    # Use the newsroom's language-specific brand asset only when no rights-cleared
+    # photograph is available. The placeholder is branding, never a documentary photo.
+    story["image_fallback_url"] = "/static/A.jpg" if lang == "ar" else "/static/E.jpg"
     if not story.get("image_url"):
         story["image_url"] = story["image_fallback_url"]
-        story["image_source"] = "editorial_generated"
+        story["image_source"] = "fallback_ar" if lang == "ar" else "fallback_en"
     story["image_license_name"] = _image_license_label(str(story.get("image_license_url") or ""), str(story.get("image_source") or ""))
     story["image_provider_name"] = _image_provider_label(str(story.get("image_source") or ""))
     story["ai_enriched"] = bool(
