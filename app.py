@@ -1452,37 +1452,34 @@ def _search_commons_image(title: str, lang: str, category: str = "world") -> dic
     title = _clean_text(title, 240)
     if not title:
         return {}
-    short_query = _image_search_phrase(title, 4)
-    queries = []
-    for query in (short_query, title):
-        query = _clean_text(query, 160)
-        if query and query.casefold() not in {existing.casefold() for existing in queries}:
-            queries.append(query)
-    best: tuple[float, dict[str, str]] | None = None
-    # Each query is isolated: a temporary first-query outage must not skip the alternate phrase.
-    for query_index, query in enumerate(queries[:2], start=1):
-        try:
-            params = {
-                "action": "query", "generator": "search", "gsrsearch": query,
-                "gsrnamespace": 6, "gsrlimit": 20, "prop": "imageinfo",
-                "iiprop": "url|extmetadata|mime", "iiurlwidth": 1400,
-                "format": "json", "formatversion": 2,
-            }
-            url = "https://commons.wikimedia.org/w/api.php?" + urlencode(params)
-            request_obj = Request(
-                url,
-                headers={"User-Agent": "WorldPulseNews/1.6 (rights-filtered editorial image discovery; Wikimedia Commons API)"},
-            )
-            with urlopen(request_obj, timeout=IMAGE_SEARCH_TIMEOUT_SECONDS) as response:
-                data = json.loads(response.read(1_800_000).decode("utf-8", errors="replace"))
-        except Exception as exc:
-            logger.debug("Wikimedia query failed (variant=%d error=%s)", query_index, type(exc).__name__)
-            continue
+    # The caller already retries context-rich, short-headline, and two-term queries.
+    # Do one Wikimedia API request per variant rather than doubling every query internally.
+    query = _clean_text(_image_search_phrase(title, 4) or title, 160)
+    if not query:
+        return {}
+    best: tuple[float, dict[str, Any]] | None = None
+    try:
+        params = {
+            "action": "query", "generator": "search", "gsrsearch": query,
+            "gsrnamespace": 6, "gsrlimit": 20, "prop": "imageinfo",
+            "iiprop": "url|extmetadata|mime", "iiurlwidth": 1400,
+            "format": "json", "formatversion": 2,
+        }
+        url = "https://commons.wikimedia.org/w/api.php?" + urlencode(params)
+        request_obj = Request(
+            url,
+            headers={"User-Agent": "WorldPulseNews/1.7 (rights-filtered editorial image discovery; Wikimedia Commons API)"},
+        )
+        with urlopen(request_obj, timeout=IMAGE_SEARCH_TIMEOUT_SECONDS) as response:
+            data = json.loads(response.read(1_800_000).decode("utf-8", errors="replace"))
+    except Exception as exc:
+        logger.debug("Wikimedia image lookup failed (%s)", type(exc).__name__)
+        return {}
 
-        pages = data.get("query", {}).get("pages", [])
-        if isinstance(pages, dict):
-            pages = list(pages.values())
-        for page in pages:
+    pages = data.get("query", {}).get("pages", [])
+    if isinstance(pages, dict):
+        pages = list(pages.values())
+    for page in pages:
             imageinfos = page.get("imageinfo") or []
             if not imageinfos:
                 continue
@@ -1531,8 +1528,8 @@ def _search_commons_image(title: str, lang: str, category: str = "world") -> dic
                 "image_license_url": license_url,
                 "image_checked_at": datetime.now(timezone.utc),
             }
-            if best is None or score > best[0]:
-                best = (score, result)
+        if best is None or score > best[0]:
+            best = (score, result)
     return best[1] if best else {}
 
 def _search_loc_open_access_image(title: str, lang: str = "en", category: str = "world") -> dict[str, str]:
