@@ -5262,31 +5262,39 @@ def _repair_legacy_source_links(limit: int = SOURCE_LINK_REPAIR_BATCH_SIZE) -> i
                 _release_db_connection(conn)
         return 0
 
-    repaired: list[tuple[int, str, str]] = []
-    for row in rows:
+    def inspect_row(row: dict[str, Any]) -> tuple[int, str, str] | None:
         source_url = str(row.get("source_url") or "").strip()
         category = str(row.get("category") or "world")
         lang = str(row.get("original_language") or "").casefold()
         if lang not in {"ar", "en"}:
-            continue
+            return None
         try:
             parsed = urlparse(source_url)
             host = (parsed.hostname or "").casefold().removeprefix("www.")
         except (TypeError, ValueError):
-            continue
+            return None
         stored_domain = str(row.get("source_domain") or "").casefold().removeprefix("www.")
-        expected = stored_domain or _infer_source_domain_from_name(category, lang, str(row.get("source_name") or ""))
+        expected = stored_domain or _infer_source_domain_from_name(
+            category, lang, str(row.get("source_name") or "")
+        )
         if _domain_matches(host, "news.google.com"):
             resolved = _resolve_google_news_article_url(source_url, expected, category, lang)
             if resolved:
                 final_host = (urlparse(resolved).hostname or "").casefold().removeprefix("www.")
                 matched = _source_domain_for_category(category, lang, final_host)
                 if matched:
-                    repaired.append((int(row["id"]), resolved, matched))
+                    return int(row["id"]), resolved, matched
         else:
             matched = _source_domain_for_category(category, lang, host)
             if matched and stored_domain != matched:
-                repaired.append((int(row["id"]), source_url, matched))
+                return int(row["id"]), source_url, matched
+        return None
+
+    repaired: list[tuple[int, str, str]] = []
+    with ThreadPoolExecutor(max_workers=min(4, len(rows))) as repair_pool:
+        for result in repair_pool.map(inspect_row, rows):
+            if result:
+                repaired.append(result)
 
     if not repaired:
         # Advance the scan even when this batch contains only clean records.
