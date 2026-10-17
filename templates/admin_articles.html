@@ -25,12 +25,31 @@
     .pagination{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-top:16px}.inline{display:inline}.section-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
     details>summary{font-weight:800;cursor:pointer;padding:8px 0}.foot{margin:24px 2px;color:#64748b;font-size:.82rem;line-height:1.8}
     @media(max-width:760px){body{padding:12px}.toolbar,.fields{grid-template-columns:1fr}.wide{grid-column:auto}.story{grid-template-columns:66px minmax(0,1fr)}.thumb{width:66px;height:58px}.row-actions{grid-column:1/-1;justify-content:start}.card{padding:14px}.pagination{align-items:stretch;flex-direction:column}}
+
+    html[data-admin-theme="dark"]{color-scheme:dark;background:#101722;color:#e5edf7}
+    html[data-admin-theme="dark"] body{background:#101722;color:#e5edf7}
+    html[data-admin-theme="dark"] .card{background:#182333;border-color:#2c3a4e;box-shadow:0 8px 28px #0003}
+    html[data-admin-theme="dark"] .muted{color:#a5b4c8}
+    html[data-admin-theme="dark"] a{color:#ff9ca6}
+    html[data-admin-theme="dark"] input,html[data-admin-theme="dark"] select,html[data-admin-theme="dark"] textarea{background:#111b29;color:#e5edf7;border-color:#3b4a60}
+    html[data-admin-theme="dark"] .secondary{background:#2b394d!important;color:#e5edf7!important}
+    html[data-admin-theme="dark"] .dark{background:#d73545!important;color:#fff!important}
+    html[data-admin-theme="dark"] .danger{background:#48232a!important;color:#ffc4ca!important}
+    html[data-admin-theme="dark"] .notice{background:#153a2a;color:#b6f0cb;border-color:#276344}
+    html[data-admin-theme="dark"] .warning{background:#422f19;color:#ffdda6;border-color:#75501f}
+    html[data-admin-theme="dark"] .error{background:#48232a;color:#ffc4ca;border-color:#74313c}
+    html[data-admin-theme="dark"] table th,html[data-admin-theme="dark"] table td{border-color:#2c3a4e}
+    html[data-admin-theme="dark"] .story,html[data-admin-theme="dark"] .item{border-color:#2c3a4e}
+    html[data-admin-theme="dark"] .tag{background:#2b394d;color:#dbe7f5}
+    .theme-toggle{display:inline-flex;align-items:center;gap:7px;border:1px solid #cbd5e1;border-radius:10px;padding:9px 12px;background:#fff;color:#243047;font:inherit;font-weight:750;cursor:pointer}
+    html[data-admin-theme="dark"] .theme-toggle{background:#243247;color:#f1f5f9;border-color:#45566f}
   </style>
 </head>
 <body><main>
   <header class="top">
     <div><h1>إدارة الأخبار والأرشيف</h1><p class="muted">التعديل والإضافة والإخفاء والاستعادة وإعادة البحث عن صورة الخبر؛ الحذف هنا قابل للعكس ولا يمسح السجل الدائم.</p></div>
     <div class="nav">
+      <button class="theme-toggle" id="admin-theme-toggle" type="button" aria-pressed="false">🌙 الوضع الداكن</button>
       <a class="button dark" href="{{ url_for('admin_monitor') }}">لوحة المراقبة</a>
       <a class="button secondary" href="{{ url_for('admin_sources') }}">المصادر والصور</a>
       <a class="button secondary" href="{{ url_for('admin_audit') }}">تدقيق الأرشيف</a>
@@ -141,4 +160,30 @@
     </details>
   </section>
   <p class="foot">الحذف النهائي غير متاح من هذه الواجهة عمدًا؛ استخدم «إخفاء الخبر» لإزالته من العرض العام مع بقاء السجل في الأرشيف وإمكانية استعادته. كل تغيير يتطلب تسجيل دخول ورمز CSRF صالحًا.</p>
+
+<script>
+(() => {
+  const key = "world-pulse-admin-theme";
+  const root = document.documentElement;
+  const button = document.getElementById("admin-theme-toggle");
+  const apply = (theme) => {
+    const dark = theme === "dark";
+    root.dataset.adminTheme = dark ? "dark" : "light";
+    root.style.colorScheme = dark ? "dark" : "light";
+    if (button) {
+      button.textContent = dark ? "☀️ الوضع الفاتح" : "🌙 الوضع الداكن";
+      button.setAttribute("aria-pressed", String(dark));
+      button.setAttribute("aria-label", dark ? "تفعيل الوضع الفاتح" : "تفعيل الوضع الداكن");
+    }
+  };
+  let saved = "light";
+  try { saved = localStorage.getItem(key) === "dark" ? "dark" : "light"; } catch (_) {}
+  apply(saved);
+  if (button) button.addEventListener("click", () => {
+    const next = root.dataset.adminTheme === "dark" ? "light" : "dark";
+    apply(next);
+    try { localStorage.setItem(key, next); } catch (_) {}
+  });
+})();
+</script>
 </main></body></html>
