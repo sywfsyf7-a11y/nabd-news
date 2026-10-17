@@ -120,7 +120,8 @@ IMAGE_RETRY_AFTER_HOURS = max(1, min(168, int(os.getenv("IMAGE_RETRY_AFTER_HOURS
 IMAGE_CACHE_MAX_AGE_SECONDS = max(3600, int(os.getenv("IMAGE_CACHE_MAX_AGE_HOURS", "24")) * 3600)
 TRUSTED_REUSABLE_IMAGE_SOURCES = {
     "wikimedia_relevant", "openverse_licensed", "loc_open_access", "nasa_images",
-    "artic_open_access", "met_open_access", "presskit_approved"
+    "artic_open_access", "met_open_access", "cleveland_museum_open_access",
+    "wellcome_open_access", "presskit_approved"
 }
 
 
@@ -239,37 +240,48 @@ CATEGORY_QUERIES = {
 
 CATEGORY_SOURCE_DOMAINS = {
     "politics": {
-        "ar": ["aljazeera.net","bbc.com","alarabiya.net","skynewsarabia.com","aawsat.com","alquds.co.uk","alghad.com","almamlakatv.com","roya.tv","arabic.rt.com","cnn.com","france24.com","dw.com","euronews.com","aa.com.tr","alhurra.com","independentarabia.com","wam.ae","petra.gov.jo"],
-        "en": ["bbc.com","bbc.co.uk","aljazeera.com","cnn.com","reuters.com","apnews.com","politico.com","thehill.com","axios.com","voanews.com","rferl.org","dw.com","france24.com","euronews.com","abc.net.au","cbc.ca","npr.org","theconversation.com","almonitor.com","foreignpolicy.com","defensenews.com","opendemocracy.net","chinadaily.com.cn"],
+        "ar": ["aljazeera.net","bbc.com","alarabiya.net","skynewsarabia.com","aawsat.com","alquds.co.uk","alghad.com","almamlakatv.com","roya.tv","arabic.rt.com","cnn.com","france24.com","dw.com","euronews.com","aa.com.tr","alhurra.com","independentarabia.com","wam.ae","petra.gov.jo","spa.gov.sa","sabq.org","okaz.com.sa"],
+        "en": ["bbc.com","bbc.co.uk","aljazeera.com","cnn.com","reuters.com","apnews.com","politico.com","thehill.com","axios.com","voanews.com","rferl.org","dw.com","france24.com","euronews.com","abc.net.au","cbc.ca","npr.org","theconversation.com","almonitor.com","foreignpolicy.com","defensenews.com","opendemocracy.net","chinadaily.com.cn","thenationalnews.com","khaleejtimes.com","gulfnews.com","arabnews.com","saudigazette.com.sa","thearabweekly.com","globalvoices.org"],
     },
     "economy": {
-        "ar": ["asharqbusiness.com","cnbcarabia.com","mubasher.info","alarabiya.net","argaam.com","aleqt.com","zawya.com","almalnews.com","amwalalghad.com","almamlakatv.com","alghad.com","albayan.ae","alittihad.ae","wam.ae","petra.gov.jo"],
-        "en": ["bloomberg.com","ft.com","wsj.com","cnbc.com","marketwatch.com","fortune.com","businessinsider.com","investopedia.com","finance.yahoo.com","economist.com","economictimes.indiatimes.com","forbes.com","theinformation.com","techcrunch.com","axios.com","cnn.com","dw.com","reuters.com","apnews.com"],
+        "ar": ["asharqbusiness.com","cnbcarabia.com","mubasher.info","alarabiya.net","argaam.com","aleqt.com","zawya.com","almalnews.com","amwalalghad.com","almamlakatv.com","alghad.com","albayan.ae","alittihad.ae","wam.ae","petra.gov.jo","spa.gov.sa","sabq.org","okaz.com.sa"],
+        "en": ["bloomberg.com","ft.com","wsj.com","cnbc.com","marketwatch.com","fortune.com","businessinsider.com","investopedia.com","finance.yahoo.com","economist.com","economictimes.indiatimes.com","forbes.com","theinformation.com","techcrunch.com","axios.com","cnn.com","dw.com","reuters.com","apnews.com","thenationalnews.com","khaleejtimes.com","gulfnews.com","arabnews.com","arabianbusiness.com","saudigazette.com.sa"],
     },
     "technology": {
-        "ar": ["aitnews.com","tech-wd.com","arabhardware.net","alarabiya.net","almamlakatv.com","france24.com","dw.com","cnn.com","aljazeera.net","arabic.rt.com"],
-        "en": ["theverge.com","techcrunch.com","wired.com","arstechnica.com","engadget.com","zdnet.com","cnet.com","techradar.com","androidauthority.com","tomshardware.com","venturebeat.com","9to5mac.com","thenextweb.com","digitaltrends.com","gizmodo.com","technologyreview.com","theregister.com","bloomberg.com","cnn.com","apnews.com"],
+        "ar": ["aitnews.com","tech-wd.com","arabhardware.net","alarabiya.net","almamlakatv.com","france24.com","dw.com","cnn.com","aljazeera.net","arabic.rt.com","spa.gov.sa"],
+        "en": ["theverge.com","techcrunch.com","wired.com","arstechnica.com","engadget.com","zdnet.com","cnet.com","techradar.com","androidauthority.com","tomshardware.com","venturebeat.com","9to5mac.com","thenextweb.com","digitaltrends.com","gizmodo.com","technologyreview.com","theregister.com","bloomberg.com","cnn.com","apnews.com","9to5google.com","androidcentral.com","macrumors.com","windowscentral.com","techspot.com","notebookcheck.net"],
     },
     "gaming": {
-        "ar": ["saudigamer.com","arabhardware.net","arabgamenews.com","vga4a.com","agdn-online.com","true-gaming.net","l3ab.co","gamers8.gg"],
-        "en": ["ign.com","gamespot.com","polygon.com","pcgamer.com","eurogamer.net","gamesradar.com","destructoid.com","rockpapershotgun.com","gematsu.com","videogameschronicle.com","kotaku.com","gamingbolt.com","nintendolife.com","pushsquare.com","purexbox.com","theverge.com"],
+        "ar": ["saudigamer.com","arabhardware.net","arabgamenews.com","vga4a.com","agdn-online.com","true-gaming.net","l3ab.co","gamers8.gg","ign.com"],
+        "en": ["ign.com","gamespot.com","polygon.com","pcgamer.com","eurogamer.net","gamesradar.com","destructoid.com","rockpapershotgun.com","gematsu.com","videogameschronicle.com","kotaku.com","gamingbolt.com","nintendolife.com","pushsquare.com","purexbox.com","theverge.com","thegamer.com","pcgamesn.com","gamingonlinux.com","tech4gamers.com","esportsinsider.com","gameinformer.com","mmorpg.com","windowscentral.com"],
     },
     "sports": {
-        "ar": ["filgoal.com","kooora.com","beinsports.com","yallakora.com","goal.com","arriyadiyah.com","alriyadh.com","sports360.com","365scores.com","fifa.com","olympics.com","almamlakatv.com","alghad.com","cnn.com"],
-        "en": ["bbc.com","espn.com","skysports.com","formula1.com","fifa.com","olympics.com","goal.com","sportingnews.com","bleacherreport.com","talksport.com","motorsport.com","nba.com","nfl.com","mlb.com","apnews.com","reuters.com"],
+        "ar": ["filgoal.com","kooora.com","beinsports.com","yallakora.com","goal.com","arriyadiyah.com","alriyadh.com","sports360.com","365scores.com","fifa.com","olympics.com","almamlakatv.com","alghad.com","cnn.com","spa.gov.sa","sabq.org"],
+        "en": ["bbc.com","espn.com","skysports.com","formula1.com","fifa.com","olympics.com","goal.com","sportingnews.com","bleacherreport.com","talksport.com","motorsport.com","nba.com","nfl.com","mlb.com","apnews.com","reuters.com","cbssports.com","foxsports.com","sports.yahoo.com","the-race.com"],
     },
     "science": {
-        "ar": ["ngalarabiya.com","aljazeera.net","alarabiya.net","dw.com","france24.com","euronews.com","cnn.com","aa.com.tr","alhurra.com","petra.gov.jo","wam.ae","almamlakatv.com","arabic.rt.com"],
-        "en": ["nasa.gov","space.com","scientificamerican.com","livescience.com","phys.org","sciencenews.org","eurekalert.org","noaa.gov","usgs.gov","nsf.gov","energy.gov","nih.gov","esa.int","nature.com","newscientist.com","sciencedaily.com","science.org","eos.org","cnn.com","apnews.com"],
+        "ar": ["ngalarabiya.com","aljazeera.net","alarabiya.net","dw.com","france24.com","euronews.com","cnn.com","aa.com.tr","alhurra.com","petra.gov.jo","wam.ae","almamlakatv.com","arabic.rt.com","spa.gov.sa"],
+        "en": ["nasa.gov","space.com","scientificamerican.com","livescience.com","phys.org","sciencenews.org","eurekalert.org","noaa.gov","usgs.gov","nsf.gov","energy.gov","nih.gov","esa.int","nature.com","newscientist.com","sciencedaily.com","science.org","eos.org","cnn.com","apnews.com","nationalgeographic.com","sciencealert.com","theconversation.com"],
     },
     "culture": {
-        "ar": ["alqafilah.com","thifaf.com","aljazeera.net","alaraby.co.uk","alarab.co.uk","alarabiya.net","albayan.ae","alittihad.ae","masrawy.com","almasryalyoum.com","youm7.com","cairo24.com","alkhaleej.ae","cnn.com","france24.com","dw.com"],
-        "en": ["lithub.com","artsy.net","theguardian.com","smithsonianmag.com","artnews.com","hyperallergic.com","pitchfork.com","variety.com","hollywoodreporter.com","npr.org","theconversation.com","bfi.org.uk","literaryreview.co.uk","cnn.com","apnews.com","euronews.com"],
+        "ar": ["alqafilah.com","thifaf.com","aljazeera.net","alaraby.co.uk","alarab.co.uk","alarabiya.net","albayan.ae","alittihad.ae","masrawy.com","almasryalyoum.com","youm7.com","cairo24.com","alkhaleej.ae","cnn.com","france24.com","dw.com","spa.gov.sa","okaz.com.sa"],
+        "en": ["lithub.com","artsy.net","theguardian.com","smithsonianmag.com","artnews.com","hyperallergic.com","pitchfork.com","variety.com","hollywoodreporter.com","npr.org","theconversation.com","bfi.org.uk","literaryreview.co.uk","cnn.com","apnews.com","euronews.com","moma.org","nationalgallery.org.uk"],
     },
     "world": {
-        "ar": ["aljazeera.net","bbc.com","dw.com","france24.com","euronews.com","alarabiya.net","skynewsarabia.com","alghad.com","almamlakatv.com","roya.tv","arabic.rt.com","alhurra.com","cnn.com","aa.com.tr","wam.ae","petra.gov.jo","independentarabia.com","alqabas.com","alain.com"],
-        "en": ["euronews.com","bbc.com","bbc.co.uk","aljazeera.com","cnn.com","apnews.com","reuters.com","voanews.com","rferl.org","axios.com","abc.net.au","cbc.ca","france24.com","dw.com","thehill.com","npr.org","theconversation.com","almonitor.com","chinadaily.com.cn","straitstimes.com","japantimes.co.jp","theafricareport.com","restofworld.org","foreignpolicy.com","opendemocracy.net","theguardian.com"],
+        "ar": ["aljazeera.net","bbc.com","dw.com","france24.com","euronews.com","alarabiya.net","skynewsarabia.com","alghad.com","almamlakatv.com","roya.tv","arabic.rt.com","alhurra.com","cnn.com","aa.com.tr","wam.ae","petra.gov.jo","independentarabia.com","alqabas.com","alain.com","spa.gov.sa","sabq.org","okaz.com.sa"],
+        "en": ["euronews.com","bbc.com","bbc.co.uk","aljazeera.com","cnn.com","apnews.com","reuters.com","voanews.com","rferl.org","axios.com","abc.net.au","cbc.ca","france24.com","dw.com","thehill.com","npr.org","theconversation.com","almonitor.com","chinadaily.com.cn","straitstimes.com","japantimes.co.jp","theafricareport.com","restofworld.org","foreignpolicy.com","opendemocracy.net","theguardian.com","thenationalnews.com","khaleejtimes.com","gulfnews.com","arabnews.com","saudigazette.com.sa","globalvoices.org"],
     },
+}
+
+# Ensure requested and regionally useful publishers are checked each discovery rather than
+# only when their rotating domain group happens to be selected. Rights gates still apply.
+PRIORITY_SOURCE_DOMAINS = {
+    ("gaming", "ar"): ("saudigamer.com", "true-gaming.net", "arabhardware.net"),
+    ("world", "ar"): ("aljazeera.net", "almamlakatv.com", "petra.gov.jo"),
+    ("politics", "ar"): ("aljazeera.net", "petra.gov.jo", "spa.gov.sa"),
+    ("world", "en"): ("aljazeera.com", "thenationalnews.com", "arabnews.com"),
+    ("technology", "en"): ("theverge.com", "arstechnica.com", "9to5google.com"),
+    ("science", "en"): ("nasa.gov", "noaa.gov", "science.org"),
 }
 
 # Precompute publisher-to-category membership once. Building this mapping inside
@@ -354,8 +366,15 @@ LICENSE_REQUIRED_DOMAINS = {
     "espn.com", "sciencedaily.com", "theguardian.com", "aljazeera.net",
     "aljazeera.com",
 }
-# BBC and Al Jazeera use headline/link-only mode by default until broader rights are reviewed.
-HEADLINE_ONLY_DOMAINS = {"bbc.com", "bbc.co.uk", "aljazeera.net", "aljazeera.com"}
+# Restricted/licensed publishers can still contribute a headline and source link in the queue,
+# but their RSS descriptions are not passed to the AI editor unless the deployment records a
+# rights-reviewed CONTENT_LICENSE_APPROVED_DOMAINS override. This is operationally conservative,
+# not a guarantee that every publisher's terms permit headline reuse.
+HEADLINE_ONLY_DOMAINS = {
+    "bbc.com", "bbc.co.uk", "aljazeera.net", "aljazeera.com",
+    "reuters.com", "apnews.com", "techcrunch.com", "espn.com",
+    "sciencedaily.com", "theguardian.com", "theathletic.com",
+}
 CONTENT_LICENSE_APPROVED_DOMAINS = {
     part.strip().lower().removeprefix("www.")
     for part in os.getenv("CONTENT_LICENSE_APPROVED_DOMAINS", "").split(",")
@@ -812,6 +831,8 @@ def _known_control_cache_keys() -> set[str]:
         "image:nasa_images",
         "image:artic_open_access",
         "image:met_open_access",
+        "image:cleveland_museum_open_access",
+        "image:wellcome_open_access",
         "image:presskit_approved",
         "image:gemini_generated",
     })
@@ -963,6 +984,8 @@ def _known_source_controls() -> list[dict[str, Any]]:
         ("nasa_images", "NASA Image and Video Library", True),
         ("artic_open_access", "Art Institute of Chicago public-domain artwork (culture only)", True),
         ("met_open_access", "The Met public-domain collection (culture only)", True),
+        ("cleveland_museum_open_access", "Cleveland Museum of Art CC0 artworks (culture only)", True),
+        ("wellcome_open_access", "Wellcome Collection CC0 / CC BY images (culture and science)", True),
         ("presskit_approved", "صور صحفية معتمدة", _presskit_provider_configured()),
         ("gemini_generated", "توليد صور تحريرية باستخدام Gemini", bool(GEMINI_IMAGE_GENERATION_ENABLED and GEMINI_API_KEY) and genai is not None and types is not None),
     ]
@@ -1342,27 +1365,27 @@ def _db_upsert_many(articles: list[dict[str, Any]]) -> bool:
             source_name = EXCLUDED.source_name,
             source_domain = CASE WHEN EXCLUDED.source_domain <> '' THEN EXCLUDED.source_domain ELSE world_pulse_articles.source_domain END,
             image_url = CASE
-                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'openverse_licensed', 'loc_open_access', 'nasa_images', 'artic_open_access', 'met_open_access', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
+                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'openverse_licensed', 'loc_open_access', 'nasa_images', 'artic_open_access', 'met_open_access', 'cleveland_museum_open_access', 'wellcome_open_access', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
                     THEN world_pulse_articles.image_url
                 ELSE EXCLUDED.image_url END,
             image_source = CASE
-                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'openverse_licensed', 'loc_open_access', 'nasa_images', 'artic_open_access', 'met_open_access', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
+                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'openverse_licensed', 'loc_open_access', 'nasa_images', 'artic_open_access', 'met_open_access', 'cleveland_museum_open_access', 'wellcome_open_access', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
                     THEN world_pulse_articles.image_source
                 ELSE EXCLUDED.image_source END,
             image_credit = CASE
-                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'openverse_licensed', 'loc_open_access', 'nasa_images', 'artic_open_access', 'met_open_access', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
+                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'openverse_licensed', 'loc_open_access', 'nasa_images', 'artic_open_access', 'met_open_access', 'cleveland_museum_open_access', 'wellcome_open_access', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
                     THEN world_pulse_articles.image_credit
                 ELSE EXCLUDED.image_credit END,
             image_credit_url = CASE
-                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'openverse_licensed', 'loc_open_access', 'nasa_images', 'artic_open_access', 'met_open_access', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
+                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'openverse_licensed', 'loc_open_access', 'nasa_images', 'artic_open_access', 'met_open_access', 'cleveland_museum_open_access', 'wellcome_open_access', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
                     THEN world_pulse_articles.image_credit_url
                 ELSE EXCLUDED.image_credit_url END,
             image_provider_url = CASE
-                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'openverse_licensed', 'loc_open_access', 'nasa_images', 'artic_open_access', 'met_open_access', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
+                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'openverse_licensed', 'loc_open_access', 'nasa_images', 'artic_open_access', 'met_open_access', 'cleveland_museum_open_access', 'wellcome_open_access', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
                     THEN world_pulse_articles.image_provider_url
                 ELSE EXCLUDED.image_provider_url END,
             image_license_url = CASE
-                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'openverse_licensed', 'loc_open_access', 'nasa_images', 'artic_open_access', 'met_open_access', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
+                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'openverse_licensed', 'loc_open_access', 'nasa_images', 'artic_open_access', 'met_open_access', 'cleveland_museum_open_access', 'wellcome_open_access', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
                     THEN world_pulse_articles.image_license_url
                 ELSE EXCLUDED.image_license_url END,
             image_checked_at = COALESCE(EXCLUDED.image_checked_at, world_pulse_articles.image_checked_at),
@@ -1839,8 +1862,8 @@ def _search_loc_open_access_image(title: str, lang: str = "en", category: str = 
         logger.debug("Library of Congress image lookup failed (%s)", type(exc).__name__)
         return {}
 
-def _search_art_institute_image(title: str, lang: str = "en", category: str = "world") -> dict[str, Any]:
-    """Search Art Institute of Chicago records; only individually marked public-domain art passes."""
+def _search_art_institute_image(title: str, lang: str = "en", category: str = "world") -> dict[str, str]:
+    """Search AIC records; use only individual artworks explicitly marked public domain."""
     if category != "culture":
         return {}
     query = _image_search_phrase(_clean_text(title, 220), 5)
@@ -1899,8 +1922,8 @@ def _search_art_institute_image(title: str, lang: str = "en", category: str = "w
         return {}
 
 
-def _search_met_open_access_image(title: str, lang: str = "en", category: str = "world") -> dict[str, Any]:
-    """Search The Met; only public-domain objects with a primary image are eligible."""
+def _search_met_open_access_image(title: str, lang: str = "en", category: str = "world") -> dict[str, str]:
+    """Search The Met; use only public-domain objects with a documented primary image."""
     if category != "culture":
         return {}
     query = _image_search_phrase(_clean_text(title, 220), 5)
@@ -1981,6 +2004,165 @@ def _search_met_open_access_image(title: str, lang: str = "en", category: str = 
         return best[1] if best else {}
     except Exception as exc:
         logger.debug("Met public-domain image lookup failed (%s)", type(exc).__name__)
+        return {}
+
+
+def _search_cleveland_museum_image(title: str, lang: str = "en", category: str = "world") -> dict[str, Any]:
+    """Use Cleveland Museum artwork only when its individual record is explicitly CC0."""
+    if category != "culture":
+        return {}
+    query = _image_search_phrase(_clean_text(title, 220), 5)
+    if not query:
+        return {}
+    try:
+        params = urlencode({"q": query, "has_image": "1", "limit": "20"}) + "&cc0"
+        req = Request(
+            "https://openaccess-api.clevelandart.org/api/artworks/?" + params,
+            headers={"Accept": "application/json", "User-Agent": "WorldPulseNews/2.3 (Cleveland Museum public-domain image discovery)"},
+        )
+        with urlopen(req, timeout=IMAGE_SEARCH_TIMEOUT_SECONDS) as response:
+            data = json.loads(response.read(1_500_000).decode("utf-8", errors="replace"))
+        best: tuple[float, dict[str, Any]] | None = None
+        for item in (data.get("data") or [])[:20]:
+            if not isinstance(item, dict):
+                continue
+            if str(item.get("share_license_status") or "").casefold() != "cc0":
+                continue
+            item_title = _clean_text(item.get("title") or "", 240)
+            if not item_title or re.search(r"(?i)\b(logo|seal|insignia|coat of arms|brand mark)\b", item_title):
+                continue
+            images = item.get("images") or {}
+            web_image = images.get("web") or images.get("print") or images.get("full") or {}
+            image_url = _https_url(web_image.get("url") if isinstance(web_image, dict) else "", {"openaccess-cdn.clevelandart.org"})
+            if not image_url:
+                continue
+            creators = item.get("creators") or []
+            artist_names = []
+            if isinstance(creators, list):
+                for creator in creators[:3]:
+                    if isinstance(creator, dict):
+                        name = _clean_text(creator.get("description") or creator.get("name") or "", 120)
+                        if name:
+                            artist_names.append(name)
+            artist = ", ".join(dict.fromkeys(artist_names))
+            description = _clean_text(item.get("description") or "", 600)
+            evidence = " ".join((item_title, artist, description, _clean_text(item.get("culture") or "", 160), _clean_text(item.get("technique") or "", 160)))
+            score = max(_image_match_score(title, evidence), _image_match_score(query, evidence))
+            if score <= 0:
+                continue
+            item_id = _clean_text(item.get("id") or "", 80)
+            source_page = _https_url(item.get("url"), {"clevelandart.org"})
+            if not source_page:
+                source_page = "https://www.clevelandart.org/art/" + quote(item_id, safe="") if item_id else ""
+            if not source_page:
+                continue
+            result = {
+                "image_url": image_url,
+                "image_source": "cleveland_museum_open_access",
+                "image_credit": (artist + " · Cleveland Museum of Art") if artist else "Cleveland Museum of Art",
+                "image_credit_url": source_page,
+                "image_provider_url": source_page,
+                "image_license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+                "image_checked_at": datetime.now(timezone.utc),
+                "image_title": item_title,
+                "_image_relevance_score": score,
+            }
+            if best is None or score > best[0]:
+                best = (score, result)
+        return best[1] if best else {}
+    except Exception as exc:
+        logger.debug("Cleveland Museum open-access image lookup failed (%s)", type(exc).__name__)
+        return {}
+
+
+def _search_wellcome_open_access_image(title: str, lang: str = "en", category: str = "world") -> dict[str, Any]:
+    """Search Wellcome images and accept only item-level CC0 or CC BY licences."""
+    if category not in {"culture", "science"}:
+        return {}
+    query = _image_search_phrase(_clean_text(title, 220), 5)
+    if not query:
+        return {}
+    try:
+        params = urlencode({
+            "query": query,
+            "locations.license": "cc-by,cc0",
+            "pageSize": "20",
+            "include": "source.contributors,source.subjects",
+        })
+        req = Request(
+            "https://api.wellcomecollection.org/catalogue/v2/images?" + params,
+            headers={"Accept": "application/json", "User-Agent": "WorldPulseNews/2.3 (Wellcome open-licence image discovery)"},
+        )
+        with urlopen(req, timeout=IMAGE_SEARCH_TIMEOUT_SECONDS) as response:
+            data = json.loads(response.read(1_500_000).decode("utf-8", errors="replace"))
+        best: tuple[float, dict[str, Any]] | None = None
+        for item in (data.get("results") or [])[:20]:
+            if not isinstance(item, dict):
+                continue
+            locations = item.get("locations") or []
+            if isinstance(item.get("thumbnail"), dict):
+                locations = [item["thumbnail"], *locations]
+            for location in locations:
+                if not isinstance(location, dict):
+                    continue
+                license_info = location.get("license") or {}
+                license_code = str(license_info.get("id") or "").casefold().replace("_", "-")
+                license_url = _https_url(license_info.get("url"), {"creativecommons.org"})
+                license_path = urlparse(license_url).path.casefold().rstrip("/") if license_url else ""
+                if license_code == "cc0":
+                    if license_path != "/publicdomain/zero/1.0":
+                        continue
+                    license_label = "CC0 1.0"
+                elif license_code == "cc-by":
+                    version_match = re.fullmatch(r"/licenses/by/(2\.0|3\.0|4\.0)", license_path)
+                    if not version_match:
+                        continue
+                    license_label = "CC BY " + version_match.group(1)
+                else:
+                    continue
+                image_url = _https_url(location.get("url"), {"iiif.wellcomecollection.org"})
+                if not image_url:
+                    continue
+                source = item.get("source") or {}
+                item_title = _clean_text(source.get("title") or item.get("title") or "", 240)
+                source_id = _clean_text(source.get("id") or "", 100)
+                source_page = "https://wellcomecollection.org/works/" + quote(source_id, safe="") if source_id else ""
+                credit = _clean_text(location.get("credit") or "", 180)
+                contributors = source.get("contributors") or []
+                if not credit and isinstance(contributors, list):
+                    names = [
+                        _clean_text((part.get("agent") or {}).get("label") or "", 100)
+                        for part in contributors[:3] if isinstance(part, dict)
+                    ]
+                    credit = ", ".join(name for name in names if name)
+                if not item_title or not source_page:
+                    continue
+                subjects = source.get("subjects") or []
+                subject_text = " ".join(
+                    _clean_text(subject.get("label") or "", 100)
+                    for subject in subjects[:20] if isinstance(subject, dict)
+                ) if isinstance(subjects, list) else ""
+                evidence = " ".join((item_title, subject_text, credit, _clean_text(item.get("description") or "", 400)))
+                score = max(_image_match_score(title, evidence), _image_match_score(query, evidence))
+                if score <= 0:
+                    continue
+                result = {
+                    "image_url": image_url,
+                    "image_source": "wellcome_open_access",
+                    "image_credit": credit or "Wellcome Collection · see original item",
+                    "image_credit_url": source_page,
+                    "image_provider_url": source_page,
+                    "image_license_url": license_url,
+                    "image_checked_at": datetime.now(timezone.utc),
+                    "image_title": item_title,
+                    "image_license_label": license_label,
+                    "_image_relevance_score": score,
+                }
+                if best is None or score > best[0]:
+                    best = (score, result)
+        return best[1] if best else {}
+    except Exception as exc:
+        logger.debug("Wellcome open-access image lookup failed (%s)", type(exc).__name__)
         return {}
 
 
@@ -2172,6 +2354,12 @@ def _cache_reusable_image(result: dict[str, Any]) -> dict[str, Any]:
             return result
     elif source == "met_open_access":
         if not _domain_matches(source_parsed.hostname, "metmuseum.org"):
+            return result
+    elif source == "cleveland_museum_open_access":
+        if not _domain_matches(source_parsed.hostname, "openaccess-cdn.clevelandart.org"):
+            return result
+    elif source == "wellcome_open_access":
+        if not _domain_matches(source_parsed.hostname, "iiif.wellcomecollection.org"):
             return result
     elif source == "nasa_images":
         if not _domain_matches(source_parsed.hostname, "nasa.gov"):
@@ -2534,7 +2722,7 @@ def _search_image_provider_group(
     if not active:
         return {}
 
-    executor = ThreadPoolExecutor(max_workers=min(5, len(active)))
+    executor = ThreadPoolExecutor(max_workers=min(6, len(active)))
     futures = {executor.submit(finder): key for key, finder in active}
     results: dict[str, dict[str, str]] = {}
     try:
@@ -2589,6 +2777,8 @@ def _search_any_reusable_image(
         ("image:loc_open_access", lambda: _search_loc_open_access_image(title, lang, category)),
         ("image:artic_open_access", lambda: _search_art_institute_image(title, lang, category)),
         ("image:met_open_access", lambda: _search_met_open_access_image(title, lang, category)),
+        ("image:cleveland_museum_open_access", lambda: _search_cleveland_museum_image(title, lang, category)),
+        ("image:wellcome_open_access", lambda: _search_wellcome_open_access_image(title, lang, category)),
     )
     result = _search_image_provider_group("open_catalogues", open_catalogues)
     if result or open_only:
@@ -3131,12 +3321,26 @@ def _collect_rss_articles() -> list[dict[str, Any]]:
             ]
             if not groups:
                 continue
+            priority_group = tuple(
+                domain for domain in PRIORITY_SOURCE_DOMAINS.get((category, lang), ())
+                if domain in eligible_domains
+            )
+            if priority_group:
+                tasks.append((category, lang, priority_group))
             first_group = rotation_bucket % len(groups)
             selected_group_indexes = [first_group]
             if len(groups) > 1:
                 selected_group_indexes.append((first_group + 1) % len(groups))
             for group_index in selected_group_indexes:
                 tasks.append((category, lang, groups[group_index]))
+    # Priority and rotating groups may overlap; query an identical group only once.
+    unique_tasks: list[tuple[str, str, tuple[str, ...]]] = []
+    seen_tasks: set[tuple[str, str, tuple[str, ...]]] = set()
+    for task in tasks:
+        if task not in seen_tasks:
+            seen_tasks.add(task)
+            unique_tasks.append(task)
+    tasks = unique_tasks
 
     by_category: dict[str, list[dict[str, Any]]] = {key: [] for key in CATEGORY_NAMES}
     batch_started = time.monotonic()
@@ -4277,39 +4481,28 @@ def _save_persisted_news_queue(state: dict[str, Any]) -> bool:
         _release_db_connection(conn)
 
 
-def _append_news_queue_candidates(
-    queued_items: list[dict[str, Any]],
-    candidates: list[dict[str, Any]],
-    known_url_keys: set[str],
-    *,
-    max_pending: int = MAX_PENDING_NEWS_CANDIDATES,
-    max_additions: int = MAX_QUEUE_ADDITIONS_PER_DISCOVERY,
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Append fresh metadata in FIFO order without evicting older pending items."""
-    queued_keys = {
-        _canonical_story_url(item.get("source_url"))
-        for item in queued_items if item.get("source_url")
-    }
-    available_slots = max(0, max_pending - len(queued_items))
-    addition_limit = min(max(0, max_additions), available_slots)
-    additions: list[dict[str, Any]] = []
-    for candidate in candidates:
-        if len(additions) >= addition_limit:
-            break
-        key = _canonical_story_url(candidate.get("source_url"))
-        if not key or key in known_url_keys or key in queued_keys:
-            continue
-        queued_keys.add(key)
-        additions.append(candidate)
-    return list(queued_items) + additions, additions
-
-
 def _news_queue_discovery_due(state: dict[str, Any], now: datetime | None = None) -> bool:
     discovered_at = _queue_datetime(state.get("discovered_at"))
     if discovered_at is None:
         return True
     current = now or datetime.now(timezone.utc)
     return (current - discovered_at).total_seconds() >= NEWS_DISCOVERY_REFRESH_MINUTES * 60
+
+
+def _clean_pending_news_queue(
+    queue_items: list[dict[str, Any]],
+    known_keys: set[str],
+) -> list[dict[str, Any]]:
+    """Remove invalid/already-published duplicates without trimming pending queue items."""
+    cleaned: list[dict[str, Any]] = []
+    seen = set(known_keys)
+    for item in queue_items:
+        key = _canonical_story_url(item.get("source_url"))
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        cleaned.append(item)
+    return cleaned
 
 
 def _refresh_news_job() -> None:
@@ -4364,14 +4557,25 @@ def _refresh_news_job() -> None:
             known_urls = {str(row.get("source_url", "")) for row in database_rows if row.get("source_url")}
             known_urls.update(str(row.get("source_url", "")) for row in _MEMORY_ARTICLES.values() if row.get("source_url"))
             known_keys = {_canonical_story_url(url) for url in known_urls if url}
-            # Keep the queue FIFO; no pending item is removed to make room for newer headlines.
-            queue_items, additions = _append_news_queue_candidates(
-                queue_items,
-                rss_candidates,
-                known_keys,
-                max_pending=MAX_PENDING_NEWS_CANDIDATES,
-                max_additions=MAX_QUEUE_ADDITIONS_PER_DISCOVERY,
-            )
+            queued_keys = {
+                _canonical_story_url(item.get("source_url"))
+                for item in queue_items if item.get("source_url")
+            }
+            additions: list[dict[str, Any]] = []
+            available_slots = max(0, MAX_PENDING_NEWS_CANDIDATES - len(queue_items))
+            addition_limit = min(MAX_QUEUE_ADDITIONS_PER_DISCOVERY, available_slots)
+            for candidate in rss_candidates:
+                if len(additions) >= addition_limit:
+                    break
+                key = _canonical_story_url(candidate.get("source_url"))
+                if not key or key in known_keys or key in queued_keys:
+                    continue
+                queued_keys.add(key)
+                additions.append(candidate)
+
+            # Keep the queue FIFO. Never trim or reorder pending metadata: archived articles
+            # are never deleted, and a temporarily overloaded queue must not starve old items.
+            queue_items.extend(additions)
             queue_state["discovered_at"] = datetime.now(timezone.utc).isoformat()
             queue_state["items"] = queue_items
             if not _save_persisted_news_queue(queue_state):
@@ -4388,15 +4592,7 @@ def _refresh_news_job() -> None:
         known_urls = {str(row.get("source_url", "")) for row in database_rows if row.get("source_url")}
         known_urls.update(str(row.get("source_url", "")) for row in _MEMORY_ARTICLES.values() if row.get("source_url"))
         known_keys = {_canonical_story_url(url) for url in known_urls if url}
-        cleaned_queue: list[dict[str, Any]] = []
-        queued_seen: set[str] = set(known_keys)
-        for item in queue_items:
-            key = _canonical_story_url(item.get("source_url"))
-            if not key or key in queued_seen:
-                continue
-            queued_seen.add(key)
-            cleaned_queue.append(item)
-        cleaned_queue = cleaned_queue[:MAX_PENDING_NEWS_CANDIDATES]
+        cleaned_queue = _clean_pending_news_queue(queue_items, known_keys)
         if len(cleaned_queue) != len(queue_items):
             queue_items = cleaned_queue
             queue_state["items"] = queue_items
@@ -4712,6 +4908,10 @@ def _image_license_label(license_url: str, source: str = "") -> str:
         return "CC0 1.0 / individual artwork marked public domain"
     if source == "met_open_access":
         return "CC0 1.0 / individual object marked public domain"
+    if source == "cleveland_museum_open_access":
+        return "CC0 1.0 / individual artwork marked CC0"
+    if source == "wellcome_open_access":
+        return "Wellcome item licence (CC0 or CC BY)"
     if source == "presskit_approved":
         return "Approved press-kit licence"
     if source == "gemini_generated":
@@ -4726,6 +4926,8 @@ def _image_provider_label(source: str) -> str:
         "nasa_images": "NASA Image and Video Library",
         "artic_open_access": "Art Institute of Chicago (public-domain artwork)",
         "met_open_access": "The Met (public-domain artwork)",
+        "cleveland_museum_open_access": "Cleveland Museum of Art (CC0 artwork)",
+        "wellcome_open_access": "Wellcome Collection (CC0 / CC BY image)",
         "presskit_approved": "Approved press kit",
         "gemini_generated": "Gemini AI illustration",
         "editorial_generated": "World Pulse topic-specific editorial art",
@@ -4829,13 +5031,14 @@ def _normalise_story(row: dict[str, Any], lang: str) -> dict[str, Any]:
     source_headline_only = _is_headline_only_domain(str(story.get("source_domain") or ""))
     if not story["content"] and raw_content.strip() and not source_headline_only:
         story["content"] = _clean_text(raw_content, 1200)
-    story["title"] = _compact_display_title(raw_title, lang)
-    story["summary"] = _distinct_executive_summary(raw_title, raw_summary, story["content"], lang)
+    story["title"] = _compact_display_title(raw_title, display_lang)
+    story["summary"] = _distinct_executive_summary(raw_title, raw_summary, story["content"], display_lang)
     story["headline_only"] = _is_headline_only_domain(str(story.get("source_domain") or ""))
     if story["headline_only"]:
+        # Keep the publisher headline native, but localise the interface notice.
         story["summary"] = (
             "يعرض نبض العالم العنوان ورابط الناشر فقط لهذا المصدر. افتح المصدر الأصلي لقراءة التفاصيل والسياق وآخر التحديثات."
-            if display_lang == "ar"
+            if lang == "ar"
             else "Headline and source link only. Open the publisher's original page for full details, context, and updates."
         )
         story["content"] = ""
@@ -5038,16 +5241,8 @@ def search():
                 if (row.get(f"title_{lang}") or row.get(f"title_{str(row.get('original_language') or '').casefold()}"))
                 and _row_allowed_on_language_site(row, lang)
             ]
-            found_urls = {str(row.get("source_url", "")) for row in results}
-            terms = [term.casefold() for term in re.findall(r"[\w\u0600-\u06ff]+", query) if len(term) > 1]
-            for stored in _MEMORY_ARTICLES.values():
-                url = str(stored.get("source_url", ""))
-                if url in found_urls or not stored.get(f"title_{lang}") or not _row_allowed_on_language_site(stored, lang):
-                    continue
-                story = _normalise_story(stored, lang)
-                searchable = " ".join(str(story.get(key, "")) for key in ("title", "summary", "content", "source_name")).casefold()
-                if terms and all(term in searchable for term in terms):
-                    results.append(story)
+            # Search only the shared persistent archive. Process-local memory differs
+            # between Gunicorn workers and must not add phantom results to one visitor's search.
         else:
             all_stories = _get_display_stories(lang)
             terms = [term.casefold() for term in re.findall(r"[\w\u0600-\u06ff]+", query) if len(term) > 1]
@@ -5141,6 +5336,8 @@ def news_status():
             "loc_open_access": _control_enabled("image:loc_open_access", True),
             "artic_open_access": _control_enabled("image:artic_open_access", True),
             "met_open_access": _control_enabled("image:met_open_access", True),
+            "cleveland_museum_open_access": _control_enabled("image:cleveland_museum_open_access", True),
+            "wellcome_open_access": _control_enabled("image:wellcome_open_access", True),
             "presskit_manifest_configured": _presskit_provider_configured(),
             "stock_image_apis_enabled": False,
         },

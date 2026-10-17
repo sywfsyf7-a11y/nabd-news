@@ -92,10 +92,19 @@ class RSSPublisherGroupTests(unittest.TestCase):
         self.assertEqual(result, [])
         self.assertEqual({(category, lang) for category, lang, _ in calls}, expected_pairs)
         self.assertTrue(all(1 <= len(group) <= 4 for _, _, group in calls))
-        self.assertTrue(all(count == 2 for count in (
+        # Every category/language pair gets two rotating groups plus, when
+        # configured, one extra priority group for important regional sources.
+        counts = [
             sum(1 for c, l, _ in calls if (c, l) == pair)
             for pair in expected_pairs
-        )))
+        ]
+        self.assertTrue(all(2 <= count <= 3 for count in counts))
+        for category, lang, priority_domains in (
+            ("gaming", "ar", ("saudigamer.com", "true-gaming.net", "arabhardware.net")),
+            ("world", "ar", ("aljazeera.net", "almamlakatv.com", "petra.gov.jo")),
+        ):
+            pair_groups = [group for c, l, group in calls if (c, l) == (category, lang)]
+            self.assertIn(priority_domains, pair_groups)
 
 
 class RSSDeadlineSeparationTests(unittest.TestCase):

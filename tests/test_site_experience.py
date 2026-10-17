@@ -189,68 +189,6 @@ class SiteExperienceTests(unittest.TestCase):
             "category": "gaming", "original_language": "ar", "source_domain": "saudigamer.com"
         }, "en"))
 
-    def test_pending_news_queue_keeps_oldest_items_and_does_not_evict_when_full(self):
-        queued = [
-            {"source_url": f"https://example.test/old-{i}", "original_title": f"Old {i}"}
-            for i in range(3)
-        ]
-        candidates = [
-            {"source_url": "https://example.test/new-1", "original_title": "New 1"},
-            {"source_url": "https://example.test/new-2", "original_title": "New 2"},
-        ]
-        result, additions = world_pulse._append_news_queue_candidates(
-            queued, candidates, set(), max_pending=3, max_additions=2
-        )
-        self.assertEqual(result, queued)
-        self.assertEqual(additions, [])
-
-    def test_pending_news_queue_appends_new_items_in_fifo_order_within_capacity(self):
-        queued = [
-            {"source_url": "https://example.test/older", "original_title": "Older"},
-        ]
-        candidates = [
-            {"source_url": "https://example.test/older", "original_title": "Duplicate"},
-            {"source_url": "https://example.test/newer-1", "original_title": "Newer 1"},
-            {"source_url": "https://example.test/newer-2", "original_title": "Newer 2"},
-        ]
-        result, additions = world_pulse._append_news_queue_candidates(
-            queued, candidates, set(), max_pending=3, max_additions=6
-        )
-        self.assertEqual([item["source_url"] for item in additions], [
-            "https://example.test/newer-1", "https://example.test/newer-2"
-        ])
-        self.assertEqual([item["source_url"] for item in result], [
-            "https://example.test/older", "https://example.test/newer-1", "https://example.test/newer-2"
-        ])
-
-    def test_native_language_story_remains_visible_when_other_translation_is_unavailable(self):
-        story = world_pulse._normalise_story({
-            "slug": "native-language-fallback",
-            "source_url": "https://saudigamer.com/story",
-            "source_name": "Saudi Gamer",
-            "source_domain": "saudigamer.com",
-            "category": "gaming",
-            "original_language": "ar",
-            "title_ar": "عنوان الخبر من سعودي جيمر",
-            "title_en": "",
-            "summary_ar": "ملخص عربي قصير عن الخبر.",
-            "summary_en": "",
-            "content_ar": "تفاصيل المصدر المتاحة عن الخبر تبقى في لغتها الأصلية.",
-            "content_en": "",
-            "image_url": "",
-            "image_source": "none",
-            "image_credit": "",
-            "image_credit_url": "",
-            "image_provider_url": "",
-            "image_license_url": "",
-        }, "en")
-        self.assertEqual(story["title"], "عنوان الخبر من سعودي جيمر")
-        self.assertEqual(story["display_language"], "ar")
-        self.assertEqual(story["summary"], "ملخص عربي قصير عن الخبر.")
-        self.assertTrue(world_pulse._row_allowed_on_language_site({
-            "category": "gaming", "original_language": "ar", "source_domain": "saudigamer.com"
-        }, "en"))
-
     def test_headline_only_article_can_appear_in_english_feed_without_fabricated_translation(self):
         row = {
             "slug": "aljazeera-headline",
@@ -392,10 +330,10 @@ class SiteExperienceTests(unittest.TestCase):
         )
         row = {
             "slug": "story-summary-details",
-            "source_url": "https://www.reuters.com/example-story",
+            "source_url": "https://www.cnn.com/example-story",
             "category": "economy",
-            "source_name": "Reuters",
-            "source_domain": "reuters.com",
+            "source_name": "CNN",
+            "source_domain": "cnn.com",
             "original_language": "en",
             "title_en": headline,
             "title_ar": "",
@@ -1008,6 +946,41 @@ class SiteExperienceTests(unittest.TestCase):
         self.assertEqual(raw["image_url"], new_result["image_url"])
         self.assertEqual(raw["image_credit"], "New photographer")
         self.assertEqual(raw["image_source"], "openverse_licensed")
+
+
+
+class PersistentPendingQueueTests(unittest.TestCase):
+    def test_cleanup_deduplicates_without_dropping_oldest_or_newest_pending_items(self):
+        items = [
+            {
+                "source_url": f"https://example.com/pending/{index}",
+                "category": "world",
+                "original_language": "en",
+                "sequence": index,
+            }
+            for index in range(65)
+        ]
+        items.extend([
+            dict(items[10]),
+            {
+                "source_url": "https://example.com/already-published",
+                "category": "world",
+                "original_language": "en",
+            },
+        ])
+
+        cleaned = world_pulse._clean_pending_news_queue(
+            items,
+            {"example.com/already-published"},
+        )
+
+        self.assertEqual(len(cleaned), 65)
+        self.assertEqual(cleaned[0]["sequence"], 0)
+        self.assertEqual(cleaned[-1]["sequence"], 64)
+        self.assertEqual(
+            [item["sequence"] for item in cleaned],
+            list(range(65)),
+        )
 
 
 if __name__ == "__main__":
