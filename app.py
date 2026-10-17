@@ -68,6 +68,13 @@ logging.basicConfig(
 )
 logger = logging.getLogger("world_pulse")
 
+
+def _constant_time_text_equal(left: Any, right: Any) -> bool:
+    """Compare arbitrary user-provided text safely, including non-ASCII passwords."""
+    left_bytes = str(left or "").encode("utf-8")
+    right_bytes = str(right or "").encode("utf-8")
+    return secrets.compare_digest(left_bytes, right_bytes)
+
 @app.after_request
 def add_security_headers(response):
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
@@ -6651,7 +6658,14 @@ def _normalise_story(row: dict[str, Any], lang: str) -> dict[str, Any]:
     requested_title = str(story.get(f"title_{lang}") or "").strip()
     requested_summary = str(story.get(f"summary_{lang}") or "").strip()
     requested_body = str(story.get(f"content_{lang}") or "").strip()
-    source_headline_only = _is_headline_only_domain(str(story.get("source_domain") or ""))
+    source_domain = str(story.get("source_domain") or "")
+    source_headline_only = (
+        _is_headline_only_domain(source_domain)
+        or _publisher_requires_license(
+            str(story.get("source_name") or ""),
+            (str(story.get("source_url") or ""),),
+        )
+    )
     # Restricted headline-only publishers never enter the translation/editorial body path,
     # including legacy records that happen to contain previously generated translation text.
     translation_complete = bool(
@@ -6679,7 +6693,7 @@ def _normalise_story(row: dict[str, Any], lang: str) -> dict[str, Any]:
         story["content"] = _clean_text(raw_content, 1200)
     story["title"] = _compact_display_title(raw_title, display_lang)
     story["summary"] = _distinct_executive_summary(raw_title, raw_summary, story["content"], display_lang)
-    story["headline_only"] = _is_headline_only_domain(str(story.get("source_domain") or ""))
+    story["headline_only"] = source_headline_only
     if story["headline_only"]:
         story["summary"] = (
             "العنوان من الناشر الأصلي؛ افتح المصدر لمتابعة التقرير والتفاصيل."
@@ -6794,6 +6808,52 @@ def _get_display_stories(lang: str) -> list[dict[str, Any]]:
     with _DISPLAY_STORIES_CACHE_LOCK:
         _DISPLAY_STORIES_CACHE[lang] = (time.monotonic(), stories)
     return [dict(row) for row in stories]
+
+
+def _safe_saved_article_permalink(row: dict[str, Any]) -> bool:
+    """Validate a previously stored archive row without reapplying today's ingestion allowlist.
+
+    Source allowlists change over time, but a curated-list change must not invalidate old
+    permanent links. This fallback is limited to non-hidden, previously stored records whose
+    own URL is well-formed and agrees with their recorded publisher (or a saved Google News
+    discovery URL). It does not make the story eligible for new discovery or homepage ranking.
+    """
+    if not isinstance(row, dict) or row.get("is_demo") or row.get("is_hidden"):
+        return False
+    source_lang = str(row.get("original_language") or "").casefold()
+    if source_lang not in {"ar", "en"}:
+        return False
+    source_url = str(row.get("source_url") or "").strip()
+    try:
+        parsed = urlparse(source_url)
+        host = (parsed.hostname or "").casefold().rstrip(".").removeprefix("www.")
+        if parsed.scheme.casefold() not in {"http", "https"} or not host or parsed.username or parsed.password:
+            return False
+    except (TypeError, ValueError):
+        return False
+
+    recorded_domain = str(row.get("source_domain") or "").casefold().rstrip(".").removeprefix("www.")
+    if not recorded_domain:
+        recorded_domain = _infer_source_domain_from_name(
+            str(row.get("category") or "world"),
+            source_lang,
+            str(row.get("source_name") or ""),
+        )
+    if not recorded_domain:
+        return False
+    is_original_publisher_url = (
+        _domain_matches(host, recorded_domain) or _domain_matches(recorded_domain, host)
+    )
+    is_saved_google_news_link = _domain_matches(host, "news.google.com")
+    if not (is_original_publisher_url or is_saved_google_news_link):
+        return False
+
+    native_title = str(row.get(f"title_{source_lang}") or row.get("original_title") or "").strip()
+    if not _text_matches_language(native_title, source_lang):
+        return False
+    if _looks_like_feed_section_title(native_title, row.get("source_name", "")):
+        return False
+    return True
 
 
 def _find_article(slug: str, lang: str) -> dict[str, Any] | None:
@@ -6951,6 +7011,15 @@ def article(slug: str):
                 stored = dict(stored)
                 stored["category"] = corrected_category
             selected = _normalise_story(stored, lang)
+        elif stored and _safe_saved_article_permalink(stored):
+            # An old saved link remains readable after a source is removed from the
+            # current discovery allowlist. Rendering still passes the stored row through
+            # the restrictive publisher-rights and native-language checks in normalization.
+            corrected_category = _display_category(stored, lang)
+            if corrected_category != stored.get("category"):
+                stored = dict(stored)
+                stored["category"] = corrected_category
+            selected = _normalise_story(stored, lang)
         elif stored and stored.get("source_url") and stored_language in {"ar", "en"} and stored_language != lang:
             # Keep old cross-language bookmarks useful without rendering mixed-language
             # pages: when a complete translation is missing, redirect only to the known,
@@ -7080,7 +7149,7 @@ def scheduled_refresh_api():
     if not authorization.startswith(prefix):
         return jsonify({"error": "not_found"}), 404
     supplied_token = authorization[len(prefix):].strip()
-    if not secrets.compare_digest(supplied_token, expected_token):
+    if not _constant_time_text_equal(supplied_token, expected_token):
         return jsonify({"error": "not_found"}), 404
     if not NEWS_AUTO_FETCH:
         return jsonify({"state": "disabled"}), 503
@@ -7116,7 +7185,7 @@ def refresh_news_api():
     global _REFRESHING, _LAST_REFRESH_ATTEMPT, _LAST_REFRESH_STATE
     expected_csrf = str(session.get("wp_site_csrf") or "")
     supplied_csrf = str(request.headers.get("X-CSRF-Token") or "")
-    if not expected_csrf or not supplied_csrf or not secrets.compare_digest(expected_csrf, supplied_csrf):
+    if not expected_csrf or not supplied_csrf or not _constant_time_text_equal(expected_csrf, supplied_csrf):
         return jsonify({"error": "csrf"}), 400
     now = time.monotonic()
     visitor_id = str(session.get("wp_refresh_visitor") or "")
@@ -7266,7 +7335,7 @@ def contact():
         session["contact_csrf"] = token
     smtp_enabled = _contact_smtp_configured()
     if request.method == "POST":
-        if not secrets.compare_digest(str(request.form.get("csrf_token", "")), token):
+        if not _constant_time_text_equal(request.form.get("csrf_token", ""), token):
             abort(400)
         name = _clean_text(request.form.get("name", ""), 100)
         email = _clean_text(request.form.get("email", ""), 254)
@@ -7493,7 +7562,7 @@ def _require_admin():
 def _admin_csrf_valid() -> bool:
     expected = str(session.get("wp_admin_csrf") or "")
     supplied = str(request.form.get("csrf_token") or "")
-    return bool(expected and supplied and secrets.compare_digest(expected, supplied))
+    return bool(expected and supplied and _constant_time_text_equal(expected, supplied))
 
 def _admin_image_rows() -> list[dict[str, Any]]:
     rows: dict[str, dict[str, Any]] = {}
@@ -7821,7 +7890,7 @@ def admin_login():
     if request.method == "POST":
         supplied = request.form.get("password", "")
         expected = _admin_password()
-        if supplied and secrets.compare_digest(supplied, expected):
+        if supplied and _constant_time_text_equal(supplied, expected):
             session.clear()
             session["wp_admin_authenticated"] = True
             session["wp_admin_csrf"] = secrets.token_urlsafe(32)
