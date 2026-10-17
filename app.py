@@ -520,6 +520,8 @@ def _display_category(row: dict[str, Any], lang: str) -> str:
             name for name, language_map in CATEGORY_SOURCE_DOMAINS.items()
             if any(_domain_matches(host, domain) for domain in language_map.get(source_lang, []))
         ]
+        if "world" in allowed_categories:
+            return "world"
         if allowed_categories:
             return allowed_categories[0]
     return current
