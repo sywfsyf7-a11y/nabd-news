@@ -30,6 +30,8 @@ class SourcePolicyTests(unittest.TestCase):
         # Both interfaces show both native source languages in the same category feed.
         self.assertTrue(world_pulse._row_allowed_on_language_site(arabic_story, "ar"))
         self.assertTrue(world_pulse._row_allowed_on_language_site(arabic_story, "en"))
+        self.assertTrue(world_pulse._story_allowed_in_display_language(arabic_story, "ar"))
+        self.assertFalse(world_pulse._story_allowed_in_display_language(arabic_story, "en"))
         arabic_fallback = world_pulse._normalise_story(dict(arabic_story), "en")
         self.assertEqual(arabic_fallback["display_language"], "ar")
         self.assertTrue(arabic_fallback["translation_fallback"])
@@ -45,6 +47,7 @@ class SourcePolicyTests(unittest.TestCase):
             ),
         )
         self.assertTrue(world_pulse._row_allowed_on_language_site(arabic_story_translated, "en"))
+        self.assertTrue(world_pulse._story_allowed_in_display_language(arabic_story_translated, "en"))
         translated = world_pulse._normalise_story(arabic_story_translated, "en")
         self.assertEqual(translated["display_language"], "en")
         self.assertFalse(translated["translation_fallback"])
@@ -67,6 +70,8 @@ class SourcePolicyTests(unittest.TestCase):
         }
         self.assertTrue(world_pulse._row_allowed_on_language_site(english_story, "en"))
         self.assertTrue(world_pulse._row_allowed_on_language_site(english_story, "ar"))
+        self.assertTrue(world_pulse._story_allowed_in_display_language(english_story, "en"))
+        self.assertFalse(world_pulse._story_allowed_in_display_language(english_story, "ar"))
         english_fallback = world_pulse._normalise_story(dict(english_story), "ar")
         self.assertEqual(english_fallback["display_language"], "en")
         self.assertTrue(english_fallback["translation_fallback"])
@@ -82,6 +87,7 @@ class SourcePolicyTests(unittest.TestCase):
             ),
         )
         self.assertTrue(world_pulse._row_allowed_on_language_site(english_story_translated, "ar"))
+        self.assertTrue(world_pulse._story_allowed_in_display_language(english_story_translated, "ar"))
         arabic_translation = world_pulse._normalise_story(english_story_translated, "ar")
         self.assertEqual(arabic_translation["display_language"], "ar")
         self.assertFalse(arabic_translation["translation_fallback"])
@@ -95,6 +101,8 @@ class SourcePolicyTests(unittest.TestCase):
             title_en="International report",
         )
         self.assertTrue(world_pulse._row_allowed_on_language_site(headline_only, "ar"))
+        self.assertFalse(world_pulse._story_allowed_in_display_language(headline_only, "ar"))
+        self.assertTrue(world_pulse._story_allowed_in_display_language(headline_only, "en"))
         headline_display = world_pulse._normalise_story(headline_only, "ar")
         self.assertEqual(headline_display["display_language"], "en")
         self.assertTrue(headline_display["headline_only"])
