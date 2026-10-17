@@ -921,7 +921,10 @@ def _content_quality_audit_issues(
     if category not in CATEGORY_NAMES:
         issues.append("invalid_category")
 
-    parsed_source = urlparse(source_url) if source_url else None
+    try:
+        parsed_source = urlparse(source_url) if source_url else None
+    except (TypeError, ValueError):
+        parsed_source = None
     source_host = (parsed_source.hostname or "").casefold().removeprefix("www.") if parsed_source else ""
     if not source_url or not source_host or parsed_source.scheme.casefold() not in {"http", "https"}:
         issues.append("invalid_or_missing_source_url")
@@ -6436,7 +6439,13 @@ def generated_image(image_id: str):
 
 @app.get("/healthz")
 def healthz():
-    return {"status": "ok"}, 200
+    # Expose the deployed commit so production checks can wait for this exact release
+    # instead of accidentally testing the previous live instance during a rollout.
+    payload = {"status": "ok"}
+    commit = (os.getenv("RENDER_GIT_COMMIT") or "").strip()
+    if commit:
+        payload["commit"] = commit
+    return payload, 200
 
 def _admin_password() -> str:
     # ADMIN_PANEL_PASSWORD is the documented name; ADMIN_PASSWORD remains a backwards-compatible alias.
