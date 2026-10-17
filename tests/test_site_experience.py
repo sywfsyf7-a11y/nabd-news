@@ -1821,5 +1821,111 @@ class BoundedImageProviderSearchTests(unittest.TestCase):
                             )
 
 
+
+
+class ProductionAuditRegressionTests(unittest.TestCase):
+    def test_admin_login_accepts_unicode_password_without_500(self):
+        password = "نبض-Admin-كلمةسر-2026"
+        with patch.dict(os.environ, {"ADMIN_PANEL_PASSWORD": password}):
+            with patch.object(world_pulse, "_ensure_background_scheduler"):
+                client = world_pulse.app.test_client()
+                response = client.post("/admin/login", data={"password": password})
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("/admin/monitor", response.headers.get("Location", ""))
+
+    def test_admin_login_wrong_unicode_password_returns_regular_login_page(self):
+        with patch.dict(os.environ, {"ADMIN_PANEL_PASSWORD": "كلمةسر-صحيحة"}):
+            with patch.object(world_pulse, "_ensure_background_scheduler"):
+                response = world_pulse.app.test_client().post(
+                    "/admin/login", data={"password": "كلمةسر-خاطئة"}
+                )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("كلمة المرور غير صحيحة", response.get_data(as_text=True))
+
+    def test_stored_story_permalink_survives_current_ingestion_allowlist_change(self):
+        now = datetime.now(timezone.utc)
+        archived = {
+            "slug": "legacy-publisher-story",
+            "source_url": "https://retired-publisher.example/news/legacy-story",
+            "source_name": "Retired Publisher",
+            "source_domain": "retired-publisher.example",
+            "category": "world",
+            "original_language": "en",
+            "title_en": "A permanent archived news story",
+            "title_ar": "",
+            "summary_en": "The publisher reported a concrete development and supplied the main verified facts.",
+            "summary_ar": "",
+            "content_en": (
+                "The saved report describes the development and the details available when it was published. "
+                "The brief retains the source attribution and does not add names, figures, causes, or other facts "
+                "that are not supported by the stored material. Readers can follow the original publisher link "
+                "for subsequent updates and any additional context."
+            ),
+            "content_ar": "",
+            "published_at": now,
+            "fetched_at": now,
+            "read_minutes": 1,
+            "is_demo": False,
+            "is_hidden": False,
+        }
+        with patch.object(world_pulse, "_ensure_background_scheduler"):
+            with patch.object(world_pulse, "current_language", return_value="ar"):
+                with patch.object(world_pulse, "_DISPLAY_STORIES_CACHE", {}):
+                    with patch.object(world_pulse, "_db_fetch_article_by_slug", return_value=archived) as lookup:
+                        with patch.object(world_pulse, "_row_allowed_on_language_site", return_value=False):
+                            with patch.object(world_pulse, "_display_category", return_value="world"):
+                                with patch.object(world_pulse, "_db_fetch_related_articles", return_value=[]):
+                                    with patch.object(world_pulse, "render_template", return_value="archive story rendered") as render:
+                                        response = world_pulse.app.test_client().get(
+                                            "/article/legacy-publisher-story?lang=ar"
+                                        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_data(as_text=True), "archive story rendered")
+        lookup.assert_called_once_with("legacy-publisher-story")
+        self.assertEqual(render.call_args.kwargs["article"]["slug"], "legacy-publisher-story")
+        self.assertEqual(render.call_args.kwargs["article"]["display_language"], "en")
+        self.assertTrue(render.call_args.kwargs["article"]["translation_fallback"])
+
+    def test_saved_archive_permalink_rejects_mismatched_host_and_hidden_rows(self):
+        base = {
+            "source_url": "https://one-publisher.example/article/1",
+            "source_domain": "one-publisher.example",
+            "source_name": "One Publisher",
+            "original_language": "en",
+            "title_en": "A real archived headline",
+            "category": "world",
+            "is_demo": False,
+            "is_hidden": False,
+        }
+        self.assertTrue(world_pulse._safe_saved_article_permalink(base))
+        self.assertFalse(world_pulse._safe_saved_article_permalink(dict(
+            base, source_url="https://another-site.example/article/1"
+        )))
+        self.assertFalse(world_pulse._safe_saved_article_permalink(dict(base, is_hidden=True)))
+
+    def test_legacy_restricted_publishers_do_not_render_old_full_bodies(self):
+        row = {
+            "slug": "legacy-reuters-story",
+            "source_url": "https://www.reuters.com/world/example-story",
+            "source_name": "Reuters",
+            "source_domain": "reuters.com",
+            "category": "world",
+            "original_language": "en",
+            "title_en": "A Reuters headline",
+            "title_ar": "عنوان رويترز",
+            "summary_en": "A stored historic summary that is no longer eligible for article-text reuse.",
+            "summary_ar": "ملخص محفوظ قديم لم يعد مؤهلاً لإعادة استخدام نص المقال.",
+            "content_en": "Legacy body content. " * 20,
+            "content_ar": "نص قديم للمقال. " * 30,
+        }
+        story = world_pulse._normalise_story(row, "ar")
+        self.assertTrue(story["headline_only"])
+        self.assertEqual(story["content"], "")
+        self.assertTrue(story["source_only"])
+
+
 if __name__ == "__main__":
     unittest.main()
