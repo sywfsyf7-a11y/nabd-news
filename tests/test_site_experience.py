@@ -162,8 +162,8 @@ class SiteExperienceTests(unittest.TestCase):
         self.assertEqual(result["image_license_url"], "https://creativecommons.org/publicdomain/zero/1.0/")
         self.assertEqual(result["image_provider_url"], "https://www.metmuseum.org/art/collection/search/123")
 
-    def test_native_language_story_remains_visible_when_other_translation_is_unavailable(self):
-        story = world_pulse._normalise_story({
+    def test_native_language_story_stays_on_native_interface_without_translation(self):
+        row = {
             "slug": "native-language-fallback",
             "source_url": "https://saudigamer.com/story",
             "source_name": "Saudi Gamer",
@@ -182,15 +182,15 @@ class SiteExperienceTests(unittest.TestCase):
             "image_credit_url": "",
             "image_provider_url": "",
             "image_license_url": "",
-        }, "en")
+        }
+        story = world_pulse._normalise_story(row, "ar")
         self.assertEqual(story["title"], "عنوان الخبر من سعودي جيمر")
         self.assertEqual(story["display_language"], "ar")
         self.assertEqual(story["summary"], "ملخص عربي قصير عن الخبر.")
-        self.assertTrue(world_pulse._row_allowed_on_language_site({
-            "category": "gaming", "original_language": "ar", "source_domain": "saudigamer.com"
-        }, "en"))
+        self.assertTrue(world_pulse._row_allowed_on_language_site(row, "ar"))
+        self.assertFalse(world_pulse._row_allowed_on_language_site(row, "en"))
 
-    def test_headline_only_article_can_appear_in_english_feed_without_fabricated_translation(self):
+    def test_headline_only_article_stays_native_language_and_is_not_translated(self):
         row = {
             "slug": "aljazeera-headline",
             "source_url": "https://www.aljazeera.net/news/world/example",
@@ -211,11 +211,13 @@ class SiteExperienceTests(unittest.TestCase):
             "image_provider_url": "",
             "image_license_url": "",
         }
-        story = world_pulse._normalise_story(row, "en")
+        story = world_pulse._normalise_story(row, "ar")
         self.assertEqual(story["title"], row["title_ar"])
         self.assertEqual(story["display_language"], "ar")
         self.assertEqual(story["content"], "")
         self.assertTrue(story["headline_only"])
+        self.assertTrue(world_pulse._row_allowed_on_language_site(row, "ar"))
+        self.assertFalse(world_pulse._row_allowed_on_language_site(row, "en"))
 
 
     def test_rss_excerpt_is_displayed_as_details_when_editorial_ai_is_unavailable(self):
@@ -941,6 +943,7 @@ class SiteExperienceTests(unittest.TestCase):
             "image_provider_url": "https://photos.example.org/item/new-photo",
             "image_license_url": "https://creativecommons.org/licenses/by/4.0/",
             "image_checked_at": checked_at,
+            "_image_relevance_score": 0.82,
         }
         with patch.object(world_pulse, "_db_fetch_all", return_value=[stored]):
             with patch.object(world_pulse, "_control_enabled", return_value=True):
