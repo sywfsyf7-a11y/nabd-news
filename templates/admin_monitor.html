@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="color-scheme" content="light">
-  <title>لوحة المراقبة — نبض العالم</title>
+  <meta name="color-scheme" content="dark">
+  <title>لوحة Admin — نبض العالم</title>
   <style>
     :root{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;color:#172033;background:#f3f6fb;font-synthesis:none}
     *{box-sizing:border-box}
@@ -46,18 +46,20 @@
     code{background:#f1f5f9;border-radius:5px;padding:2px 5px;direction:ltr;unicode-bidi:plaintext}
     @media(max-width:760px){body{padding:14px}.grid{grid-template-columns:1fr}.card.wide{grid-column:auto}.metrics{grid-template-columns:repeat(3,minmax(0,1fr))}.metric{padding:9px}.metric strong{font-size:1.2rem}.form-row{align-items:stretch;flex-direction:column}.row{gap:8px}}
   </style>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}?v=1">
 </head>
 <body>
 <main>
   <header class="top">
     <div>
-      <h1>لوحة المراقبة</h1>
+      <h1>لوحة Admin</h1>
       <p>نبض العالم — حالة قاعدة البيانات، تحديث الأخبار، واختبارات الصور.</p>
     </div>
     <div class="actions">
-      <a class="button secondary" href="{{ url_for('admin_articles') }}">إدارة الأخبار والأرشيف</a>
+      <a class="button secondary" href="{{ url_for('admin_index') }}">الرئيسية</a>
+      <a class="button secondary" href="{{ url_for('admin_articles') }}">إدارة المحتوى</a>
       <a class="button secondary" href="{{ url_for('admin_audit') }}">تدقيق الأرشيف</a>
-      <a class="button secondary" href="{{ url_for('admin_sources') }}">إدارة المصادر والصور</a>
+      <a class="button secondary" href="{{ url_for('admin_sources') }}">المصادر والصور</a>
       <form method="post" action="{{ url_for('admin_logout') }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <button class="secondary" type="submit">تسجيل الخروج</button>
