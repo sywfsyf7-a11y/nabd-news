@@ -464,6 +464,7 @@ class SiteExperienceTests(unittest.TestCase):
             "image_credit": "Photographer Name",
             "image_license_url": "https://creativecommons.org/licenses/by/4.0/",
             "image_title": "Gaming setup with a controller",
+            "_image_relevance_evidence": "Video game hardware console controller setup for gaming",
             "_image_relevance_score": 0.31,
         }
         with patch.object(world_pulse, "_image_search_query_variants", return_value=["specific story", "category query"]):
