@@ -7792,13 +7792,15 @@ def admin_articles():
         return guard
 
     notice = str(session.pop("wp_admin_notice", "") or "")
-    query = _clean_text(request.values.get("q") or "", 120)
-    category_filter = str(request.values.get("category") or "all")
+    # Preserve list filters from the query string. Editor form fields such as "category"
+    # belong to the article being edited and must not silently replace the page filter.
+    query = _clean_text(request.args.get("q") or "", 120)
+    category_filter = str(request.args.get("category") or "all")
     if category_filter not in CATEGORY_NAMES and category_filter != "all":
         category_filter = "all"
-    show_hidden = str(request.values.get("show_hidden") or "").casefold() in {"1", "true", "yes", "on"}
+    show_hidden = str(request.args.get("show_hidden") or "").casefold() in {"1", "true", "yes", "on"}
     try:
-        page_number = max(1, int(request.values.get("page") or "1"))
+        page_number = max(1, int(request.args.get("page") or "1"))
     except (TypeError, ValueError):
         page_number = 1
 
@@ -7898,6 +7900,8 @@ def admin_articles():
                         notice = "أكمل حقول العنوان والملخص في اللغتين."
                     elif _summary_repeats_title(values["title_ar"], values["summary_ar"]) or _summary_repeats_title(values["title_en"], values["summary_en"]):
                         notice = "يجب أن يضيف الملخص معلومة مستقلة عن العنوان، لا أن يكرر صياغته."
+                    elif any(not _text_matches_language(values[field], field[-2:]) for field in ("title_ar", "summary_ar", "content_ar")) or any(not _text_matches_language(values[field], "en") for field in ("title_en", "summary_en", "content_en")):
+                        notice = "راجع اللغة في كل حقل: النص العربي في حقول العربية والإنجليزي في حقول الإنجليزية."
                     elif len(values["content_ar"]) < 180 or len(values["content_en"]) < 180:
                         notice = "التفاصيل في كل لغة قصيرة جدًا. أضف سياقًا أصليًا موثقًا (180 حرفًا على الأقل) أو راجع المصدر قبل الحفظ."
                     else:
@@ -7960,6 +7964,8 @@ def admin_articles():
                     }
                     if not all(values[key] for key in ("title_ar", "title_en", "summary_ar", "summary_en")):
                         notice = "أكمل العناوين والملخصات بالعربية والإنجليزية."
+                    elif any(not _text_matches_language(values[field], field[-2:]) for field in ("title_ar", "summary_ar", "content_ar")) or any(not _text_matches_language(values[field], "en") for field in ("title_en", "summary_en", "content_en")):
+                        notice = "راجع اللغة في كل حقل: النص العربي في حقول العربية والإنجليزي في حقول الإنجليزية."
                     elif _summary_repeats_title(values["title_ar"], values["summary_ar"]) or _summary_repeats_title(values["title_en"], values["summary_en"]):
                         notice = "اكتب ملخصًا مستقلًا لكل عنوان."
                     elif len(values["content_ar"]) < 180 or len(values["content_en"]) < 180:
