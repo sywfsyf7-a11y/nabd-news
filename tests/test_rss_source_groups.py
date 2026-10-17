@@ -7,7 +7,7 @@ import unittest
 import time
 from datetime import datetime, timezone, timedelta
 from types import SimpleNamespace
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 from urllib.parse import parse_qs, urlparse
 
 import app as world_pulse
@@ -124,9 +124,9 @@ class RSSPublisherGroupTests(unittest.TestCase):
             "link": "https://example.invalid/copied-story/",
             "summary": "This URL is not hosted by the trusted feed owner.",
         }
-        response = Mock()
-        response.__enter__ = Mock(return_value=response)
-        response.__exit__ = Mock(return_value=False)
+        response = MagicMock()
+        response.__enter__.return_value = response
+        response.__exit__.return_value = False
         response.read.return_value = b"<rss />"
         with (
             patch.object(world_pulse, "urlopen", return_value=response),
