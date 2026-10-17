@@ -2294,10 +2294,11 @@ def _image_search_query_variants(
 ) -> list[str]:
     """Try story-specific searches first and a category-themed query last."""
     anchor_query = _english_image_anchor_query(title, context)
+    category_query = _category_image_search_query(title, context, category)
     candidates = (
         _image_search_query(title, context),
         anchor_query or _image_search_phrase(title, 4),
-        _category_image_search_query(title, context, category),
+        category_query or (_image_search_phrase(context, 4) if context else ""),
     )
     variants: list[str] = []
     seen: set[str] = set()
@@ -3463,8 +3464,8 @@ def _search_article_image_with_variants(
             best_score = score
             best = dict(result)
             best_is_category_fallback = is_category_fallback
-        # A strong story-specific match needs no broader query.
-        if index == 0 and score >= 0.42:
+        # Any strong match ends the search early, including later headline/context queries.
+        if score >= 0.42:
             break
     if not best:
         return {}
