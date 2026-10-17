@@ -121,7 +121,7 @@ IMAGE_PROVIDER_GROUP_TIMEOUT_SECONDS = min(
     15, max(IMAGE_SEARCH_TIMEOUT_SECONDS + 5, IMAGE_SEARCH_TIMEOUT_SECONDS * 3)
 )
 IMAGE_DOWNLOAD_TIMEOUT_SECONDS = max(5, min(20, int(os.getenv("IMAGE_DOWNLOAD_TIMEOUT_SECONDS", "10"))))
-MAX_IMAGE_LOOKUPS_PER_REFRESH = max(0, min(32, int(os.getenv("MAX_IMAGE_LOOKUPS_PER_REFRESH", "2"))))
+MAX_IMAGE_LOOKUPS_PER_REFRESH = max(0, min(32, int(os.getenv("MAX_IMAGE_LOOKUPS_PER_REFRESH", "4"))))
 # Gradually repair older archived stories without running large, long-lived image batches.
 IMAGE_REVALIDATION_BATCH_SIZE = max(1, min(4, int(os.getenv("IMAGE_REVALIDATION_BATCH_SIZE", "2"))))
 IMAGE_RETRY_AFTER_HOURS = max(1, min(168, int(os.getenv("IMAGE_RETRY_AFTER_HOURS", "1"))))
