@@ -105,10 +105,12 @@ class SourcePolicyTests(unittest.TestCase):
         )
 
     def test_bbc_al_jazeera_and_cnn_catalog_policies(self):
-        self.assertEqual(world_pulse._source_domain_for_category("world", "ar", "www.aljazeera.net"), "aljazeera.net")
-        self.assertEqual(world_pulse._source_domain_for_category("world", "en", "www.aljazeera.com"), "aljazeera.com")
-        self.assertEqual(world_pulse._source_domain_for_category("world", "en", "www.bbc.co.uk"), "bbc.co.uk")
+        self.assertEqual(world_pulse._source_domain_for_category("politics", "ar", "www.aljazeera.net"), "aljazeera.net")
+        self.assertEqual(world_pulse._source_domain_for_category("world", "ar", "www.france24.com"), "france24.com")
+        self.assertEqual(world_pulse._source_domain_for_category("world", "en", "www.bbc.com"), "bbc.com")
         self.assertEqual(world_pulse._source_domain_for_category("world", "en", "edition.cnn.com"), "cnn.com")
+        self.assertEqual(world_pulse._source_domain_for_category("world", "en", "www.aljazeera.com"), "")
+        self.assertEqual(world_pulse._source_domain_for_category("world", "en", "www.bbc.co.uk"), "")
         self.assertTrue(world_pulse._is_headline_only_domain("www.bbc.com"))
         self.assertTrue(world_pulse._is_headline_only_domain("aljazeera.com"))
         self.assertFalse(world_pulse._is_headline_only_domain("cnn.com"))
@@ -136,10 +138,12 @@ class SourcePolicyTests(unittest.TestCase):
         self.assertEqual(story["content"], "")
         self.assertIn("Publisher headline only", story["summary"])
     def test_major_publishers_are_configured_with_safe_rights_modes(self):
-        self.assertEqual(world_pulse._source_domain_for_category("world", "ar", "www.aljazeera.net"), "aljazeera.net")
-        self.assertEqual(world_pulse._source_domain_for_category("world", "en", "www.aljazeera.com"), "aljazeera.com")
-        self.assertEqual(world_pulse._source_domain_for_category("world", "en", "www.bbc.co.uk"), "bbc.co.uk")
+        self.assertEqual(world_pulse._source_domain_for_category("politics", "ar", "www.aljazeera.net"), "aljazeera.net")
+        self.assertEqual(world_pulse._source_domain_for_category("world", "ar", "www.france24.com"), "france24.com")
+        self.assertEqual(world_pulse._source_domain_for_category("world", "en", "www.bbc.com"), "bbc.com")
         self.assertEqual(world_pulse._source_domain_for_category("world", "en", "edition.cnn.com"), "cnn.com")
+        self.assertEqual(world_pulse._source_domain_for_category("world", "en", "www.aljazeera.com"), "")
+        self.assertEqual(world_pulse._source_domain_for_category("world", "en", "www.bbc.co.uk"), "")
         self.assertTrue(world_pulse._is_headline_only_domain("www.bbc.com"))
         self.assertTrue(world_pulse._is_headline_only_domain("aljazeera.com"))
         self.assertFalse(world_pulse._is_headline_only_domain("cnn.com"))
@@ -422,17 +426,18 @@ class SourcePolicyTests(unittest.TestCase):
         self.assertEqual(article["original_language"], "ar")
         self.assertEqual(article["content_ar"], "ملخص الخبر")
 
-    def test_global_publisher_catalog_is_expanded_and_language_scoped(self):
+    def test_curated_publisher_catalog_is_bounded_and_language_scoped(self):
         catalog = world_pulse.CATEGORY_SOURCE_DOMAINS
         entry_count = sum(len(domains) for langs in catalog.values() for domains in langs.values())
-        self.assertGreaterEqual(entry_count, 200)
-        self.assertIn("voanews.com", catalog["world"]["en"])
-        self.assertIn("almamlakatv.com", catalog["world"]["ar"])
-        self.assertIn("eurekalert.org", catalog["science"]["en"])
-        self.assertIn("true-gaming.net", catalog["gaming"]["ar"])
+        self.assertEqual(entry_count, 64)
+        self.assertIn("reuters.com", catalog["politics"]["en"])
+        self.assertIn("spa.gov.sa", catalog["politics"]["ar"])
+        self.assertIn("nasa.gov", catalog["science"]["en"])
+        self.assertNotIn("thenationalnews.com", catalog["world"]["en"])
+        self.assertNotIn("noaa.gov", catalog["science"]["en"])
         self.assertEqual(
             world_pulse._source_domain_for_category("science", "en", "www.noaa.gov"),
-            "noaa.gov",
+            "",
         )
         self.assertEqual(
             world_pulse._source_domain_for_category("sports", "ar", "www.espn.com"),
@@ -1055,10 +1060,10 @@ class ExpandedSourceAndImageCatalogueTests(unittest.TestCase):
     def test_priority_news_sources_are_configured_and_safely_gated(self):
         expected = {
             ("gaming", "ar", "saudigamer.com"),
-            ("world", "ar", "aljazeera.net"),
+            ("world", "ar", "france24.com"),
             ("politics", "ar", "spa.gov.sa"),
-            ("world", "en", "thenationalnews.com"),
-            ("technology", "en", "9to5google.com"),
+            ("world", "en", "cnn.com"),
+            ("technology", "en", "theverge.com"),
         }
         for category, lang, domain in expected:
             self.assertIn(domain, world_pulse.CATEGORY_SOURCE_DOMAINS[category][lang])
@@ -1071,13 +1076,13 @@ class ExpandedSourceAndImageCatalogueTests(unittest.TestCase):
 
     def test_editorial_pipeline_publishes_one_fresh_story_and_repairs_archive_per_tick(self):
         self.assertEqual(world_pulse.NEWS_REFRESH_MINUTES, 5)
-        self.assertEqual(world_pulse.NEWS_DISCOVERY_REFRESH_MINUTES, 30)
+        self.assertEqual(world_pulse.NEWS_DISCOVERY_REFRESH_MINUTES, 15)
         # Two items share one bounded Gemini batch: one new queued story plus one
         # older archive repair. The new-story queue still advances by one per tick.
         self.assertEqual(world_pulse.MAX_ARTICLES_PER_REFRESH, 2)
         self.assertEqual(max(1, world_pulse.MAX_ARTICLES_PER_REFRESH - 1), 1)
         self.assertLessEqual(world_pulse.MAX_GEMINI_API_CALLS_PER_REFRESH, 2)
-        self.assertEqual(world_pulse.MAX_IMAGE_LOOKUPS_PER_REFRESH, 2)
+        self.assertEqual(world_pulse.MAX_IMAGE_LOOKUPS_PER_REFRESH, 4)
 
     def test_cleveland_museum_adapter_uses_only_cc0_images_and_culture_category(self):
         import json
