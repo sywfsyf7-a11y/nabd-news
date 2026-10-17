@@ -1751,8 +1751,14 @@ def _db_fetch_all() -> list[dict[str, Any]]:
         local_rows = [dict(row) for row in _DB_ARTICLES_CACHE] if _DB_ARTICLES_CACHE is not None else None
         local_age = max(0.0, now - _DB_ARTICLES_CACHE_AT) if _DB_ARTICLES_CACHE is not None else float("inf")
     shared_stale = _read_shared_archive_cache(max_age_seconds=_ARCHIVE_SHARED_CACHE_MAX_STALE_SECONDS)
-    stale_rows = local_rows if local_rows is not None else (shared_stale[0] if shared_stale else None)
-    stale_age = local_age if local_rows is not None else (shared_stale[1] if shared_stale else float("inf"))
+    if shared_stale is not None and shared_stale[1] < local_age:
+        stale_rows, stale_age = shared_stale[0], shared_stale[1]
+    elif local_rows is not None:
+        stale_rows, stale_age = local_rows, local_age
+    elif shared_stale is not None:
+        stale_rows, stale_age = shared_stale[0], shared_stale[1]
+    else:
+        stale_rows, stale_age = None, float("inf")
     if stale_rows is not None and stale_age <= _ARCHIVE_SHARED_CACHE_MAX_STALE_SECONDS:
         _install_archive_snapshot(stale_rows, age_seconds=stale_age)
         _start_archive_cache_refresh()
