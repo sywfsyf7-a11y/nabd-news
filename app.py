@@ -1098,7 +1098,13 @@ def _run_content_quality_audit_once() -> None:
                     COUNT(*) FILTER (WHERE mime_type NOT IN ('image/jpeg', 'image/png', 'image/webp')) AS unexpected_mime_types
                 FROM world_pulse_catalogued_images
             """)
-            image_stats = dict(cur.fetchone())
+            image_stats_row = cur.fetchone()
+            image_stats = {
+                "total_images": int(image_stats_row[0] or 0),
+                "total_bytes": int(image_stats_row[1] or 0),
+                "over_2_mib": int(image_stats_row[2] or 0),
+                "unexpected_mime_types": int(image_stats_row[3] or 0),
+            }
             cur.execute("""
                 SELECT COUNT(*)
                 FROM world_pulse_catalogued_images i
