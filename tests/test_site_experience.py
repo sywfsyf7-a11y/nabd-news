@@ -78,6 +78,117 @@ class SiteExperienceTests(unittest.TestCase):
                 {"discovered_at": (now - timedelta(minutes=31)).isoformat(), "items": []}, now
             ))
 
+    def test_art_institute_catalog_is_culture_only_and_requires_public_domain_records(self):
+        import json
+        from unittest.mock import MagicMock
+
+        with patch.object(world_pulse, "urlopen") as network:
+            self.assertEqual(world_pulse._search_art_institute_image(
+                "Ancient Roman theatre exhibition", category="world"
+            ), {})
+            network.assert_not_called()
+
+        response_data = {
+            "data": [
+                {
+                    "id": 123,
+                    "title": "Ancient Roman theatre exhibition",
+                    "image_id": "a1b2c3d4",
+                    "artist_title": "Museum collection",
+                    "description": "An ancient Roman theatre exhibition.",
+                    "date_display": "Ancient Rome",
+                    "is_public_domain": True,
+                },
+                {
+                    "id": 456,
+                    "title": "Ancient Roman theatre exhibition copyrighted",
+                    "image_id": "restricted-image",
+                    "is_public_domain": False,
+                },
+            ]
+        }
+        response = MagicMock()
+        response.__enter__.return_value = response
+        response.read.return_value = json.dumps(response_data).encode("utf-8")
+        with patch.object(world_pulse, "urlopen", return_value=response):
+            result = world_pulse._search_art_institute_image(
+                "Ancient Roman theatre exhibition", category="culture"
+            )
+        self.assertEqual(result["image_source"], "artic_open_access")
+        self.assertIn("/a1b2c3d4/", result["image_url"])
+        self.assertEqual(result["image_license_url"], "https://creativecommons.org/publicdomain/zero/1.0/")
+        self.assertIn("Art Institute of Chicago", result["image_credit"])
+
+    def test_met_catalog_is_culture_only_and_rechecks_item_public_domain_flag(self):
+        import json
+
+        class FakeResponse:
+            def __init__(self, value):
+                self.value = value
+            def __enter__(self):
+                return self
+            def __exit__(self, exc_type, exc, tb):
+                return False
+            def read(self, limit):
+                return json.dumps(self.value).encode("utf-8")
+
+        with patch.object(world_pulse, "urlopen") as network:
+            self.assertEqual(world_pulse._search_met_open_access_image(
+                "Ancient Roman theatre exhibition", category="technology"
+            ), {})
+            network.assert_not_called()
+
+        def fake_urlopen(request, timeout):
+            if "/v1.1/search?" in request.full_url:
+                return FakeResponse({"objectIDs": [123]})
+            return FakeResponse({
+                "objectID": 123,
+                "isPublicDomain": True,
+                "primaryImage": "https://images.metmuseum.org/CRDImages/aa/original/test.jpg",
+                "title": "Ancient Roman theatre exhibition",
+                "artistDisplayName": "Museum collection",
+                "objectName": "Sculpture",
+                "culture": "Roman",
+                "objectURL": "https://www.metmuseum.org/art/collection/search/123",
+            })
+
+        with patch.object(world_pulse, "urlopen", side_effect=fake_urlopen):
+            result = world_pulse._search_met_open_access_image(
+                "Ancient Roman theatre exhibition", category="culture"
+            )
+        self.assertEqual(result["image_source"], "met_open_access")
+        self.assertEqual(result["image_url"], "https://images.metmuseum.org/CRDImages/aa/original/test.jpg")
+        self.assertEqual(result["image_license_url"], "https://creativecommons.org/publicdomain/zero/1.0/")
+        self.assertEqual(result["image_provider_url"], "https://www.metmuseum.org/art/collection/search/123")
+
+    def test_native_language_story_remains_visible_when_other_translation_is_unavailable(self):
+        story = world_pulse._normalise_story({
+            "slug": "native-language-fallback",
+            "source_url": "https://saudigamer.com/story",
+            "source_name": "Saudi Gamer",
+            "source_domain": "saudigamer.com",
+            "category": "gaming",
+            "original_language": "ar",
+            "title_ar": "عنوان الخبر من سعودي جيمر",
+            "title_en": "",
+            "summary_ar": "ملخص عربي قصير عن الخبر.",
+            "summary_en": "",
+            "content_ar": "تفاصيل المصدر المتاحة عن الخبر تبقى في لغتها الأصلية.",
+            "content_en": "",
+            "image_url": "",
+            "image_source": "none",
+            "image_credit": "",
+            "image_credit_url": "",
+            "image_provider_url": "",
+            "image_license_url": "",
+        }, "en")
+        self.assertEqual(story["title"], "عنوان الخبر من سعودي جيمر")
+        self.assertEqual(story["display_language"], "ar")
+        self.assertEqual(story["summary"], "ملخص عربي قصير عن الخبر.")
+        self.assertTrue(world_pulse._row_allowed_on_language_site({
+            "category": "gaming", "original_language": "ar", "source_domain": "saudigamer.com"
+        }, "en"))
+
     def test_headline_only_article_can_appear_in_english_feed_without_fabricated_translation(self):
         row = {
             "slug": "aljazeera-headline",
