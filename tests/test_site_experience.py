@@ -285,12 +285,12 @@ class SiteExperienceTests(unittest.TestCase):
         english = world_pulse._normalise_story(dict(common, original_language="en"), "en")
         arabic = world_pulse._normalise_story(dict(common, original_language="ar"), "ar")
 
-        self.assertEqual(english["image_url"], "/static/images/fallback-en.svg")
-        self.assertEqual(english["image_fallback_url"], "/static/images/fallback-en.svg")
-        self.assertEqual(english["image_source"], "fallback_en")
-        self.assertEqual(arabic["image_url"], "/static/images/fallback-ar.svg")
-        self.assertEqual(arabic["image_fallback_url"], "/static/images/fallback-ar.svg")
-        self.assertEqual(arabic["image_source"], "fallback_ar")
+        self.assertTrue(english["image_url"].startswith("/media/editorial.svg?"))
+        self.assertEqual(english["image_url"], english["image_fallback_url"])
+        self.assertEqual(english["image_source"], "editorial_generated")
+        self.assertTrue(arabic["image_url"].startswith("/media/editorial.svg?"))
+        self.assertEqual(arabic["image_url"], arabic["image_fallback_url"])
+        self.assertEqual(arabic["image_source"], "editorial_generated")
 
 
     def test_long_headline_is_shortened_and_duplicate_summary_is_repaired(self):
