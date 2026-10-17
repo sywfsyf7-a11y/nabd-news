@@ -1244,7 +1244,7 @@ class NewImageProviderPersistenceTests(unittest.TestCase):
         )
         self.assertFalse(world_pulse._row_allowed_on_language_site(mismatched_summary, "ar"))
 
-    def test_complete_translation_must_match_the_display_language_script(self):
+    def test_cross_language_translation_never_overrides_native_source_policy(self):
         row = {
             "category": "technology",
             "original_language": "en",
@@ -1265,7 +1265,7 @@ class NewImageProviderPersistenceTests(unittest.TestCase):
                 "أسماء أو تواريخ أو أرقام أو أسباب لم ترد في المادة الأصلية."
             ),
         }
-        self.assertTrue(world_pulse._row_allowed_on_language_site(row, "ar"))
+        self.assertFalse(world_pulse._row_allowed_on_language_site(row, "ar"))
         self.assertFalse(
             world_pulse._row_allowed_on_language_site(
                 dict(row, content_ar=row["content_en"]), "ar"
