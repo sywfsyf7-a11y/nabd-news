@@ -263,7 +263,7 @@ class SiteExperienceTests(unittest.TestCase):
         self.assertTrue(story["details_from_source_excerpt"])
 
 
-    def test_missing_photo_uses_language_specific_brand_fallback(self):
+    def test_missing_photo_uses_local_topic_art_fallback(self):
         published = datetime(2026, 10, 15, tzinfo=timezone.utc)
         common = {
             "slug": "fallback-story",
@@ -285,12 +285,13 @@ class SiteExperienceTests(unittest.TestCase):
         english = world_pulse._normalise_story(dict(common, original_language="en"), "en")
         arabic = world_pulse._normalise_story(dict(common, original_language="ar"), "ar")
 
-        self.assertEqual(english["image_url"], "/static/images/fallback-en.svg")
-        self.assertEqual(english["image_fallback_url"], "/static/images/fallback-en.svg")
-        self.assertEqual(english["image_source"], "fallback_en")
-        self.assertEqual(arabic["image_url"], "/static/images/fallback-ar.svg")
-        self.assertEqual(arabic["image_fallback_url"], "/static/images/fallback-ar.svg")
-        self.assertEqual(arabic["image_source"], "fallback_ar")
+        for story in (english, arabic):
+            self.assertTrue(story["image_url"].startswith("/media/editorial.svg?"))
+            self.assertEqual(story["image_url"], story["image_fallback_url"])
+            self.assertIn("category=world", story["image_url"])
+            self.assertEqual(story["image_source"], "editorial_generated")
+        self.assertIn("lang=en", english["image_url"])
+        self.assertIn("lang=ar", arabic["image_url"])
 
 
     def test_long_headline_is_shortened_and_duplicate_summary_is_repaired(self):
