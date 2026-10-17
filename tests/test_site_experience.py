@@ -983,5 +983,67 @@ class PersistentPendingQueueTests(unittest.TestCase):
         )
 
 
+
+class BoundedImageProviderSearchTests(unittest.TestCase):
+    def test_culture_specialist_catalogues_run_only_after_primary_catalogues_miss(self):
+        selected = {
+            "image_url": "https://images.example.test/artwork.jpg",
+            "image_source": "met_open_access",
+            "_image_relevance_score": 0.72,
+        }
+        with patch.object(
+            world_pulse,
+            "_search_image_provider_group",
+            side_effect=[{}, selected],
+        ) as search_group:
+            result = world_pulse._search_any_reusable_image(
+                "A major art exhibition opens", "en", "culture"
+            )
+
+        self.assertEqual(result, selected)
+        self.assertEqual(search_group.call_count, 2)
+        primary_name, primary_finders = search_group.call_args_list[0].args
+        self.assertEqual(primary_name, "open_catalogues")
+        self.assertEqual(
+            [key for key, _finder in primary_finders],
+            ["image:openverse_licensed", "image:wikimedia_relevant", "image:loc_open_access"],
+        )
+        specialist_name, specialist_finders = search_group.call_args_list[1].args
+        self.assertEqual(specialist_name, "specialist_catalogues")
+        self.assertEqual(
+            {key for key, _finder in specialist_finders},
+            {
+                "image:artic_open_access",
+                "image:met_open_access",
+                "image:cleveland_museum_open_access",
+                "image:wellcome_open_access",
+            },
+        )
+
+    def test_non_cultural_stories_skip_museum_catalogues(self):
+        selected = {
+            "image_url": "https://images.example.test/nasa.jpg",
+            "image_source": "nasa_images",
+            "_image_relevance_score": 0.80,
+        }
+        with patch.object(
+            world_pulse,
+            "_search_image_provider_group",
+            side_effect=[{}, selected],
+        ) as search_group:
+            result = world_pulse._search_any_reusable_image(
+                "A satellite launches into orbit", "en", "science"
+            )
+
+        self.assertEqual(result, selected)
+        self.assertEqual(search_group.call_count, 2)
+        self.assertEqual(search_group.call_args_list[0].args[0], "open_catalogues")
+        self.assertEqual(search_group.call_args_list[1].args[0], "specialist_catalogues")
+        specialist_keys = {
+            key for key, _finder in search_group.call_args_list[1].args[1]
+        }
+        self.assertEqual(specialist_keys, {"image:wellcome_open_access"})
+
+
 if __name__ == "__main__":
     unittest.main()

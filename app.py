@@ -2787,20 +2787,38 @@ def _search_any_reusable_image(
     *,
     open_only: bool = False,
 ) -> dict[str, str]:
-    # Sources in each group are searched concurrently to avoid spending one full
-    # timeout per provider. Open catalogues always come first.
-    open_catalogues = (
+    # Start with the three general-purpose open catalogues. Running every specialist
+    # museum/source in the first pool created seven parallel tasks behind a six-worker
+    # limit and caused the whole pool deadline to expire even when a useful photo existed.
+    primary_catalogues = (
         ("image:openverse_licensed", lambda: _search_openverse_image(title, lang, category)),
         ("image:wikimedia_relevant", lambda: _search_commons_image(title, lang, category)),
         ("image:loc_open_access", lambda: _search_loc_open_access_image(title, lang, category)),
-        ("image:artic_open_access", lambda: _search_art_institute_image(title, lang, category)),
-        ("image:met_open_access", lambda: _search_met_open_access_image(title, lang, category)),
-        ("image:cleveland_museum_open_access", lambda: _search_cleveland_museum_image(title, lang, category)),
-        ("image:wellcome_open_access", lambda: _search_wellcome_open_access_image(title, lang, category)),
     )
-    result = _search_image_provider_group("open_catalogues", open_catalogues)
-    if result or open_only:
+    result = _search_image_provider_group("open_catalogues", primary_catalogues)
+    if result:
         return result
+
+    # Specialist catalogues are only meaningful for the subjects their collections cover.
+    # They run in a second bounded pool only when general-purpose catalogues find no match.
+    specialist_catalogues: list[tuple[str, Any]] = []
+    if category == "culture":
+        specialist_catalogues.extend((
+            ("image:artic_open_access", lambda: _search_art_institute_image(title, lang, category)),
+            ("image:met_open_access", lambda: _search_met_open_access_image(title, lang, category)),
+            ("image:cleveland_museum_open_access", lambda: _search_cleveland_museum_image(title, lang, category)),
+        ))
+    if category in {"culture", "science"}:
+        specialist_catalogues.append(
+            ("image:wellcome_open_access", lambda: _search_wellcome_open_access_image(title, lang, category))
+        )
+    if specialist_catalogues:
+        result = _search_image_provider_group("specialist_catalogues", tuple(specialist_catalogues))
+        if result:
+            return result
+
+    if open_only:
+        return {}
 
     # The user no longer relies on the Pexels/Unsplash APIs; their keys and quotas
     # are not assumed. Use public-domain/NASA records and explicitly approved press kits.
