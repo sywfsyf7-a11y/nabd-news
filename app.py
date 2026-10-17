@@ -83,7 +83,8 @@ SITE_NAME_EN = "World Pulse"
 TIMEZONE = ZoneInfo(os.getenv("SITE_TIMEZONE", "Asia/Amman"))
 NEWS_REFRESH_MINUTES = max(5, int(os.getenv("NEWS_REFRESH_MINUTES", "5")))
 NEWS_RETRY_MINUTES = max(5, int(os.getenv("NEWS_RETRY_MINUTES", "5")))
-NEWS_DISCOVERY_REFRESH_MINUTES = max(15, int(os.getenv("NEWS_DISCOVERY_REFRESH_MINUTES", "15")))
+# Discover new publisher stories every 15 minutes; publishing itself remains a smaller five-minute tick.
+NEWS_DISCOVERY_REFRESH_MINUTES = 15
 MAX_PENDING_NEWS_CANDIDATES = max(24, min(160, int(os.getenv("MAX_PENDING_NEWS_CANDIDATES", "60"))))
 MAX_QUEUE_ADDITIONS_PER_DISCOVERY = max(1, min(12, int(os.getenv("MAX_QUEUE_ADDITIONS_PER_DISCOVERY", "6"))))
 NEWS_AUTO_FETCH = os.getenv("NEWS_AUTO_FETCH", "true").lower() not in {"0", "false", "no"}
@@ -108,7 +109,8 @@ MAX_GEMINI_API_CALLS_PER_REFRESH = max(1, min(4, int(os.getenv("MAX_GEMINI_API_C
 CONTACT_EMAIL = os.getenv("CONTACT_EMAIL", "syfsywf86@gmail.com").strip() or "syfsywf86@gmail.com"
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 NEWS_REFRESH_WEBHOOK_TOKEN = os.getenv("NEWS_REFRESH_WEBHOOK_TOKEN", "").strip()
-MAX_ARTICLES_PER_REFRESH = max(1, min(32, int(os.getenv("MAX_ARTICLES_PER_REFRESH", "1"))))
+# Hard cap: process exactly one queued story per publishing tick, regardless of stale Render env overrides.
+MAX_ARTICLES_PER_REFRESH = 1
 MAX_ARTICLES_PER_CATEGORY = max(1, min(5, int(os.getenv("MAX_ARTICLES_PER_CATEGORY", "3"))))
 RSS_CANDIDATES_PER_CATEGORY = max(3, min(8, int(os.getenv("RSS_CANDIDATES_PER_CATEGORY", "6"))))
 MAX_RSS_CANDIDATES = max(32, min(96, MAX_ARTICLES_PER_REFRESH * 4))
