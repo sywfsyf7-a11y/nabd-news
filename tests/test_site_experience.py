@@ -2,6 +2,7 @@
 import unittest
 import os
 import tempfile
+import time
 from datetime import datetime, timezone, timedelta
 from urllib.parse import parse_qs, urlparse
 from unittest.mock import patch
@@ -262,7 +263,7 @@ class SiteExperienceTests(unittest.TestCase):
         self.assertTrue(story["details_from_source_excerpt"])
 
 
-    def test_missing_photo_uses_language_specific_brand_fallback(self):
+    def test_missing_photo_uses_local_topic_art_fallback(self):
         published = datetime(2026, 10, 15, tzinfo=timezone.utc)
         common = {
             "slug": "fallback-story",
@@ -284,12 +285,13 @@ class SiteExperienceTests(unittest.TestCase):
         english = world_pulse._normalise_story(dict(common, original_language="en"), "en")
         arabic = world_pulse._normalise_story(dict(common, original_language="ar"), "ar")
 
-        self.assertEqual(english["image_url"], "/static/images/fallback-en.svg")
-        self.assertEqual(english["image_fallback_url"], "/static/images/fallback-en.svg")
-        self.assertEqual(english["image_source"], "fallback_en")
-        self.assertEqual(arabic["image_url"], "/static/images/fallback-ar.svg")
-        self.assertEqual(arabic["image_fallback_url"], "/static/images/fallback-ar.svg")
-        self.assertEqual(arabic["image_source"], "fallback_ar")
+        for story in (english, arabic):
+            self.assertTrue(story["image_url"].startswith("/media/editorial.svg?"))
+            self.assertEqual(story["image_url"], story["image_fallback_url"])
+            self.assertIn("category=world", story["image_url"])
+            self.assertEqual(story["image_source"], "editorial_generated")
+        self.assertIn("lang=en", english["image_url"])
+        self.assertIn("lang=ar", arabic["image_url"])
 
 
     def test_long_headline_is_shortened_and_duplicate_summary_is_repaired(self):
@@ -352,18 +354,20 @@ class SiteExperienceTests(unittest.TestCase):
         self.assertNotEqual(story["title"], story["summary"])
         self.assertTrue(story["content"])
 
-    def test_article_route_builds_the_display_pool_only_once(self):
+    def test_article_route_reuses_warm_display_pool_without_database_scan(self):
         stories = [
             {"slug": "story-one", "category": "technology", "title": "Short title"},
             {"slug": "story-two", "category": "technology", "title": "Related story"},
         ]
-        with patch.object(world_pulse, "_get_display_stories", return_value=stories) as pool:
-            with patch.object(world_pulse, "_find_article", side_effect=AssertionError("duplicate DB scan")):
-                with patch.object(world_pulse, "render_template", return_value="article rendered"):
-                    response = world_pulse.app.test_client().get("/article/story-one?lang=en")
+        warm_cache = {"en": (time.monotonic(), stories)}
+        with patch.object(world_pulse, "_ensure_background_scheduler"):
+            with patch.object(world_pulse, "current_language", return_value="en"):
+                with patch.object(world_pulse, "_DISPLAY_STORIES_CACHE", warm_cache):
+                    with patch.object(world_pulse, "_db_fetch_article_by_slug", side_effect=AssertionError("warm cache should win")):
+                        with patch.object(world_pulse, "render_template", return_value="article rendered"):
+                            response = world_pulse.app.test_client().get("/article/story-one?lang=en")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.get_data(as_text=True), "article rendered")
-        pool.assert_called_once_with("en")
 
     def test_source_control_cache_primes_all_known_toggles_with_one_database_query(self):
         class FakeCursor:
@@ -1044,6 +1048,100 @@ class BoundedImageProviderSearchTests(unittest.TestCase):
         }
         self.assertEqual(specialist_keys, {"image:wellcome_open_access"})
 
+
+    def test_archive_feed_query_limits_each_language_before_combining(self):
+        from unittest.mock import MagicMock
+
+        connection = MagicMock()
+        cursor = connection.cursor.return_value.__enter__.return_value
+        cursor.fetchall.return_value = []
+
+        with patch.object(world_pulse, "_DB_ARTICLES_CACHE", None):
+            with patch.object(world_pulse, "_DB_ARTICLES_CACHE_AT", 0.0):
+                with patch.object(world_pulse, "_ensure_schema", return_value=True):
+                    with patch.object(world_pulse, "_connect_db", return_value=connection):
+                        with patch.object(world_pulse, "_release_db_connection"):
+                            self.assertEqual(world_pulse._db_fetch_all(), [])
+
+        query = cursor.execute.call_args.args[0]
+        self.assertNotIn("ROW_NUMBER()", query)
+        self.assertIn("UNION ALL", query)
+        self.assertIn("SELECT * FROM (", query)
+        self.assertEqual(query.count("LIMIT 120"), 2)
+        self.assertIn("original_language = 'ar'", query)
+        self.assertIn("original_language = 'en'", query)
+
+    def test_partial_translation_falls_back_to_cohesive_native_article(self):
+        native_body = (
+            "يتناول التقرير تفاصيل الحدث وسياقه بحسب المعلومات التي نشرها المصدر. "
+            "وتوضح المادة ما جرى والخطوة التالية دون إضافة معلومات غير موجودة في المصدر."
+        )
+        row = {
+            "slug": "partial-translation",
+            "source_url": "https://www.saudigamer.com/example-story/",
+            "source_name": "Saudi Gamer",
+            "source_domain": "saudigamer.com",
+            "category": "gaming",
+            "original_language": "ar",
+            "title_ar": "عنوان عربي أصلي واضح عن تطور جديد في الألعاب",
+            "title_en": "A partial English translation",
+            "summary_ar": "يلخص هذا الموجز الحدث ويوضح أبرز ما يورده المصدر عن تفاصيل التطور الجديد.",
+            "summary_en": "A generated English summary exists but the translated details are incomplete.",
+            "content_ar": native_body,
+            "content_en": "Only a fragment.",
+            "image_url": "",
+            "image_source": "none",
+        }
+
+        story = world_pulse._normalise_story(row, "en")
+
+        self.assertEqual(story["display_language"], "ar")
+        self.assertTrue(story["translation_fallback"])
+        self.assertEqual(story["title"], row["title_ar"])
+        self.assertEqual(story["summary"], row["summary_ar"])
+        self.assertTrue(story["content"])
+
+    def test_headline_only_article_redirects_to_original_publisher(self):
+        row = {
+            "slug": "bbc-headline-only",
+            "source_url": "https://www.bbc.com/news/example-story",
+            "source_name": "BBC News",
+            "source_domain": "bbc.com",
+            "category": "world",
+            "original_language": "en",
+            "title_en": "A BBC publisher headline",
+            "title_ar": "",
+            "summary_en": "A restricted publisher headline has no reusable article text.",
+            "summary_ar": "",
+            "content_en": "This is a stored but restricted body which must never appear on our internal page.",
+            "content_ar": "",
+            "image_url": "",
+            "image_source": "none",
+            "is_demo": False,
+        }
+
+        with patch.object(world_pulse, "_ensure_background_scheduler"):
+            with patch.object(world_pulse, "current_language", return_value="en"):
+                with patch.object(world_pulse, "_DISPLAY_STORIES_CACHE", {}):
+                    with patch.object(world_pulse, "_db_fetch_article_by_slug", return_value=row):
+                        with patch.object(world_pulse, "_row_allowed_on_language_site", return_value=True):
+                            with patch.object(world_pulse, "_display_category", return_value="world"):
+                                response = world_pulse.app.test_client().get("/article/bbc-headline-only?lang=en")
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers["Location"], row["source_url"])
+
+    def test_source_only_cards_use_publisher_links_and_refresh_status_is_hidden(self):
+        template_path = os.path.join(os.path.dirname(world_pulse.__file__), "templates", "index.html")
+        with open(template_path, encoding="utf-8") as handle:
+            template = handle.read()
+
+        self.assertIn("story.source_url if story.source_only", template)
+        self.assertIn('id="latest-stories"', template)
+        self.assertNotIn('id="refreshNews"', template)
+        self.assertNotIn('id="newsStatusText"', template)
+        self.assertNotIn("Last updated", template)
+        self.assertNotIn("تحديث تلقائي كل", template)
 
 if __name__ == "__main__":
     unittest.main()
