@@ -60,6 +60,8 @@ This is a conservative product rule, **not legal confirmation that every headlin
 
 ## Image pipeline
 
+Search is deliberately staged to protect article-publishing latency: Openverse, Wikimedia Commons and the Library of Congress are checked first as a three-provider parallel group. If none yields an eligible image, the category-specific specialists (Art Institute, The Met and Cleveland for culture; Wellcome for culture/science) are checked in a second bounded group. NASA and approved press-kit catalogues remain the final fallback group. A slow group is timed out independently; the story is already saved in Supabase and still publishes with a labelled editorial illustration if no valid photo is found.
+
 1. **Wikimedia Commons** searches short keyword phrases derived from each headline and topic. Only item pages with permitted public-domain/CC0/CC BY/CC BY-SA licences are accepted. CC BY and CC BY-SA require creator credit and licence linking; noncommercial and no-derivatives variants are rejected.
 2. **Openverse** searches openly licensed images without a Pexels/Unsplash key. Only CC0, Public Domain Mark, CC BY and CC BY-SA item licences are accepted. Creator, item landing page and exact licence URL are preserved. Openverse's indexed licence metadata can be inaccurate, so item-level checks remain required.
 3. **Library of Congress** photo records are searched with no API key. An item must explicitly indicate public domain, no known restrictions, CC0, or free-to-use/reuse status; its exact record is retained. “No known restrictions” is a record-specific assessment, not a blanket guarantee.
