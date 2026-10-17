@@ -10,6 +10,7 @@ from __future__ import annotations
 import base64
 import calendar
 import difflib
+from collections import OrderedDict
 import fcntl
 import hashlib
 import html
@@ -637,6 +638,15 @@ _DB_ARTICLES_LOAD_LOCK = threading.Lock()
 _DISPLAY_STORIES_CACHE_TTL_SECONDS = max(2, min(120, int(os.getenv("DISPLAY_STORIES_CACHE_TTL_SECONDS", "120"))))
 _DISPLAY_STORIES_CACHE: dict[str, tuple[float, list[dict[str, Any]]]] = {}
 _DISPLAY_STORIES_CACHE_LOCK = threading.Lock()
+# Licensed image bytes are immutable by content id; a small process-local LRU avoids
+# repeatedly opening Supabase sessions for the same image on each page view.
+_CATALOGUED_IMAGE_MEMORY_CACHE_MAX_BYTES = max(
+    1_048_576, min(64 * 1024 * 1024, int(os.getenv("CATALOGUED_IMAGE_MEMORY_CACHE_MAX_BYTES", "16777216")))
+)
+_CATALOGUED_IMAGE_MEMORY_CACHE_MAX_ITEM_BYTES = 3 * 1024 * 1024
+_CATALOGUED_IMAGE_MEMORY_CACHE: OrderedDict[str, tuple[bytes, str]] = OrderedDict()
+_CATALOGUED_IMAGE_MEMORY_CACHE_BYTES = 0
+_CATALOGUED_IMAGE_MEMORY_CACHE_LOCK = threading.RLock()
 _ARCHIVE_SHARED_CACHE_PATH = os.getenv("WORLD_PULSE_ARCHIVE_CACHE_FILE", "/tmp/world-pulse-archive-cache.json")
 _ARCHIVE_SHARED_CACHE_MAX_STALE_SECONDS = max(120, min(900, int(os.getenv("ARCHIVE_CACHE_MAX_STALE_SECONDS", "300"))))
 _ARCHIVE_REFRESH_THREAD_LOCK = threading.Lock()
@@ -3538,8 +3548,38 @@ def _cache_reusable_image(result: dict[str, Any]) -> dict[str, Any]:
         _release_db_connection(conn)
 
 
+def _cache_catalogued_image_bytes(image_id: str, value: tuple[bytes, str]) -> None:
+    """Keep immutable cached images in a byte-bounded LRU instead of an unbounded dict."""
+    global _CATALOGUED_IMAGE_MEMORY_CACHE_BYTES
+    image_bytes, mime_type = value
+    if not image_bytes or len(image_bytes) > _CATALOGUED_IMAGE_MEMORY_CACHE_MAX_ITEM_BYTES:
+        return
+    with _CATALOGUED_IMAGE_MEMORY_CACHE_LOCK:
+        previous = _CATALOGUED_IMAGE_MEMORY_CACHE.pop(image_id, None)
+        if previous:
+            _CATALOGUED_IMAGE_MEMORY_CACHE_BYTES -= len(previous[0])
+        _CATALOGUED_IMAGE_MEMORY_CACHE[image_id] = (image_bytes, mime_type)
+        _CATALOGUED_IMAGE_MEMORY_CACHE_BYTES += len(image_bytes)
+        while (
+            _CATALOGUED_IMAGE_MEMORY_CACHE
+            and _CATALOGUED_IMAGE_MEMORY_CACHE_BYTES > _CATALOGUED_IMAGE_MEMORY_CACHE_MAX_BYTES
+        ):
+            _old_id, (old_bytes, _old_mime) = _CATALOGUED_IMAGE_MEMORY_CACHE.popitem(last=False)
+            _CATALOGUED_IMAGE_MEMORY_CACHE_BYTES -= len(old_bytes)
+
+
 def _read_catalogued_image(image_id: str) -> tuple[bytes, str] | None:
-    if not re.fullmatch(r"[a-f0-9]{40}", image_id or "") or not _ensure_schema():
+    """Read durable licensed image bytes, using a bounded local LRU on repeat page views."""
+    if not re.fullmatch(r"[a-f0-9]{40}", image_id or ""):
+        return None
+
+    with _CATALOGUED_IMAGE_MEMORY_CACHE_LOCK:
+        cached = _CATALOGUED_IMAGE_MEMORY_CACHE.get(image_id)
+        if cached is not None:
+            _CATALOGUED_IMAGE_MEMORY_CACHE.move_to_end(image_id)
+            return cached
+
+    if not _ensure_schema():
         return None
     conn = _connect_db()
     if conn is None:
@@ -3557,7 +3597,9 @@ def _read_catalogued_image(image_id: str) -> tuple[bytes, str] | None:
             mime_type = str(row[1] or "")
             if mime_type not in {"image/jpeg", "image/png", "image/webp"}:
                 return None
-            return bytes(row[0]), mime_type
+            result = (bytes(row[0]), mime_type)
+        _cache_catalogued_image_bytes(image_id, result)
+        return result
     except Exception as exc:
         logger.debug("Cached source image read failed (%s)", type(exc).__name__)
         return None
