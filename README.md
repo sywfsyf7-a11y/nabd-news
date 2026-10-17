@@ -7,7 +7,7 @@ A bilingual news portal that discovers real stories from publisher sources, crea
 - Hosting: Render Python web service, connected to the `main` branch with automatic deploys.
 - Build command: `pip install -r requirements.txt`
 - Start command: `gunicorn --workers 2 --threads 4 --timeout 90 --bind 0.0.0.0:$PORT app:app`
-- Frontend styles: built once during deployment with `npm run build:css`; pages load the generated local `static/css/site.css` instead of Tailwind's browser-side Play CDN.
+- Frontend styles: production uses the checked-in compiled `static/css/site.css`; developers/CI can regenerate it with `npm run build:css`. Pages load local CSS rather than Tailwind's browser-side Play CDN.
 - Health endpoint: `/healthz`; non-secret news/image readiness: `/api/news-status`.
 
 ## Global news coverage
