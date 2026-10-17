@@ -1662,8 +1662,11 @@ def _backfill_missing_article_images(limit: int = 6) -> int:
         # Revalidate stored photos; if no relevant, rights-cleared match is found, use
         # the labelled editorial illustration rather than a potentially misleading photo.
         raw["_revalidating_cached_image"] = True
-        raw["image_search_title"] = row.get("title_en") or row.get("title_ar") or raw.get("original_title", "")
-        raw["image_search_context"] = row.get("summary_en") or row.get("summary_ar") or raw.get("original_summary", "")
+        image_language = str(row.get("original_language") or "en").casefold()
+        if image_language not in {"ar", "en"}:
+            image_language = "en"
+        raw["image_search_title"] = row.get(f"title_{image_language}") or raw.get("original_title", "")
+        raw["image_search_context"] = row.get(f"summary_{image_language}") or raw.get("original_summary", "")
     _enrich_article_images(pending)
     _db_update_article_images(pending)
     for raw in pending:
@@ -5544,8 +5547,11 @@ def _refresh_news_job() -> None:
                 raw["image_search_context"] = raw.get("original_summary", "")
                 raw_to_publish.append((index, raw))
                 continue
-            raw["image_search_title"] = enriched.get("title_en") or raw.get("original_title", "")
-            raw["image_search_context"] = enriched.get("summary_en") or raw.get("original_summary", "")
+            image_language = str(raw.get("original_language") or "en").casefold()
+            if image_language not in {"ar", "en"}:
+                image_language = "en"
+            raw["image_search_title"] = enriched.get(f"title_{image_language}") or raw.get("original_title", "")
+            raw["image_search_context"] = enriched.get(f"summary_{image_language}") or raw.get("original_summary", "")
             raw_to_publish.append((index, raw))
 
         source_language_fallbacks = sum(
