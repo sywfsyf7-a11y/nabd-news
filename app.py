@@ -5179,7 +5179,9 @@ def _resolve_google_news_article_url(
         return ""
     if not _domain_matches(host, "news.google.com"):
         matched = _source_domain_for_category(category, lang, host)
-        return source_url if matched and (not expected_domain or _domain_matches(host, expected_domain)) else ""
+        # The URL host itself is allowlisted; use that canonical host even when a
+        # publisher's RSS source.href uses a sibling regional domain.
+        return source_url if matched else ""
     if not expected_domain or not _source_domain_for_category(category, lang, expected_domain):
         return ""
     try:
