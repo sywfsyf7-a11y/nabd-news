@@ -919,6 +919,34 @@ class SiteExperienceTests(unittest.TestCase):
             result = world_pulse._search_image_provider_group("test", finders)
         self.assertEqual(result, first)
 
+    def test_image_provider_group_deadline_allows_processing_headroom(self):
+        self.assertGreaterEqual(
+            world_pulse.IMAGE_PROVIDER_GROUP_TIMEOUT_SECONDS,
+            world_pulse.IMAGE_SEARCH_TIMEOUT_SECONDS + 2,
+        )
+        self.assertLessEqual(world_pulse.IMAGE_PROVIDER_GROUP_TIMEOUT_SECONDS, 15)
+
+        original_as_completed = world_pulse.as_completed
+        observed_timeouts = []
+        candidate = {
+            "image_url": "https://images.example.com/timely-result.jpg",
+            "image_source": "wikimedia_relevant",
+            "_image_relevance_score": 0.8,
+        }
+
+        def record_timeout(futures, timeout):
+            observed_timeouts.append(timeout)
+            return original_as_completed(futures, timeout=timeout)
+
+        with patch.object(world_pulse, "_control_enabled", return_value=True):
+            with patch.object(world_pulse, "as_completed", side_effect=record_timeout):
+                result = world_pulse._search_image_provider_group(
+                    "test", (("image:wikimedia_relevant", lambda: candidate),)
+                )
+
+        self.assertEqual(observed_timeouts, [world_pulse.IMAGE_PROVIDER_GROUP_TIMEOUT_SECONDS])
+        self.assertEqual(result["image_url"], candidate["image_url"])
+
     def test_forced_image_refresh_does_not_reuse_a_fresh_cached_photo_when_better_match_exists(self):
         checked_at = datetime.now(timezone.utc)
         source_url = "https://www.example.com/news/image-refresh"
