@@ -43,7 +43,7 @@ class RSSPublisherGroupTests(unittest.TestCase):
         self.assertIn("site:bbc.com", query)
         self.assertIn("site:reuters.com", query)
         self.assertIn("when:3d", query)
-        self.assertNotIn("site:reuters.com", query)
+        self.assertNotIn("site:apnews.com", query)
 
     def test_disallowed_group_is_rejected_before_network_access(self):
         controls = self._patch_rss_catalogue()
