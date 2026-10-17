@@ -1442,8 +1442,9 @@ def _invalidate_db_articles_cache() -> None:
 def _remove_article_from_archive_cache(slug: str) -> None:
     """Immediately propagate a successful soft-hide to shared and process-local display caches."""
     global _DB_ARTICLES_CACHE, _DB_ARTICLES_CACHE_AT
-    cache_handle = _archive_file_lock()
+    cache_handle = None
     try:
+        cache_handle = _archive_file_lock()
         now = time.monotonic()
         with _DB_ARTICLES_CACHE_LOCK:
             local_rows = [dict(row) for row in _DB_ARTICLES_CACHE] if _DB_ARTICLES_CACHE is not None else None
@@ -1489,8 +1490,13 @@ def _remove_article_from_archive_cache(slug: str) -> None:
             pass
         with _DISPLAY_STORIES_CACHE_LOCK:
             _DISPLAY_STORIES_CACHE.clear()
+        with _MEMORY_ARTICLES_LOCK:
+            for key in list(_MEMORY_ARTICLES):
+                if str(_MEMORY_ARTICLES[key].get("slug") or "") == slug:
+                    _MEMORY_ARTICLES.pop(key, None)
     finally:
-        _archive_unlock(cache_handle)
+        if cache_handle is not None:
+            _archive_unlock(cache_handle)
 
 
 def _archive_file_lock():
