@@ -91,6 +91,24 @@ class AdminArchiveManagementTests(unittest.TestCase):
         self.assertIn("240", response.get_data(as_text=True))
         audit.assert_not_called()
 
+    def test_hide_prunes_the_shared_and_local_warm_archive_snapshot(self):
+        hidden = {"slug": "story-to-hide", "source_url": "https://example.test/hidden"}
+        visible = {"slug": "story-visible", "source_url": "https://example.test/visible"}
+        cached_rows = [hidden, visible]
+        memory = {hidden["source_url"]: dict(hidden)}
+
+        with patch.object(world_pulse, "_DB_ARTICLES_CACHE", cached_rows):
+            with patch.object(world_pulse, "_DB_ARTICLES_CACHE_AT", world_pulse.time.monotonic()):
+                with patch.object(world_pulse, "_read_shared_archive_cache", return_value=(cached_rows, 0.01)):
+                    with patch.object(world_pulse, "_write_shared_archive_cache") as write_shared:
+                        with patch.object(world_pulse, "_archive_file_lock", return_value=MagicMock()):
+                            with patch.object(world_pulse, "_archive_unlock"):
+                                with patch.object(world_pulse, "_MEMORY_ARTICLES", memory):
+                                    world_pulse._remove_article_from_archive_cache("story-to-hide")
+
+        self.assertEqual([row["slug"] for row in write_shared.call_args.args[0]], ["story-visible"])
+        self.assertNotIn(hidden["source_url"], memory)
+
     def test_soft_hide_updates_visibility_flag_and_never_deletes_article(self):
         connection = MagicMock()
         cursor = connection.cursor.return_value.__enter__.return_value
