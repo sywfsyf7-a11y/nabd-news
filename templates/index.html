@@ -22,10 +22,7 @@
     {% set canonical_url = url_for('index', lang=lang, _external=True) %}
   {% endif %}
   {% if page not in ['search', '404'] %}<link rel="canonical" href="{{ canonical_url }}">{% endif %}
-  {% if page == 'article' and article and article.title_ar and article.title_en %}
-    <link rel="alternate" hreflang="ar" href="{{ url_for('article', slug=article.slug, lang='ar', _external=True) }}">
-    <link rel="alternate" hreflang="en" href="{{ url_for('article', slug=article.slug, lang='en', _external=True) }}">
-  {% elif page == 'home' %}
+  {% if page == 'home' %}
     <link rel="alternate" hreflang="ar" href="{{ url_for('index', lang='ar', _external=True) }}">
     <link rel="alternate" hreflang="en" href="{{ url_for('index', lang='en', _external=True) }}">
   {% elif page == 'legal' and legal_slug == 'contact' %}
@@ -353,12 +350,6 @@
         </a>
         <div class="flex flex-wrap items-center gap-2">
           <a href="{{ url_for('index', lang=lang, category=article.category) }}" class="inline-flex rounded-full bg-white px-3 py-2 text-xs font-extrabold text-slate-600 ring-1 ring-slate-200 transition hover:text-pulse">{{ article.category_label }}</a>
-          {% if article.title_ar and article.title_en %}
-            <a href="{{ url_for('article', slug=article.slug, lang=('en' if lang == 'ar' else 'ar')) }}" class="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-extrabold text-slate-700 transition hover:border-pulse hover:text-pulse">
-              <svg viewBox="0 0 20 20" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="10" cy="10" r="7.2"/><path d="M2.8 10h14.4M10 2.8c2 2 3 4.4 3 7.2s-1 5.2-3 7.2c-2-2-3-4.4-3-7.2s1-5.2 3-7.2Z"/></svg>
-              {{ 'English edition' if lang == 'ar' else 'النسخة العربية' }}
-            </a>
-          {% endif %}
         </div>
       </div>
 
