@@ -491,11 +491,13 @@ def _display_category(row: dict[str, Any], lang: str) -> str:
 
 
 def _row_allowed_on_language_site(row: dict[str, Any], lang: str) -> bool:
-    """Allow a story on either interface language while validating its native publisher."""
+    """Keep each source-language story on its matching interface, with source-policy checks."""
     if lang not in {"ar", "en"}:
         return False
     source_lang = str(row.get("original_language") or "").casefold()
-    if source_lang not in {"ar", "en"}:
+    # Never show an English-source headline inside the Arabic feed (or vice versa).
+    # This also prevents untranslated/half-translated cards from looking like mixed content.
+    if source_lang != lang:
         return False
     category = str(row.get("category") or "world")
     host = str(row.get("source_domain") or "").casefold().removeprefix("www.")
