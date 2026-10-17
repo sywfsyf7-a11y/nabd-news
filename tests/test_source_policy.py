@@ -399,6 +399,7 @@ class SourcePolicyTests(unittest.TestCase):
             "image_provider_url": "https://openverse.example.test/item",
             "image_license_url": "https://creativecommons.org/licenses/by/4.0/",
             "image_checked_at": None,
+            "_image_relevance_evidence": "Generic technology story hardware devices processor",
             "_image_relevance_score": 0.82,
         }
         article = {
