@@ -63,7 +63,7 @@ jobs:
       - name: Wait until the exact main-branch commit is live on Render
         env:
           SITE_URL: https://nabd-news.onrender.com
-          EXPECTED_COMMIT: __DOLLAR_OPEN__{{ github.sha }}
+          EXPECTED_COMMIT: ${{ github.sha }}
         shell: bash
         run: |
           set -euo pipefail
@@ -79,7 +79,7 @@ jobs:
                 echo "Render is serving expected commit $deployed_commit"
                 break
               fi
-              echo "Render still serves __DOLLAR_OPEN__{deployed_commit:-an older app version}; expected $EXPECTED_COMMIT (attempt $attempt/30)."
+              echo "Render still serves ${deployed_commit:-an older app version}; expected $EXPECTED_COMMIT (attempt $attempt/30)."
             else
               echo "Render has not answered /healthz yet (attempt $attempt/30)."
             fi
