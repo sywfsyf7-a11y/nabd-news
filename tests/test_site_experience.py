@@ -920,9 +920,15 @@ class SiteExperienceTests(unittest.TestCase):
         self.assertEqual(result, first)
 
     def test_image_provider_group_deadline_allows_processing_headroom(self):
-        self.assertGreaterEqual(
+        self.assertEqual(
             world_pulse.IMAGE_PROVIDER_GROUP_TIMEOUT_SECONDS,
-            world_pulse.IMAGE_SEARCH_TIMEOUT_SECONDS + 2,
+            min(
+                15,
+                max(
+                    world_pulse.IMAGE_SEARCH_TIMEOUT_SECONDS + 5,
+                    world_pulse.IMAGE_SEARCH_TIMEOUT_SECONDS * 3,
+                ),
+            ),
         )
         self.assertLessEqual(world_pulse.IMAGE_PROVIDER_GROUP_TIMEOUT_SECONDS, 15)
 
