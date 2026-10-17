@@ -521,6 +521,54 @@ class SiteExperienceTests(unittest.TestCase):
         self.assertEqual(result, ("world", "ar", []))
         parser.assert_not_called()
 
+    def test_jpl_http_error_falls_back_only_to_allowlisted_google_news_domain(self):
+        from io import BytesIO
+
+        direct_url = "https://www.jpl.nasa.gov/feeds/news/"
+        rss_xml = b"""<?xml version="1.0" encoding="UTF-8"?>
+        <rss version="2.0"><channel><title>Google News</title>
+          <item>
+            <title>NASA JPL announces a new Mars research mission</title>
+            <link>https://www.jpl.nasa.gov/news/example-mars-mission/</link>
+            <description>The Jet Propulsion Laboratory described a new Mars research mission and its scientific goals.</description>
+            <source url="https://www.jpl.nasa.gov/">NASA Jet Propulsion Laboratory</source>
+            <pubDate>Fri, 16 Oct 2026 08:00:00 GMT</pubDate>
+          </item>
+        </channel></rss>"""
+        requested_urls = []
+
+        def fake_urlopen(request, timeout):
+            requested_urls.append(request.full_url)
+            if request.full_url == direct_url:
+                raise world_pulse.HTTPError(direct_url, 403, "Forbidden", {}, None)
+            return BytesIO(rss_xml)
+
+        self.assertEqual(
+            world_pulse._source_domain_for_category("science", "en", "jpl.nasa.gov"),
+            "jpl.nasa.gov",
+        )
+        with patch.object(world_pulse, "urlopen", side_effect=fake_urlopen):
+            with patch.object(world_pulse, "_control_enabled", return_value=True):
+                result = world_pulse._parse_direct_rss_feed(
+                    direct_url,
+                    "science",
+                    "en",
+                    "jpl.nasa.gov",
+                    "NASA Jet Propulsion Laboratory",
+                )
+
+        self.assertEqual((result[0], result[1]), ("science", "en"))
+        self.assertEqual(len(result[2]), 1)
+        self.assertEqual(result[2][0]["source_domain"], "jpl.nasa.gov")
+        self.assertEqual(
+            result[2][0]["source_url"],
+            "https://www.jpl.nasa.gov/news/example-mars-mission/",
+        )
+        self.assertEqual(len(requested_urls), 2)
+        fallback_query = parse_qs(urlparse(requested_urls[1]).query)["q"][0]
+        self.assertIn("site:jpl.nasa.gov", fallback_query)
+        self.assertIn("when:3d", fallback_query)
+
     def test_source_language_story_with_no_rss_excerpt_gets_transparent_summary(self):
         article = world_pulse._base_article({
             "slug": "headline-only-fallback",
