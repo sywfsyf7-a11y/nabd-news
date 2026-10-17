@@ -6312,9 +6312,9 @@ def search():
 @app.get("/article/<slug>")
 def article(slug: str):
     lang = current_language()
-    # On a warm display cache, serve a clicked story without another DB query. On a
-    # cold cache, do an indexed slug lookup first; only build the recent list if needed
-    # for related-story links after the target has been found.
+    # On a warm display cache, serve a clicked story immediately. On a cold cache,
+    # use an indexed slug lookup and a bounded related-story query rather than rebuilding
+    # the entire homepage story pool for a single article request.
     pool: list[dict[str, Any]] | None = None
     now = time.monotonic()
     with _DISPLAY_STORIES_CACHE_LOCK:
@@ -6397,7 +6397,7 @@ def article(slug: str):
         "index.html",
         page="article",
         stories=[],
-        all_story_count=len(pool),
+        all_story_count=len(pool if pool is not None else related_pool),
         active_category="all",
         breaking_story=None,
         related_stories=related,
