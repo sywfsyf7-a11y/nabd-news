@@ -99,8 +99,10 @@ class PersistentArchiveStabilityTests(unittest.TestCase):
         ]
         with patch.object(world_pulse, "_DB_ARTICLES_CACHE", snapshot):
             with patch.object(world_pulse, "_DB_ARTICLES_CACHE_AT", 0.0):
-                with patch.object(world_pulse, "_ensure_schema", return_value=False):
-                    result = world_pulse._db_fetch_all()
+                # Force the cold-read fallback path; tests must not borrow a shared temp-file cache.
+                with patch.object(world_pulse, "_read_shared_archive_cache", return_value=None):
+                    with patch.object(world_pulse, "_ensure_schema", return_value=False):
+                        result = world_pulse._db_fetch_all()
 
         self.assertEqual(result, snapshot)
         self.assertIsNot(result, snapshot)
