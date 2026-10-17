@@ -118,7 +118,7 @@ IMAGE_SEARCH_TIMEOUT_SECONDS = max(3, min(12, int(os.getenv("IMAGE_SEARCH_TIMEOU
 # The previous group deadline was only one second above the socket timeout, so it
 # discarded valid catalogue responses that needed a little extra time to decode/rank.
 IMAGE_PROVIDER_GROUP_TIMEOUT_SECONDS = min(
-    15, max(IMAGE_SEARCH_TIMEOUT_SECONDS + 2, IMAGE_SEARCH_TIMEOUT_SECONDS * 2)
+    15, max(IMAGE_SEARCH_TIMEOUT_SECONDS + 5, IMAGE_SEARCH_TIMEOUT_SECONDS * 3)
 )
 IMAGE_DOWNLOAD_TIMEOUT_SECONDS = max(5, min(20, int(os.getenv("IMAGE_DOWNLOAD_TIMEOUT_SECONDS", "10"))))
 MAX_IMAGE_LOOKUPS_PER_REFRESH = max(0, min(32, int(os.getenv("MAX_IMAGE_LOOKUPS_PER_REFRESH", "2"))))
