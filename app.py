@@ -2184,6 +2184,7 @@ def _sync_cached_image_metadata(articles: list[dict[str, Any]]) -> None:
                         "image_source": "fallback_ar" if lang == "ar" else "fallback_en",
                         "image_credit": "", "image_credit_url": "",
                         "image_provider_url": "", "image_license_url": "",
+                        "image_relevance_verified": False,
                     })
                 story["image_license_name"] = _image_license_label(
                     str(story.get("image_license_url") or ""), str(story.get("image_source") or "")
