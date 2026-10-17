@@ -1206,5 +1206,54 @@ class NewImageProviderPersistenceTests(unittest.TestCase):
         )
 
 
+
+    def test_legacy_rows_with_english_text_mislabelled_as_arabic_are_rejected(self):
+        mislabeled_title = {
+            "category": "world",
+            "original_language": "ar",
+            "source_domain": "alghad.com",
+            "source_name": "Alghad",
+            "title_ar": "General news - AP News",
+            "summary_ar": "This is an English publisher description.",
+            "content_ar": "This report continues in English and was incorrectly marked as Arabic.",
+        }
+        self.assertFalse(world_pulse._row_allowed_on_language_site(mislabeled_title, "ar"))
+
+        mismatched_summary = dict(
+            mislabeled_title,
+            title_ar="تطورات جديدة في السياسة المحلية",
+            summary_ar="This is still an English summary.",
+            content_ar="تفاصيل عربية عن الخبر مع سياق إضافي مستند إلى المقتطف المتاح.",
+        )
+        self.assertFalse(world_pulse._row_allowed_on_language_site(mismatched_summary, "ar"))
+
+    def test_complete_translation_must_match_the_display_language_script(self):
+        row = {
+            "category": "technology",
+            "original_language": "en",
+            "source_domain": "theverge.com",
+            "source_name": "The Verge",
+            "title_en": "New technology policy announced",
+            "summary_en": "The company announced a policy update for its technology product.",
+            "content_en": (
+                "The publisher reports a policy update for its technology product. "
+                "The available report describes the announced change and its stated context, "
+                "without adding unsupported names, dates, figures, causes, or background details."
+            ),
+            "title_ar": "الإعلان عن سياسة تقنية جديدة",
+            "summary_ar": "أعلنت الشركة تحديثاً للسياسة المتعلقة بمنتجها التقني.",
+            "content_ar": (
+                "أفادت المادة المتاحة بأن الشركة أعلنت تحديثاً للسياسة المتعلقة بمنتجها التقني. "
+                "وتوضح المعلومات المنشورة طبيعة التغيير والسياق الذي ذكره المصدر، دون إضافة "
+                "أسماء أو تواريخ أو أرقام أو أسباب لم ترد في المادة الأصلية."
+            ),
+        }
+        self.assertTrue(world_pulse._row_allowed_on_language_site(row, "ar"))
+        self.assertFalse(
+            world_pulse._row_allowed_on_language_site(
+                dict(row, content_ar=row["content_en"]), "ar"
+            )
+        )
+
 if __name__ == "__main__":
     unittest.main()
