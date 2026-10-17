@@ -1439,6 +1439,44 @@ def _invalidate_db_articles_cache() -> None:
         _DISPLAY_STORIES_CACHE.clear()
 
 
+def _remove_article_from_archive_cache(slug: str) -> None:
+    """Immediately propagate a successful soft-hide to shared and process-local display caches."""
+    global _DB_ARTICLES_CACHE, _DB_ARTICLES_CACHE_AT
+    cache_handle = _archive_file_lock()
+    try:
+        now = time.monotonic()
+        with _DB_ARTICLES_CACHE_LOCK:
+            local_rows = [dict(row) for row in _DB_ARTICLES_CACHE] if _DB_ARTICLES_CACHE is not None else None
+            local_age = max(0.0, now - _DB_ARTICLES_CACHE_AT) if _DB_ARTICLES_CACHE is not None else float("inf")
+        shared = _read_shared_archive_cache(max_age_seconds=_ARCHIVE_SHARED_CACHE_MAX_STALE_SECONDS)
+        if shared is not None and shared[1] < local_age:
+            source_rows = shared[0]
+        elif local_rows is not None:
+            source_rows = local_rows
+        elif shared is not None:
+            source_rows = shared[0]
+        else:
+            source_rows = []
+        visible_rows = [dict(row) for row in source_rows if str(row.get("slug") or "") != slug]
+        # Keep a fresh shared snapshot instead of deleting it: sibling workers must not
+        # fall back to their stale local copy and accidentally show the hidden story again.
+        _write_shared_archive_cache(visible_rows)
+        with _DB_ARTICLES_CACHE_LOCK:
+            _DB_ARTICLES_CACHE = visible_rows
+            _DB_ARTICLES_CACHE_AT = time.monotonic()
+        with _DISPLAY_STORIES_CACHE_LOCK:
+            _DISPLAY_STORIES_CACHE.clear()
+        with _MEMORY_ARTICLES_LOCK:
+            for key in list(_MEMORY_ARTICLES):
+                if str(_MEMORY_ARTICLES[key].get("slug") or "") == slug:
+                    _MEMORY_ARTICLES.pop(key, None)
+    except Exception as exc:
+        logger.warning("Could not prune hidden story from warm archive caches (%s)", type(exc).__name__)
+        _invalidate_db_articles_cache()
+    finally:
+        _archive_unlock(cache_handle)
+
+
 def _archive_file_lock():
     """Acquire an inter-process lock so both Gunicorn workers share one cold archive read."""
     path = _ARCHIVE_SHARED_CACHE_PATH + ".lock"
@@ -7602,7 +7640,10 @@ def _admin_set_article_hidden(slug: str, hidden: bool) -> bool:
             changed = cur.rowcount > 0
         conn.commit()
         if changed:
-            _invalidate_db_articles_cache()
+            if hidden:
+                _remove_article_from_archive_cache(slug)
+            else:
+                _invalidate_db_articles_cache()
         return changed
     except Exception as exc:
         conn.rollback()
