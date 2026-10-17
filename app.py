@@ -4277,6 +4277,33 @@ def _save_persisted_news_queue(state: dict[str, Any]) -> bool:
         _release_db_connection(conn)
 
 
+def _append_news_queue_candidates(
+    queued_items: list[dict[str, Any]],
+    candidates: list[dict[str, Any]],
+    known_url_keys: set[str],
+    *,
+    max_pending: int = MAX_PENDING_NEWS_CANDIDATES,
+    max_additions: int = MAX_QUEUE_ADDITIONS_PER_DISCOVERY,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Append fresh metadata in FIFO order without evicting older pending items."""
+    queued_keys = {
+        _canonical_story_url(item.get("source_url"))
+        for item in queued_items if item.get("source_url")
+    }
+    available_slots = max(0, max_pending - len(queued_items))
+    addition_limit = min(max(0, max_additions), available_slots)
+    additions: list[dict[str, Any]] = []
+    for candidate in candidates:
+        if len(additions) >= addition_limit:
+            break
+        key = _canonical_story_url(candidate.get("source_url"))
+        if not key or key in known_url_keys or key in queued_keys:
+            continue
+        queued_keys.add(key)
+        additions.append(candidate)
+    return list(queued_items) + additions, additions
+
+
 def _news_queue_discovery_due(state: dict[str, Any], now: datetime | None = None) -> bool:
     discovered_at = _queue_datetime(state.get("discovered_at"))
     if discovered_at is None:
@@ -4337,25 +4364,14 @@ def _refresh_news_job() -> None:
             known_urls = {str(row.get("source_url", "")) for row in database_rows if row.get("source_url")}
             known_urls.update(str(row.get("source_url", "")) for row in _MEMORY_ARTICLES.values() if row.get("source_url"))
             known_keys = {_canonical_story_url(url) for url in known_urls if url}
-            queued_keys = {
-                _canonical_story_url(item.get("source_url"))
-                for item in queue_items if item.get("source_url")
-            }
-            additions: list[dict[str, Any]] = []
-            available_slots = max(0, MAX_PENDING_NEWS_CANDIDATES - len(queue_items))
-            addition_limit = min(MAX_QUEUE_ADDITIONS_PER_DISCOVERY, available_slots)
-            for candidate in rss_candidates:
-                if len(additions) >= addition_limit:
-                    break
-                key = _canonical_story_url(candidate.get("source_url"))
-                if not key or key in known_keys or key in queued_keys:
-                    continue
-                queued_keys.add(key)
-                additions.append(candidate)
-
-            # Keep the queue FIFO. Never trim or reorder pending metadata: archived articles
-            # are never deleted, and a temporarily overloaded queue must not starve old items.
-            queue_items.extend(additions)
+            # Keep the queue FIFO; no pending item is removed to make room for newer headlines.
+            queue_items, additions = _append_news_queue_candidates(
+                queue_items,
+                rss_candidates,
+                known_keys,
+                max_pending=MAX_PENDING_NEWS_CANDIDATES,
+                max_additions=MAX_QUEUE_ADDITIONS_PER_DISCOVERY,
+            )
             queue_state["discovered_at"] = datetime.now(timezone.utc).isoformat()
             queue_state["items"] = queue_items
             if not _save_persisted_news_queue(queue_state):
