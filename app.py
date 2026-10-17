@@ -174,12 +174,6 @@ UI_TEXT = {
         "published": "نُشر",
         "open_source": "متابعة الخبر لدى المصدر",
         "theme_toggle": "تغيير المظهر",
-        "refresh_news": "تحديث الأخبار",
-        "refreshing": "جارٍ التحديث…",
-        "auto_refresh": "تحديث تلقائي كل {minutes} دقيقة",
-        "last_updated": "آخر تحديث",
-        "refresh_cooldown": "تم طلب تحديث مؤخراً؛ انتظر قليلاً ثم حاول مجدداً.",
-        "refresh_error": "تعذّر إكمال التحديث.",
         "article_details": "تفاصيل الخبر",
         "photo_credit": "الصورة",
         "photo_license": "الترخيص",
@@ -211,12 +205,6 @@ UI_TEXT = {
         "published": "Published",
         "open_source": "Continue at the original source",
         "theme_toggle": "Toggle theme",
-        "refresh_news": "Refresh news",
-        "refreshing": "Refreshing…",
-        "auto_refresh": "News refresh automatically every {minutes} minutes",
-        "last_updated": "Last updated",
-        "refresh_cooldown": "A refresh was requested recently. Please wait a moment.",
-        "refresh_error": "The refresh could not be completed.",
         "article_details": "Story details",
         "photo_credit": "Photo",
         "photo_license": "License",
@@ -606,10 +594,14 @@ CREATE INDEX IF NOT EXISTS idx_world_pulse_category
 -- the entire ever-growing archive for every homepage or article request.
 CREATE INDEX IF NOT EXISTS idx_world_pulse_ar_live_date
     ON world_pulse_articles ((COALESCE(published_at, fetched_at)) DESC, fetched_at DESC)
-    WHERE is_demo = FALSE AND original_language = 'ar';
+    WHERE is_demo = FALSE AND original_language = 'ar'
+      AND LENGTH(TRIM(COALESCE(title_ar, ''))) > 0
+      AND LENGTH(TRIM(COALESCE(summary_ar, ''))) > 0;
 CREATE INDEX IF NOT EXISTS idx_world_pulse_en_live_date
     ON world_pulse_articles ((COALESCE(published_at, fetched_at)) DESC, fetched_at DESC)
-    WHERE is_demo = FALSE AND original_language = 'en';
+    WHERE is_demo = FALSE AND original_language = 'en'
+      AND LENGTH(TRIM(COALESCE(title_en, ''))) > 0
+      AND LENGTH(TRIM(COALESCE(summary_en, ''))) > 0;
 CREATE INDEX IF NOT EXISTS idx_world_pulse_category_live_date
     ON world_pulse_articles (category, (COALESCE(published_at, fetched_at)) DESC, fetched_at DESC)
     WHERE is_demo = FALSE;
