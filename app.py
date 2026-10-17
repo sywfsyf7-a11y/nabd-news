@@ -5498,6 +5498,21 @@ def article(slug: str):
                 stored = dict(stored)
                 stored["category"] = corrected_category
             selected = _normalise_story(stored, lang)
+        elif stored and stored.get("source_url") and stored_language in {"ar", "en"} and stored_language != lang:
+            # Keep old cross-language bookmarks useful without rendering mixed-language
+            # pages: when a complete translation is missing, redirect only to the known,
+            # allowlisted original publisher. Never treat an arbitrary database URL as safe.
+            source_url = str(stored.get("source_url") or "").strip()
+            parsed_source = urlparse(source_url)
+            source_host = (parsed_source.hostname or "").casefold().removeprefix("www.")
+            source_category = str(stored.get("category") or "world")
+            trusted_source = bool(
+                parsed_source.scheme.casefold() in {"http", "https"}
+                and _source_domain_for_category(source_category, stored_language, source_host)
+                and (not _domain_needs_license(source_host) or _is_headline_only_domain(source_host))
+            )
+            if trusted_source:
+                return redirect(source_url, code=302)
     if selected is None:
         abort(404)
     if selected.get("source_only"):
