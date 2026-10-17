@@ -203,13 +203,13 @@
       {% if stories %}
         <div class="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3">
           {% for story in stories %}
-            {% set story_href = story.source_url if story.source_only else url_for('article', slug=story.slug, lang=lang) %}
+            {% set story_href = url_for('article', slug=story.slug, lang=lang) %}
             <article class="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
               <p class="mb-2 text-xs font-bold text-pulse">{{ story.category_label }} · {{ story.source_name or ui.source }}</p>
-              <h2 class="text-lg font-extrabold leading-8"><a href="{{ story_href }}" dir="{{ 'rtl' if story.display_language == 'ar' else 'ltr' }}" lang="{{ story.display_language or lang }}"{% if story.source_only %} target="_blank" rel="noopener noreferrer"{% endif %}>{{ story.title }}</a></h2>
+              <h2 class="text-lg font-extrabold leading-8"><a href="{{ story_href }}" dir="{{ 'rtl' if story.display_language == 'ar' else 'ltr' }}" lang="{{ story.display_language or lang }}">{{ story.title }}</a></h2>
               {% if not story.headline_only %}<p dir="{{ 'rtl' if story.display_language == 'ar' else 'ltr' }}" lang="{{ story.display_language or lang }}" class="mt-3 line-clamp-4 text-sm leading-7 text-slate-600">{{ story.summary }}</p>{% endif %}
               {% if story.translation_fallback %}<p class="mt-3 text-[11px] leading-5 text-slate-400">{{ 'المحتوى معروض بلغة المصدر لعدم توفر ترجمة مكتملة بهذه اللغة بعد.' if lang == 'ar' else 'Shown in its original language because a complete translation is not available yet.' }}</p>{% endif %}
-              <a class="mt-4 inline-block text-sm font-bold text-pulse" href="{{ story_href }}"{% if story.source_only %} target="_blank" rel="noopener noreferrer"{% endif %}>{{ ui.open_source if story.source_only else ('اقرأ الخبر' if lang == 'ar' else 'Read story') }} ←</a>
+              <a class="mt-4 inline-block text-sm font-bold text-pulse" href="{{ story_href }}">{{ 'اقرأ الخبر' if lang == 'ar' else 'Read story' }} ←</a>
             </article>
           {% endfor %}
         </div>
@@ -255,8 +255,8 @@
           <div class="flex shrink-0 items-center gap-2 rounded-xl bg-pulse px-3 py-2.5 text-xs font-extrabold text-white sm:px-4 sm:text-sm">
             <span class="h-2 w-2 rounded-full bg-white"></span>{{ ui.latest }}
           </div>
-          {% set breaking_href = breaking_story.source_url if breaking_story.source_only else url_for('article', slug=breaking_story.slug, lang=lang) %}
-          <a href="{{ breaking_href }}"{% if breaking_story.source_only %} target="_blank" rel="noopener noreferrer"{% endif %} class="ticker-track flex min-w-0 flex-1 items-center justify-between gap-3 px-1 py-1 text-sm font-semibold leading-6 transition hover:text-pulse sm:text-base">
+          {% set breaking_href = url_for('article', slug=breaking_story.slug, lang=lang) %}
+          <a href="{{ breaking_href }}" class="ticker-track flex min-w-0 flex-1 items-center justify-between gap-3 px-1 py-1 text-sm font-semibold leading-6 transition hover:text-pulse sm:text-base">
             <span class="line-clamp-2" dir="{{ 'rtl' if breaking_story.display_language == 'ar' else 'ltr' }}" lang="{{ breaking_story.display_language or lang }}">{{ breaking_story.title }}</span>
             <span class="hidden shrink-0 text-xs font-medium text-slate-400 sm:inline">{{ breaking_story.published_label }}</span>
           </a>
@@ -275,9 +275,9 @@
         {% if stories %}
           <div class="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3">
             {% for story in stories %}
-              {% set story_href = story.source_url if story.source_only else url_for('article', slug=story.slug, lang=lang) %}
+              {% set story_href = url_for('article', slug=story.slug, lang=lang) %}
               <article class="group flex h-full flex-col overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-sm transition duration-300 hover:-translate-y-1 hover:border-slate-300 hover:shadow-soft">
-                <a href="{{ story_href }}"{% if story.source_only %} target="_blank" rel="noopener noreferrer"{% endif %} class="relative block aspect-[16/9] overflow-hidden bg-slate-200" tabindex="-1" aria-hidden="true">
+                <a href="{{ story_href }}" class="relative block aspect-[16/9] overflow-hidden bg-slate-200" tabindex="-1" aria-hidden="true">
                   <div aria-hidden="true" class="absolute inset-0 z-0 h-full w-full bg-gradient-to-br from-ink via-slate-800 to-slate-600"></div>
                   <img src="{{ story.image_url }}" data-fallback-src="{{ story.image_fallback_url }}" alt="{{ story.title }}" loading="lazy" decoding="async" class="absolute inset-0 z-[1] h-full w-full object-cover transition duration-700 group-hover:scale-105" onerror="if(this.dataset.fallbackSrc){this.onerror=null;this.src=this.dataset.fallbackSrc;}">
                   <span class="absolute {{ 'right-4' if lang == 'ar' else 'left-4' }} top-4 rounded-full border border-white/25 bg-ink/80 px-3 py-1.5 text-xs font-bold text-white backdrop-blur">{{ story.category_label }}</span>
@@ -298,14 +298,14 @@
                     <time>{{ story.published_label }}</time>
                   </div>
                   <h3 class="mb-3 text-lg font-extrabold leading-8 tracking-tight transition group-hover:text-pulse sm:text-xl">
-                    <a href="{{ story_href }}" dir="{{ 'rtl' if story.display_language == 'ar' else 'ltr' }}" lang="{{ story.display_language or lang }}"{% if story.source_only %} target="_blank" rel="noopener noreferrer"{% endif %}>{{ story.title }}</a>
+                    <a href="{{ story_href }}" dir="{{ 'rtl' if story.display_language == 'ar' else 'ltr' }}" lang="{{ story.display_language or lang }}">{{ story.title }}</a>
                   </h3>
                   {% if not story.headline_only %}<p dir="{{ 'rtl' if story.display_language == 'ar' else 'ltr' }}" lang="{{ story.display_language or lang }}" class="mb-6 line-clamp-3 text-sm leading-7 text-slate-600">{{ story.summary }}</p>{% endif %}
                   {% if story.translation_fallback %}<p class="mb-3 text-[11px] leading-5 text-slate-400">{{ 'المحتوى معروض بلغة المصدر لعدم توفر ترجمة مكتملة بهذه اللغة بعد.' if lang == 'ar' else 'Shown in its original language because a complete translation is not available yet.' }}</p>{% endif %}
                   <div class="mt-auto flex items-center justify-between gap-3 border-t border-slate-100 pt-4">
                     <span class="text-xs font-medium text-slate-400">{{ story.read_minutes }} {{ ui.read_time }}</span>
-                    <a href="{{ story_href }}"{% if story.source_only %} target="_blank" rel="noopener noreferrer"{% endif %} class="inline-flex items-center gap-2 text-sm font-extrabold text-pulse transition hover:gap-3">
-                      {{ ui.open_source if story.source_only else ui.read_full }}
+                    <a href="{{ story_href }}" class="inline-flex items-center gap-2 text-sm font-extrabold text-pulse transition hover:gap-3">
+                      {{ ui.read_full }}
                       <svg viewBox="0 0 20 20" class="h-4 w-4 {{ 'rotate-180' if lang == 'ar' else '' }}" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 10h13M10 4l6 6-6 6" stroke-linecap="round" stroke-linejoin="round"/></svg>
                     </a>
                   </div>
@@ -443,7 +443,7 @@
             <p class="mb-5 text-xs font-extrabold uppercase tracking-[.16em] text-pulse">{{ ui.recommended }}</p>
             <div class="space-y-5">
               {% for story in related_stories %}
-                <a href="{{ story.source_url if story.source_only else url_for('article', slug=story.slug, lang=lang) }}"{% if story.source_only %} target="_blank" rel="noopener noreferrer"{% endif %} class="group flex gap-3">
+                <a href="{{ url_for('article', slug=story.slug, lang=lang) }}" class="group flex gap-3">
                   <span class="relative block h-20 w-24 shrink-0 overflow-hidden rounded-xl bg-slate-200">
                     <div aria-hidden="true" class="absolute inset-0 z-0 h-full w-full bg-gradient-to-br from-ink via-slate-800 to-slate-600"></div>
                     <img src="{{ story.image_url }}" data-fallback-src="{{ story.image_fallback_url }}" alt="{{ story.title }}" loading="lazy" decoding="async" class="absolute inset-0 z-[1] h-full w-full object-cover" onerror="if(this.dataset.fallbackSrc){this.onerror=null;this.src=this.dataset.fallbackSrc;}">
