@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>إدارة الأخبار — نبض العالم</title>
+  <style>
+    :root{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;color:#172033;background:#f3f6fb;font-synthesis:none}
+    *{box-sizing:border-box}body{margin:0;padding:22px}main{max-width:1320px;margin:auto}
+    h1{margin:0;font-size:clamp(1.5rem,3vw,2.1rem)}h2{margin:0 0 12px;font-size:1.15rem}h3{margin:0 0 10px}
+    p{line-height:1.8}a{color:#b42332;text-underline-offset:3px}.muted{color:#64748b;font-size:.88rem;line-height:1.8}
+    .top{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-bottom:16px}.nav,.actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+    .button,button{display:inline-block;border:0;border-radius:10px;padding:10px 13px;background:#d73545;color:#fff;font-weight:750;text-decoration:none;cursor:pointer;font:inherit;font-weight:700}
+    .secondary{background:#e6ebf2!important;color:#243047!important}.dark{background:#253047!important;color:#fff!important}.danger{background:#fff0f0!important;color:#a61b29!important}
+    .card{background:#fff;border:1px solid #e1e7f0;border-radius:17px;padding:18px;margin:14px 0;box-shadow:0 8px 28px #15254408;min-width:0}
+    .notice{padding:12px 14px;border-radius:12px;background:#e9f8ef;color:#166534;border:1px solid #bbebcc;margin:14px 0;line-height:1.8}
+    .warning{background:#fff5e6;color:#92400e;border-color:#fed7aa}.error{background:#fff0f0;color:#a61b29;border-color:#fecaca}
+    .toolbar{display:grid;grid-template-columns:minmax(180px,2fr) minmax(150px,1fr) auto;gap:10px;align-items:end}
+    label{display:block;font-weight:750;margin:10px 0 6px}input,select,textarea{width:100%;border:1px solid #cbd5e1;border-radius:10px;padding:11px;font:inherit;background:#fff;color:#172033}
+    textarea{min-height:120px;resize:vertical;line-height:1.8}.fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.wide{grid-column:1/-1}
+    .story{display:grid;grid-template-columns:90px minmax(0,1fr) auto;gap:14px;align-items:start;padding:15px 0;border-top:1px solid #e8edf4}.story:first-of-type{border-top:0}
+    .thumb{width:90px;height:68px;border-radius:10px;background:#edf1f6;object-fit:cover}.story-title{font-weight:800;line-height:1.7;overflow-wrap:anywhere}
+    .meta{display:flex;gap:8px;flex-wrap:wrap;font-size:.78rem;color:#64748b;margin:5px 0}.pill{display:inline-flex;padding:4px 8px;border-radius:999px;background:#eef2f7;color:#344054;font-size:.76rem;font-weight:750}
+    .pill.good{background:#e9f8ef;color:#166534}.pill.hidden{background:#fff2df;color:#92400e}.row-actions{display:flex;gap:7px;flex-wrap:wrap;justify-content:end}
+    .pagination{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-top:16px}.inline{display:inline}.section-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+    details>summary{font-weight:800;cursor:pointer;padding:8px 0}.foot{margin:24px 2px;color:#64748b;font-size:.82rem;line-height:1.8}
+    @media(max-width:760px){body{padding:12px}.toolbar,.fields{grid-template-columns:1fr}.wide{grid-column:auto}.story{grid-template-columns:66px minmax(0,1fr)}.thumb{width:66px;height:58px}.row-actions{grid-column:1/-1;justify-content:start}.card{padding:14px}.pagination{align-items:stretch;flex-direction:column}}
+  </style>
+</head>
+<body><main>
+  <header class="top">
+    <div><h1>إدارة الأخبار والأرشيف</h1><p class="muted">التعديل والإضافة والإخفاء والاستعادة وإعادة البحث عن صورة الخبر؛ الحذف هنا قابل للعكس ولا يمسح السجل الدائم.</p></div>
+    <div class="nav">
+      <a class="button dark" href="{{ url_for('admin_monitor') }}">لوحة المراقبة</a>
+      <a class="button secondary" href="{{ url_for('admin_sources') }}">المصادر والصور</a>
+      <a class="button secondary" href="{{ url_for('admin_audit') }}">تدقيق الأرشيف</a>
+      <form method="post" action="{{ url_for('admin_logout') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="secondary" type="submit">تسجيل الخروج</button></form>
+    </div>
+  </header>
+  {% if notice %}<div class="notice" role="status">{{ notice }}</div>{% endif %}
+  {% if db_error %}<div class="notice error" role="alert">تعذر قراءة الأرشيف الآن. رمز التشخيص: {{ db_error }}. لم نُجرِ أي تغيير على الخبر.</div>{% endif %}
+
+  <section class="card">
+    <div class="section-head"><h2>العثور على خبر</h2><span class="pill">عدد النتائج: {{ total }}</span></div>
+    <form method="get" class="toolbar">
+      <div><label for="q">بحث بالعنوان أو الناشر أو الرابط</label><input id="q" name="q" type="search" maxlength="120" value="{{ query }}" placeholder="مثال: النفط، NASA، عنوان الخبر"></div>
+      <div><label for="category">القسم</label><select id="category" name="category"><option value="all" {% if active_category == 'all' %}selected{% endif %}>كل الأقسام</option>{% for key in category_keys %}<option value="{{ key }}" {% if active_category == key %}selected{% endif %}>{{ category_names[key]['ar'] }} / {{ category_names[key]['en'] }}</option>{% endfor %}</select></div>
+      <div class="actions"><input type="hidden" name="page" value="1"><button type="submit">بحث</button><a class="button secondary" href="{{ url_for('admin_articles') }}">مسح الفلاتر</a></div>
+    </form>
+    <form method="get" style="margin-top:12px"><input type="hidden" name="q" value="{{ query }}"><input type="hidden" name="category" value="{{ active_category }}"><input type="hidden" name="page" value="1"><input type="hidden" name="show_hidden" value="{{ '0' if show_hidden else '1' }}"><button class="secondary" type="submit">{{ 'إخفاء الأخبار المخفية من القائمة' if show_hidden else 'عرض الأخبار المخفية' }}</button></form>
+  </section>
+
+  {% if edit_article %}
+  <section class="card" id="editor">
+    <div class="section-head"><h2>تعديل: {{ edit_article.title_ar or edit_article.title_en or edit_article.slug }}</h2><a class="button secondary" href="{{ url_for('admin_articles', q=query, category=active_category, show_hidden='1' if show_hidden else '0', page=page) }}">إغلاق المحرر</a></div>
+    <p class="muted">الرابط الأصلي لا يتغير من هذه الشاشة حفاظًا على سجل المصدر والروابط القديمة. اختر قسمًا يطابق قائمة المصدر المعتمدة. الحفظ يغيّر نصوص النشر فقط.</p>
+    <div class="meta"><span>المصدر: {{ edit_article.source_name or edit_article.source_domain }}</span><span>لغة المصدر: {{ 'العربية' if edit_article.original_language == 'ar' else 'English' }}</span><span>الرابط: <a href="{{ edit_article.source_url }}" target="_blank" rel="noopener noreferrer">فتح المصدر الأصلي</a></span></div>
+    {% if edit_article.headline_only %}<div class="notice warning">هذا الناشر في وضع «العنوان والرابط فقط». يمكنك تصحيح العنوان والقسم؛ لا تسمح السياسة بنشر ملخص أو تفاصيل معاد صياغتها من محتواه في هذا الوضع.</div>{% endif %}
+    <form method="post" action="{{ url_for('admin_articles', q=query, category=active_category, show_hidden='1' if show_hidden else '0', page=page, edit=edit_article.slug) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="action" value="save_article"><input type="hidden" name="slug" value="{{ edit_article.slug }}">
+      <div><label for="edit-category">القسم</label><select id="edit-category" name="category" required>{% for key in category_keys %}<option value="{{ key }}" {% if edit_article.category == key %}selected{% endif %}>{{ category_names[key]['ar'] }} / {{ category_names[key]['en'] }}</option>{% endfor %}</select></div>
+      {% if edit_article.headline_only %}
+        <label for="native-headline">{{ 'العنوان العربي الأصلي' if edit_article.original_language == 'ar' else 'Original English headline' }}</label>
+        <input id="native-headline" name="{{ 'title_ar' if edit_article.original_language == 'ar' else 'title_en' }}" maxlength="350" required value="{{ edit_article.title_ar if edit_article.original_language == 'ar' else edit_article.title_en }}">
+      {% else %}
+        <div class="fields">
+          <div><label for="title_ar">العنوان العربي</label><input id="title_ar" name="title_ar" maxlength="350" required value="{{ edit_article.title_ar }}"></div>
+          <div><label for="title_en">العنوان الإنجليزي</label><input id="title_en" name="title_en" maxlength="350" required dir="ltr" value="{{ edit_article.title_en }}"></div>
+          <div><label for="summary_ar">الملخص التنفيذي العربي</label><textarea id="summary_ar" name="summary_ar" maxlength="1400" required>{{ edit_article.summary_ar }}</textarea></div>
+          <div><label for="summary_en">Executive summary (English)</label><textarea id="summary_en" name="summary_en" maxlength="1400" required dir="ltr">{{ edit_article.summary_en }}</textarea></div>
+          <div><label for="content_ar">تفاصيل الخبر بالعربية</label><textarea id="content_ar" name="content_ar" maxlength="8000" required>{{ edit_article.content_ar }}</textarea></div>
+          <div><label for="content_en">Story details (English)</label><textarea id="content_en" name="content_en" maxlength="8000" required dir="ltr">{{ edit_article.content_en }}</textarea></div>
+        </div>
+      {% endif %}
+      <div class="actions" style="margin-top:14px"><button type="submit">حفظ التعديلات</button><a class="button secondary" href="{{ url_for('article', slug=edit_article.slug, lang=edit_article.original_language) }}" target="_blank" rel="noopener noreferrer">معاينة الخبر</a></div>
+    </form>
+  </section>
+  {% endif %}
+
+  <section class="card">
+    <div class="section-head"><h2>الأخبار المحفوظة</h2><span class="muted">تعرض القائمة {{ rows|length }} من أصل {{ total }} نتيجة في هذه الصفحة.</span></div>
+    {% for row in rows %}
+      <article class="story">
+        {% if row.image_url and (row.image_source in ['wikimedia_relevant','openverse_licensed','loc_open_access','nasa_images','presskit_approved']) and row.image_credit_url and row.image_license_url %}
+          <img class="thumb" src="{{ public_image_url(row.image_url) }}" alt="" loading="lazy" decoding="async">
+        {% else %}
+          <img class="thumb" src="{{ url_for('static', filename='images/fallback-ar.svg' if row.original_language == 'ar' else 'images/fallback-en.svg') }}" alt="" loading="lazy" decoding="async">
+        {% endif %}
+        <div>
+          <div class="story-title">{{ row.title_ar or row.title_en or row.slug }}</div>
+          <div class="meta"><span>{{ row.source_name or row.source_domain }}</span><span>·</span><span>{{ category_names[row.category]['ar'] if row.category in category_names else row.category }}</span><span>·</span><span>{{ 'عربي' if row.original_language == 'ar' else 'English' }}</span></div>
+          <div class="meta"><span class="pill {{ 'hidden' if row.is_hidden else 'good' }}">{{ 'مخفي — محفوظ' if row.is_hidden else 'ظاهر للعامة' }}</span>{% if row.headline_only %}<span class="pill">العنوان والرابط فقط</span>{% endif %}{% if row.image_url and row.image_source in ['wikimedia_relevant','openverse_licensed','loc_open_access','nasa_images','presskit_approved'] and row.image_credit_url and row.image_license_url %}<span class="pill good">بيانات ترخيص محفوظة</span>{% else %}<span class="pill">يحتاج مراجعة صورة</span>{% endif %}</div>
+          <div class="meta"><a href="{{ row.source_url }}" target="_blank" rel="noopener noreferrer">المصدر الأصلي</a> · <a href="{{ url_for('article', slug=row.slug, lang=row.original_language) }}" target="_blank" rel="noopener noreferrer">عرض الخبر</a></div>
+        </div>
+        <div class="row-actions">
+          <a class="button secondary" href="{{ url_for('admin_articles', q=query, category=active_category, show_hidden='1' if show_hidden else '0', page=page, edit=row.slug) }}">تعديل</a>
+          <form method="post" action="{{ url_for('admin_articles', q=query, category=active_category, show_hidden='1' if show_hidden else '0', page=page) }}" onsubmit="return confirm('سيتم إخفاء الخبر من الموقع مع الاحتفاظ به في الأرشيف. هل تريد المتابعة؟');">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="action" value="{{ 'restore_article' if row.is_hidden else 'hide_article' }}"><input type="hidden" name="slug" value="{{ row.slug }}">
+            <button class="{{ 'secondary' if not row.is_hidden else '' }}" type="submit">{{ 'استعادة' if row.is_hidden else 'إخفاء الخبر' }}</button>
+          </form>
+          {% if not row.headline_only %}
+          <form method="post" action="{{ url_for('admin_articles', q=query, category=active_category, show_hidden='1' if show_hidden else '0', page=page) }}" onsubmit="return confirm('سيبدأ بحث محدود عن صورة لهذا الخبر، مع اشتراط الصلة بالموضوع وبيانات ترخيص قابلة للتحقق.');">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="action" value="retry_article_image"><input type="hidden" name="slug" value="{{ row.slug }}">
+            <button class="dark" type="submit">إعادة بحث الصورة</button>
+          </form>
+          {% endif %}
+        </div>
+      </article>
+    {% else %}
+      <p class="muted">لا توجد نتائج مطابقة. قد تكون قاعدة البيانات غير متاحة مؤقتًا أو أن الفلاتر لا تطابق أي خبر.</p>
+    {% endfor %}
+    <div class="pagination">
+      <span class="muted">الصفحة {{ page }} من {{ total_pages }}</span>
+      <div class="actions">
+        {% if page > 1 %}<a class="button secondary" href="{{ url_for('admin_articles', q=query, category=active_category, show_hidden='1' if show_hidden else '0', page=page-1) }}">الأحدث / السابق</a>{% endif %}
+        {% if page < total_pages %}<a class="button secondary" href="{{ url_for('admin_articles', q=query, category=active_category, show_hidden='1' if show_hidden else '0', page=page+1) }}">الأقدم / التالي</a>{% endif %}
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <details>
+      <summary>إضافة خبر جديد إلى الأرشيف</summary>
+      <p class="muted">أضف مادة أصلية من إعدادك واستشهد بالرابط الأصلي. لا تنسخ المقال كاملًا ولا تستخدم صور الناشر من دون إذن. يجب أن يكون الناشر معتمدًا للقسم ولغة المصدر، وتُحجب المصادر ذات قيود الحقوق عند إدخال تفاصيل تحريرية. إذا لم تُحفظ صورة مرخصة، سيستخدم الموقع الرسم التوضيحي المحلي الخاص بالموضوع.</p>
+      <form method="post" action="{{ url_for('admin_articles', q=query, category=active_category, show_hidden='1' if show_hidden else '0', page=page) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="action" value="create_article">
+        <div class="fields">
+          <div><label for="source_name">اسم الناشر</label><input id="source_name" name="source_name" maxlength="140" required placeholder="مثال: NASA"></div>
+          <div><label for="source_url">رابط المصدر الأصلي (HTTPS)</label><input id="source_url" name="source_url" type="url" maxlength="500" dir="ltr" required placeholder="https://publisher.example/story"></div>
+          <div><label for="create-category">القسم</label><select id="create-category" name="category" required>{% for key in category_keys %}<option value="{{ key }}">{{ category_names[key]['ar'] }} / {{ category_names[key]['en'] }}</option>{% endfor %}</select></div>
+          <div><label for="original_language">لغة المصدر الأصلي</label><select id="original_language" name="original_language"><option value="ar">العربية</option><option value="en" selected>English</option></select></div>
+          <div><label for="create-title-ar">العنوان العربي</label><input id="create-title-ar" name="title_ar" maxlength="350"></div>
+          <div><label for="create-title-en">English headline</label><input id="create-title-en" name="title_en" maxlength="350" dir="ltr"></div>
+          <div><label for="create-summary-ar">الملخص التنفيذي العربي</label><textarea id="create-summary-ar" name="summary_ar" maxlength="1400"></textarea></div>
+          <div><label for="create-summary-en">Executive summary</label><textarea id="create-summary-en" name="summary_en" maxlength="1400" dir="ltr"></textarea></div>
+          <div><label for="create-content-ar">تفاصيل الخبر بالعربية (180 حرفًا على الأقل)</label><textarea id="create-content-ar" name="content_ar" maxlength="8000"></textarea></div>
+          <div><label for="create-content-en">Story details (at least 180 characters)</label><textarea id="create-content-en" name="content_en" maxlength="8000" dir="ltr"></textarea></div>
+        </div>
+        <button style="margin-top:14px" type="submit">التحقق من الشروط ثم إضافة الخبر</button>
+      </form>
+    </details>
+  </section>
+  <p class="foot">الحذف النهائي غير متاح من هذه الواجهة عمدًا؛ استخدم «إخفاء الخبر» لإزالته من العرض العام مع بقاء السجل في الأرشيف وإمكانية استعادته. كل تغيير يتطلب تسجيل دخول ورمز CSRF صالحًا.</p>
+</main></body></html>
