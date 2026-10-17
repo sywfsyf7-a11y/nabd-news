@@ -104,7 +104,7 @@ class SourcePolicyTests(unittest.TestCase):
         self.assertEqual(story["content"], "")
         self.assertIn("Publisher headline only", story["summary"])
 
-    def test_missing_images_use_language_specific_A_or_E_fallback(self):
+    def test_missing_images_use_topic_specific_local_editorial_art(self):
         base = {
             "slug": "story-fallback",
             "source_url": "https://example.test/story",
@@ -121,10 +121,12 @@ class SourcePolicyTests(unittest.TestCase):
         }
         arabic = world_pulse._normalise_story(dict(base), "ar")
         english = world_pulse._normalise_story(dict(base, original_language="en"), "en")
-        self.assertEqual(arabic["image_url"], "/static/images/fallback-ar.svg")
-        self.assertEqual(arabic["image_source"], "fallback_ar")
-        self.assertEqual(english["image_url"], "/static/images/fallback-en.svg")
-        self.assertEqual(english["image_source"], "fallback_en")
+        for story in (arabic, english):
+            self.assertTrue(story["image_url"].startswith("/media/editorial.svg?"))
+            self.assertIn("category=science", story["image_url"])
+            self.assertEqual(story["image_source"], "editorial_generated")
+        self.assertIn("lang=ar", arabic["image_url"])
+        self.assertIn("lang=en", english["image_url"])
 
     def test_headline_image_query_removes_editorial_filler(self):
         query = world_pulse._image_search_phrase(
@@ -874,8 +876,8 @@ class SourcePolicyTests(unittest.TestCase):
             "image_license_url": "",
         }
         story = world_pulse._normalise_story(row, "ar")
-        self.assertEqual(story["image_url"], "/static/images/fallback-ar.svg")
-        self.assertEqual(story["image_source"], "fallback_ar")
+        self.assertTrue(story["image_url"].startswith("/media/editorial.svg?"))
+        self.assertEqual(story["image_source"], "editorial_generated")
         self.assertEqual(story["image_credit"], "")
         self.assertEqual(story["image_license_url"], "")
 
