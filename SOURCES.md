@@ -1,96 +1,88 @@
-# World Pulse — Publisher and image-source policy
+# World Pulse / نبض العالم — publisher and image-source policy
 
-This maintained allowlist is curated across eight sections and both source languages. Editorial priority groups are checked on every discovery cycle; the remaining approved publishers rotate in bounded groups. Google News RSS is discovery transport only: the reader should land on the original publisher article, never treat Google News as the reporting source.
+Google News RSS is the discovery transport. The publisher named on a story and the verified publisher URL are the attribution; Google News is not presented as the reporter. Only the curated publisher lists below are eligible. Results are checked against the article's native language and section before they enter the permanent Supabase queue.
 
-Arabic- and English-origin stories are kept in one permanent archive and grouped by the same eight editorial sections. The Arabic interface shows only Arabic-origin publisher stories; the English interface shows only English-origin publisher stories. A translation is not used to move an English-source item into the Arabic feed or an Arabic-source item into the English feed. Headline-only publishers remain native-language headline/link entries; their protected text is not translated or rewritten. Each publisher is validated against the allowlist for its category and native language. Some publishers may return no eligible stories because of regional feeds, robots restrictions, or the rights gate.
+## One combined bilingual feed
 
-## Editorial priority order
+The Arabic and English editions share the same stories and section filters. Each story retains its native source language. The site uses a complete, language-checked translation when one is available; otherwise, it labels the source language and displays the native story rather than inventing a translation. Politics, economy, technology, gaming, sports, science, culture, and world sections remain separate.
 
-These groups are intentionally checked every discovery cycle before the rotating allowlisted publishers. A priority only takes effect when the publisher is present in the matching category/language allowlist and passes its rights policy.
+## Curated publisher list
 
-| Section | Arabic priority sources | English priority sources |
-|---|---|---|
-| Politics | Al Jazeera Net, Al Arabiya, Sky News Arabia, Asharq Al-Awsat, Al-Quds Al-Arabi | BBC, Reuters, AP, Politico, The Guardian |
-| Economy | Asharq Business, CNBC Arabia, Mubasher, Argaam | Bloomberg, Financial Times, Wall Street Journal, MarketWatch, CNBC |
-| Technology & AI | AITNews, Tech-WD, Arab Hardware | The Verge, TechCrunch, WIRED, Ars Technica |
-| Gaming | Saudi Gamer, Arab Hardware, Arabic Games Network | IGN, GameSpot, Polygon, Eurogamer, Kotaku |
-| Sports | FilGoal, Kooora, beIN SPORTS, Yalla Kora | BBC Sport, ESPN, Sky Sports, The Athletic |
-| Science & Space | National Geographic Arabia, Al Jazeera Net | NASA, Space.com, Live Science, Scientific American, Nature |
-| Culture & Arts | Al Qafilah, Thifaf, Al Jazeera Culture, The New Arab | Literary Hub, Artsy, The Guardian, The New Yorker |
-| World News | Al Jazeera Net, BBC Arabic, France 24 Arabic, DW Arabic | BBC, Euronews, AP, CNN International |
+### 1. Politics
+- Arabic: `aljazeera.net`, `alarabiya.net`, `skynewsarabia.com`, `aawsat.com`, `alquds.co.uk`, `wam.ae`, `spa.gov.sa`
+- English: `bbc.com`, `reuters.com`, `apnews.com`, `politico.com`, `theguardian.com`
 
-## Publisher allowlist
+### 2. Economy and finance
+- Arabic: `asharqbusiness.com`, `cnbcarabia.com`, `mubasher.info`, `argaam.com`
+- English: `bloomberg.com`, `ft.com`, `wsj.com`, `cnbc.com`, `marketwatch.com`
 
-The catalogue below lists approved publishers by category and source language. Each story is displayed only on its matching language edition. Headline-only publishers remain link-only unless a separately reviewed content licence is configured. All eight sections keep their own category tags.
+### 3. Technology and AI
+- Arabic: `aitnews.com`, `tech-wd.com`, `arabhardware.net`
+- English: `theverge.com`, `techcrunch.com`, `wired.com`, `arstechnica.com`
 
-Google News RSS is used as a discovery transport, not as the publisher of the story. The publisher URL is stored as the reader's source link. Each incoming result must resolve to an allowlisted publisher host, pass category checks and rights gates, and be de-duplicated against Supabase and the persistent pending queue. The source list is curated rather than a claim that every website on the internet is integrated. Publisher feeds may return no current stories or decline requests, and a listed domain is not a promise of a new article every cycle.
+### 4. Gaming
+- Arabic: `saudigamer.com`, `arabhardware.net`
+- English: `ign.com`, `gamespot.com`, `polygon.com`, `eurogamer.net`, `kotaku.com`
 
-### Politics
-- Arabic: `aljazeera.net`, `bbc.com`, `alarabiya.net`, `skynewsarabia.com`, `aawsat.com`, `alquds.co.uk`, `alghad.com`, `almamlakatv.com`, `roya.tv`, `arabic.rt.com`, `cnn.com`, `france24.com`, `dw.com`, `euronews.com`, `aa.com.tr`, `alhurra.com`, `independentarabia.com`, `wam.ae`, `petra.gov.jo`, `spa.gov.sa`, `sabq.org`, `okaz.com.sa`
-- English: `bbc.com`, `bbc.co.uk`, `aljazeera.com`, `cnn.com`, `reuters.com`, `apnews.com`, `politico.com`, `thehill.com`, `axios.com`, `voanews.com`, `rferl.org`, `dw.com`, `france24.com`, `euronews.com`, `abc.net.au`, `cbc.ca`, `npr.org`, `theconversation.com`, `almonitor.com`, `foreignpolicy.com`, `defensenews.com`, `opendemocracy.net`, `chinadaily.com.cn`, `thenationalnews.com`, `khaleejtimes.com`, `gulfnews.com`, `arabnews.com`, `saudigazette.com.sa`, `thearabweekly.com`, `globalvoices.org`
+### 5. Sports
+- Arabic: `filgoal.com`, `kooora.com`, `beinsports.com`, `yallakora.com`
+- English: `bbc.com`, `espn.com`, `skysports.com`, `theathletic.com`
 
-### Economy
-- Arabic: `asharqbusiness.com`, `cnbcarabia.com`, `mubasher.info`, `alarabiya.net`, `argaam.com`, `aleqt.com`, `zawya.com`, `almalnews.com`, `amwalalghad.com`, `almamlakatv.com`, `alghad.com`, `albayan.ae`, `alittihad.ae`, `wam.ae`, `petra.gov.jo`, `spa.gov.sa`, `sabq.org`, `okaz.com.sa`
-- English: `bloomberg.com`, `ft.com`, `wsj.com`, `cnbc.com`, `marketwatch.com`, `fortune.com`, `businessinsider.com`, `investopedia.com`, `finance.yahoo.com`, `economist.com`, `economictimes.indiatimes.com`, `forbes.com`, `theinformation.com`, `techcrunch.com`, `axios.com`, `cnn.com`, `dw.com`, `reuters.com`, `apnews.com`, `thenationalnews.com`, `khaleejtimes.com`, `gulfnews.com`, `arabnews.com`, `arabianbusiness.com`, `saudigazette.com.sa`
+### 6. Science and space
+- Arabic: `nationalgeographic.com`, `aljazeera.net`
+- English: `nasa.gov`, `jpl.nasa.gov`, `space.com`, `livescience.com`, `scientificamerican.com`, `nature.com`
 
-### Technology
-- Arabic: `aitnews.com`, `tech-wd.com`, `arabhardware.net`, `alarabiya.net`, `almamlakatv.com`, `france24.com`, `dw.com`, `cnn.com`, `aljazeera.net`, `arabic.rt.com`, `spa.gov.sa`
-- English: `theverge.com`, `techcrunch.com`, `wired.com`, `arstechnica.com`, `engadget.com`, `zdnet.com`, `cnet.com`, `techradar.com`, `androidauthority.com`, `tomshardware.com`, `venturebeat.com`, `9to5mac.com`, `thenextweb.com`, `digitaltrends.com`, `gizmodo.com`, `technologyreview.com`, `theregister.com`, `bloomberg.com`, `cnn.com`, `apnews.com`, `9to5google.com`, `androidcentral.com`, `macrumors.com`, `windowscentral.com`, `techspot.com`, `notebookcheck.net`
+### 7. Culture and arts
+- Arabic: `alaraby.co.uk`, `alarab.co.uk`
+- English: `lithub.com`, `artsy.net`, `theguardian.com`, `newyorker.com`
 
-### Gaming
-- Arabic: `saudigamer.com`, `arabhardware.net`, `arabgamenews.com`, `vga4a.com`, `agdn-online.com`, `true-gaming.net`, `l3ab.co`, `gamers8.gg`, `ign.com`
-- English: `ign.com`, `gamespot.com`, `polygon.com`, `pcgamer.com`, `eurogamer.net`, `gamesradar.com`, `destructoid.com`, `rockpapershotgun.com`, `gematsu.com`, `videogameschronicle.com`, `kotaku.com`, `gamingbolt.com`, `nintendolife.com`, `pushsquare.com`, `purexbox.com`, `theverge.com`, `thegamer.com`, `pcgamesn.com`, `gamingonlinux.com`, `tech4gamers.com`, `esportsinsider.com`, `gameinformer.com`, `mmorpg.com`, `windowscentral.com`
+### 8. World news
+- Arabic: `bbc.com`, `france24.com`, `dw.com`
+- English: `bbc.com`, `euronews.com`, `apnews.com`, `cnn.com`
 
-### Sports
-- Arabic: `filgoal.com`, `kooora.com`, `beinsports.com`, `yallakora.com`, `goal.com`, `arriyadiyah.com`, `alriyadh.com`, `sports360.com`, `365scores.com`, `fifa.com`, `olympics.com`, `almamlakatv.com`, `alghad.com`, `cnn.com`, `spa.gov.sa`, `sabq.org`
-- English: `bbc.com`, `espn.com`, `skysports.com`, `formula1.com`, `fifa.com`, `olympics.com`, `goal.com`, `sportingnews.com`, `bleacherreport.com`, `talksport.com`, `motorsport.com`, `nba.com`, `nfl.com`, `mlb.com`, `apnews.com`, `reuters.com`, `cbssports.com`, `foxsports.com`, `sports.yahoo.com`, `the-race.com`
+A domain being listed means that the system may discover its eligible headlines in the section above; it does not guarantee that a publisher offers an RSS result, that a result is new, or that every form of republication is permitted. Each item still passes language, source-host, duplicate, category, and rights checks.
 
-### Science
-- Arabic: `ngalarabiya.com`, `aljazeera.net`, `alarabiya.net`, `dw.com`, `france24.com`, `euronews.com`, `cnn.com`, `aa.com.tr`, `alhurra.com`, `petra.gov.jo`, `wam.ae`, `almamlakatv.com`, `arabic.rt.com`, `spa.gov.sa`
-- English: `nasa.gov`, `space.com`, `scientificamerican.com`, `livescience.com`, `phys.org`, `sciencenews.org`, `eurekalert.org`, `noaa.gov`, `usgs.gov`, `nsf.gov`, `energy.gov`, `nih.gov`, `esa.int`, `nature.com`, `newscientist.com`, `sciencedaily.com`, `science.org`, `eos.org`, `cnn.com`, `apnews.com`, `nationalgeographic.com`, `sciencealert.com`, `theconversation.com`
+## Copyright-conscious editorial workflow
 
-### Culture
-- Arabic: `alqafilah.com`, `thifaf.com`, `aljazeera.net`, `alaraby.co.uk`, `alarab.co.uk`, `alarabiya.net`, `albayan.ae`, `alittihad.ae`, `masrawy.com`, `almasryalyoum.com`, `youm7.com`, `cairo24.com`, `alkhaleej.ae`, `cnn.com`, `france24.com`, `dw.com`, `spa.gov.sa`, `okaz.com.sa`
-- English: `lithub.com`, `artsy.net`, `theguardian.com`, `smithsonianmag.com`, `artnews.com`, `hyperallergic.com`, `pitchfork.com`, `variety.com`, `hollywoodreporter.com`, `npr.org`, `theconversation.com`, `bfi.org.uk`, `literaryreview.co.uk`, `cnn.com`, `apnews.com`, `euronews.com`, `moma.org`, `nationalgallery.org.uk`
+- RSS discovery uses publisher-targeted Google News queries and official RSS endpoints only where configured. It stores the original publisher URL, publisher identity, category, language, source excerpt, and publication time when available.
+- The newsroom does **not** download full copyrighted articles in order to rewrite them to evade copyright. Gemini works from a limited headline and short source excerpt where that source's policy allows it, and produces a concise, independent brief with a separate headline, executive summary, and details supported by the supplied evidence. It must not invent facts or add unsupported background.
+- A short excerpt is not enough evidence for a long report. When the feed material cannot support a reliable summary, the item stays concise and points readers to the publisher for details.
+- BBC, Al Jazeera, Reuters, Associated Press, TechCrunch, ESPN, ScienceDaily, The Guardian, and The Athletic are configured headline-and-source-link-only by default unless the deployment records a separately reviewed licence in `CONTENT_LICENSE_APPROVED_DOMAINS`. For these sources, RSS descriptions are not passed to the editorial model. Legacy stored text from those publishers is not used to create a new summary.
+- The headline-only setting is a conservative site rule, not legal confirmation that every publisher permits any reuse of its headline. A deployment override is not proof of permission. Keep written licence/permission evidence and check its scope before enabling broader use.
+- The original publisher link appears on the story page. Attribution and a link are good practice, but neither alone grants permission to republish protected article text or photographs.
 
-### World
-- Arabic: `aljazeera.net`, `bbc.com`, `dw.com`, `france24.com`, `euronews.com`, `alarabiya.net`, `skynewsarabia.com`, `alghad.com`, `almamlakatv.com`, `roya.tv`, `arabic.rt.com`, `alhurra.com`, `cnn.com`, `aa.com.tr`, `wam.ae`, `petra.gov.jo`, `independentarabia.com`, `alqabas.com`, `alain.com`, `spa.gov.sa`, `sabq.org`, `okaz.com.sa`
-- English: `euronews.com`, `bbc.com`, `bbc.co.uk`, `aljazeera.com`, `cnn.com`, `apnews.com`, `reuters.com`, `voanews.com`, `rferl.org`, `axios.com`, `abc.net.au`, `cbc.ca`, `france24.com`, `dw.com`, `thehill.com`, `npr.org`, `theconversation.com`, `almonitor.com`, `chinadaily.com.cn`, `straitstimes.com`, `japantimes.co.jp`, `theafricareport.com`, `restofworld.org`, `foreignpolicy.com`, `opendemocracy.net`, `theguardian.com`, `thenationalnews.com`, `khaleejtimes.com`, `gulfnews.com`, `arabnews.com`, `saudigazette.com.sa`, `globalvoices.org`
+Google's publisher policies disallow serving ads on screens that contain copied or embedded material without additional commentary, curation, or other added value. Originality and useful editorial context therefore matter for monetization as well as reader trust; compliance with these safeguards cannot guarantee AdSense approval. Policy reference: https://support.google.com/adsense/answer/10502938
 
-## Publisher rights gate
+## Publishing cadence and resilience
 
-BBC, Al Jazeera, Reuters, Associated Press, TechCrunch, ESPN, ScienceDaily, The Guardian, The Athletic and Saudi Gazette are configured for **headline-and-source-link-only mode by default** unless the deployment has a documented rights-reviewed override in `CONTENT_LICENSE_APPROVED_DOMAINS`. For these domains, the service does not reuse their RSS descriptions or ask the AI model to rewrite a body from their protected excerpts. The reader is directed to the publisher's original page. CNN and other normal-mode sources can contribute a short available RSS excerpt only when the source allowlist and other checks permit it.
+- **Every 15 minutes:** perform a bounded discovery scan over the approved publisher list, prioritizing the chosen sources and rotating the remaining eligible groups. The discovery queries do not broaden to the whole internet if a source group fails.
+- **Every 5 minutes:** publish at most one queued new story from the persistent Supabase queue. This spreads editorial work over time instead of sending large batches to the model. A normal tick processes one new story; the model may receive one bounded fallback call if its first model fails.
+- Each story is saved in Supabase before any optional image lookup. Temporary image-provider failure must not block the article from being saved. Queue items are acknowledged only after the story is persisted and are deduplicated against the archive.
+- Queue processing and image revalidation do not delete old published articles or catalogued image records. Image cache/recheck age determines when a match can be reviewed again; it is not an article-retention period.
 
-This is a conservative product rule, **not legal confirmation that every headline or RSS transport may be reused under every publisher's terms**. In particular, Al Jazeera's official terms prohibit automated scraping/text mining and republishing its materials without express written permission. The application therefore does not scrape Al Jazeera pages or copy its article body/images. If a publisher explicitly disallows even the planned headline/link discovery or an applicable feed licence does not cover it, disable that source until permission is reviewed. A deployment override is administrative plumbing, not proof of permission; keep written permission/licence evidence and confirm it covers intended use. Saudi Gazette's RSS listing is used only for discovery metadata/headline links unless broader reuse permission is documented. Attribution and linking do not, by themselves, grant a right to republish a full article or photograph.
+## Image catalogue and reuse rules
 
-## Publishing and resilience
+The image catalogue is broader than the publisher list because it searches public-domain and openly licensed imagery, not other publishers' article photographs. Searches derive short, topic-aware terms from the story headline and category. A provider result is accepted only after relevance and item-level reuse checks. The selected image keeps an item/source page, creator or credit, licence URL, and verification time in the story metadata.
 
-- **Every five minutes:** the scheduler tries to publish at most one queued story. One item is processed per tick so image searching and model calls cannot hold up a large batch.
-- **Every 30 minutes:** the worker runs RSS discovery over the allowlisted category/source groups and prioritizes selected regional/user-requested sites (including Saudi Gamer, Al Jazeera, Petra, SPA and major technology sources). New candidates are stored in a persistent queue in Supabase, not left only in process memory.
-- **Official direct science feeds:** on discovery passes, NASA News Releases (`https://www.nasa.gov/news-release/feed/`), NOAA (`https://www.noaa.gov/rss.xml`) and NASA/JPL (`https://www.jpl.nasa.gov/feeds/news/`) are tried in the same bounded, timed feed pool. When JPL rejects the direct request, the worker falls back only to a Google News RSS query restricted to `site:jpl.nasa.gov`; every accepted article still must link to the allowlisted official JPL host. It does not scrape or broaden the source query.
-- **Categories remain separate:** Arabic- and English-origin articles appear together on either interface when a supported title exists for the selected interface language. Category filters continue to work. When no safe translated content exists, the native-language headline/source link is preserved rather than inventing one.
-- **Bounded calls and timeouts:** one new story per tick, no more than two Gemini calls per tick, and at most two image lookups. The second lookup is used sparingly to recheck an older photo during a 30-minute discovery pass; ordinary publication still prioritizes the new story. Each provider has a request timeout, image work runs after the news record has been saved, and a provider failure leaves the saved story available with a category/language-specific editorial fallback image.
-- **No archive cleanup:** completing or retrying queue work does not delete previously published articles or cached licensed images from the persistent Supabase archive. The pending queue removes an item only after its story has been durably saved; an acknowledgement failure is retried and deduplicated against Supabase.
+### Providers used by the newsroom
+1. **Wikimedia Commons** — public-domain, CC0, CC BY, and CC BY-SA files. Attribution and licence links are saved for CC BY/CC BY-SA. Noncommercial and no-derivatives licences are rejected.
+2. **Openverse** — openly licensed images. Only CC0, Public Domain Mark, CC BY, and CC BY-SA items are accepted. Openverse warns that indexed licence metadata may be inaccurate, so item-level records must be retained and reviewed.
+3. **Library of Congress** — only records explicitly marked public domain, CC0, free-to-use/reuse, or no-known-restrictions under the provider's item-level metadata. “No known restrictions” is not treated as a blanket licence.
+4. **Art Institute of Chicago** — culture-related works only, and only artwork items identified as public domain. Its API asks developers to respect its image guidance and avoid excessive parallel image scraping.
+5. **The Metropolitan Museum of Art (The Met)** — culture-related works in its Open Access collection only; item records must identify the image as open access/public domain.
+6. **Cleveland Museum of Art Open Access** — culture-related works only; the adapter requires the specific artwork's CC0/open-access status and a verified item/image host. Its open-access terms do not make every image in its collection free to use.
+7. **Wellcome Collection** — science/culture matches only. The adapter checks the individual image location, licence identifier, licence URL, item page, and credit; items without an allowed item-level licence are rejected.
+8. **NASA Image and Video Library** — science, space, technology, and Earth/climate topics only. Explicit third-party/restricted/copyright notices are rejected; NASA's own use guidance and item provenance are retained.
+9. **Administrator-approved press-kit assets** — only if the manifest explicitly documents approval for the planned use and includes the source, credit, and licence information.
 
+The code does not use Unsplash or Pexels API keys. Google News thumbnails, publisher-page thumbnails, and generic unverified image-search results are not treated as licensed re-usable photographs. If no suitable item passes the checks, the site displays a topic-matched, labelled editorial SVG illustration rather than pretending that an unrelated photograph is documentary evidence.
 
-## Image pipeline
-
-Search is deliberately staged to protect article-publishing latency: Openverse, Wikimedia Commons and the Library of Congress are checked first as a three-provider parallel group. If none yields an eligible image, the category-specific specialists (Art Institute, The Met and Cleveland for culture; Wellcome for culture/science) are checked in a second bounded group. NASA and approved press-kit catalogues remain the final fallback group. A slow group is timed out independently; the story is already saved in Supabase and still publishes with a labelled editorial illustration if no valid photo is found.
-
-Previously stored photos become eligible for relevance/licence revalidation when their image-check record is older than six hours. Small bounded batches progressively recheck the archive without delaying its one-new-story-per-five-minute publishing flow. If a fresh search cannot find a sufficiently relevant, rights-cleared replacement, the stale image is cleared and the clearly labelled editorial illustration is shown instead of keeping a weak match indefinitely.
-
-1. **Wikimedia Commons** searches short keyword phrases derived from each headline and topic. Only item pages with permitted public-domain/CC0/CC BY/CC BY-SA licences are accepted. CC BY and CC BY-SA require creator credit and licence linking; noncommercial and no-derivatives variants are rejected.
-2. **Openverse** searches openly licensed images without a Pexels/Unsplash key. Only CC0, Public Domain Mark, CC BY and CC BY-SA item licences are accepted. Creator, item landing page and exact licence URL are preserved. Openverse's indexed licence metadata can be inaccurate, so item-level checks remain required.
-3. **Library of Congress** photo records are searched with no API key. An item must explicitly indicate public domain, no known restrictions, CC0, or free-to-use/reuse status; its exact record is retained. “No known restrictions” is a record-specific assessment, not a blanket guarantee.
-4. **Art Institute of Chicago** and **The Metropolitan Museum of Art (The Met)** are culture-only sources. The chosen artwork must be identified by the institution as public domain; a museum's overall collection is not treated as all-free.
-5. **Cleveland Museum of Art Open Access** is now an additional culture-only source. Its official API states that only records with `share_license_status=CC0` receive CC0 image assets; the adapter checks that record flag and the expected image host before accepting a match.
-6. **Wellcome Collection** adds a science/culture image catalogue. The adapter checks the specific image location's licence identifier and Creative Commons URL, item landing page, credit and relevance. It accepts CC0 or CC BY versions 2.0/3.0/4.0 only and rejects any record that lacks an item-level allowed licence.
-7. **NASA Image and Video Library** is searched only for science, technology, world, space and Earth/climate topics that match its subject scope. Explicit third-party/restricted/copyright notices are rejected; the source record and use guidance are retained.
-8. **Approved press-kit images** are used only when an administrator's manifest records approval and provides the source page, creator/credit and licence information for the intended use.
-9. **Unsplash and Pexels API calls are not part of the active runtime.** Neither API key is required. Google's RSS thumbnails, publisher-page thumbnails and generic unverified image-search results are never treated as reusable licensed imagery.
-10. **Persistent reuse provenance:** the image is accepted only after a minimum relevance score of 0.26 and an item-level rights check. Weakly related candidates are rejected in favour of a labelled topic-specific SVG illustration instead of a misleading photo. The service stores optimized image bytes in Supabase (`world_pulse_catalogued_images`) and saves the original provider/item page, creator, and exact licence URL on the story record.
-11. **Safe fallback:** if no suitable, rights-cleared photo is found, a category-specific, language-aware editorial SVG is used. It is labelled as an illustration and not presented as a documentary photograph. The system does not reuse the publisher's original news photo by default.
-
-
-
-Official references: [Al Jazeera terms of use](https://terms.aljazeera.net/index-ar.html), [Reuters Connect licensing](https://www.reutersconnect.com/), [Openverse API](https://api.openverse.org/v1/), [Openverse media/metadata docs](https://docs.openverse.org/), [Wikimedia Commons reuse guidance](https://commons.wikimedia.org/wiki/Commons:Reusing_content_outside_Wikimedia/en), [Library of Congress JSON API](https://www.loc.gov/apis/json-and-yaml/requests/), [Library of Congress copyright guidance](https://www.loc.gov/legal/security-copyright-and-privacy/understanding-copyright/), [Art Institute of Chicago API](https://api.artic.edu/docs/), [The Met Open Access and Collection API](https://metmuseum.github.io/), [Cleveland Museum of Art Open Access API](https://www.clevelandart.org/open-access-api), [Wellcome Collection Catalogue API](https://developers.wellcomecollection.org/api/catalogue), [NASA media guidance](https://www.nasa.gov/nasa-brand-center/images-and-media/).
+### Official provider references
+- Openverse API: https://api.openverse.org/v1/ and https://docs.openverse.org/
+- Wikimedia reuse guidance: https://commons.wikimedia.org/wiki/Commons:Reusing_content_outside_Wikimedia/en
+- Library of Congress API: https://www.loc.gov/apis/json-and-yaml/requests/
+- NASA media guidance: https://www.nasa.gov/nasa-brand-center/images-and-media/
+- Art Institute of Chicago API: https://api.artic.edu/docs/
+- The Met Collection API: https://metmuseum.github.io/
+- Cleveland Museum of Art Open Access API: https://www.clevelandart.org/open-access-api
+- Wellcome Collection APIs: https://api.wellcomecollection.org/
