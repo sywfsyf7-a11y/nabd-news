@@ -962,5 +962,178 @@ class SourcePolicyTests(unittest.TestCase):
         self.assertIn("immutable", response.headers["Cache-Control"])
 
 
+
+class ExpandedSourceAndImageCatalogueTests(unittest.TestCase):
+    def test_priority_news_sources_are_configured_and_safely_gated(self):
+        expected = {
+            ("gaming", "ar", "saudigamer.com"),
+            ("world", "ar", "aljazeera.net"),
+            ("politics", "ar", "spa.gov.sa"),
+            ("world", "en", "thenationalnews.com"),
+            ("technology", "en", "9to5google.com"),
+        }
+        for category, lang, domain in expected:
+            self.assertIn(domain, world_pulse.CATEGORY_SOURCE_DOMAINS[category][lang])
+        for domain in (
+            "aljazeera.net", "aljazeera.com", "reuters.com", "apnews.com",
+            "techcrunch.com", "espn.com", "sciencedaily.com", "theguardian.com",
+        ):
+            self.assertTrue(world_pulse._is_headline_only_domain(domain), domain)
+
+    def test_editorial_pipeline_is_rate_limited_to_one_story_per_five_minute_tick(self):
+        self.assertEqual(world_pulse.NEWS_REFRESH_MINUTES, 5)
+        self.assertEqual(world_pulse.NEWS_DISCOVERY_REFRESH_MINUTES, 30)
+        self.assertEqual(world_pulse.MAX_ARTICLES_PER_REFRESH, 1)
+        self.assertLessEqual(world_pulse.MAX_GEMINI_API_CALLS_PER_REFRESH, 2)
+        self.assertEqual(world_pulse.MAX_IMAGE_LOOKUPS_PER_REFRESH, 1)
+
+    def test_cleveland_museum_adapter_uses_only_cc0_images_and_culture_category(self):
+        import json
+        from unittest.mock import MagicMock, patch
+
+        payload = {
+            "data": [
+                {
+                    "id": 123,
+                    "title": "Historic Moon Painting",
+                    "share_license_status": "Copyrighted",
+                    "url": "https://www.clevelandart.org/art/123",
+                    "images": {"web": {"url": "https://openaccess-cdn.clevelandart.org/123/123_web.jpg"}},
+                    "creators": [],
+                },
+                {
+                    "id": 456,
+                    "title": "Moon over the City",
+                    "share_license_status": "CC0",
+                    "url": "https://www.clevelandart.org/art/456",
+                    "images": {"web": {"url": "https://openaccess-cdn.clevelandart.org/456/456_web.jpg"}},
+                    "creators": [{"description": "A. Artist"}],
+                    "description": "Moonlight landscape",
+                },
+            ]
+        }
+        response = MagicMock()
+        response.__enter__.return_value.read.return_value = json.dumps(payload).encode()
+        with patch.object(world_pulse, "_image_search_phrase", return_value="moon city"):
+            with patch.object(world_pulse, "_image_match_score", return_value=0.82):
+                with patch.object(world_pulse, "urlopen", return_value=response):
+                    result = world_pulse._search_cleveland_museum_image("Moon over the City", category="culture")
+
+        self.assertEqual(result["image_source"], "cleveland_museum_open_access")
+        self.assertEqual(result["image_url"], "https://openaccess-cdn.clevelandart.org/456/456_web.jpg")
+        self.assertEqual(result["image_license_url"], "https://creativecommons.org/publicdomain/zero/1.0/")
+        self.assertIn("clevelandart.org/art/456", result["image_provider_url"])
+
+        with patch.object(world_pulse, "urlopen") as network:
+            self.assertEqual(world_pulse._search_cleveland_museum_image("Moon over the City", category="world"), {})
+            network.assert_not_called()
+
+    def test_wellcome_adapter_requires_an_item_level_allowed_license_and_original_item_page(self):
+        import json
+        from unittest.mock import MagicMock, patch
+
+        payload = {
+            "results": [
+                {
+                    "thumbnail": {
+                        "url": "https://iiif.wellcomecollection.org/image/not-open/full/800,/0/default.jpg",
+                        "license": {
+                            "id": "copyrighted",
+                            "url": "https://example.org/copyright",
+                        },
+                    },
+                    "source": {"id": "bad-id", "title": "Medical history"},
+                },
+                {
+                    "thumbnail": {
+                        "url": "https://iiif.wellcomecollection.org/image/open/full/800,/0/default.jpg",
+                        "credit": "Example creator",
+                        "license": {
+                            "id": "cc-by",
+                            "url": "https://creativecommons.org/licenses/by/4.0/",
+                        },
+                    },
+                    "source": {
+                        "id": "good-id",
+                        "title": "Medical history illustration",
+                        "subjects": [{"label": "medical history"}],
+                    },
+                },
+            ]
+        }
+        response = MagicMock()
+        response.__enter__.return_value.read.return_value = json.dumps(payload).encode()
+        with patch.object(world_pulse, "_image_search_phrase", return_value="medical history"):
+            with patch.object(world_pulse, "_image_match_score", return_value=0.75):
+                with patch.object(world_pulse, "urlopen", return_value=response):
+                    result = world_pulse._search_wellcome_open_access_image("medical history", category="science")
+
+        self.assertEqual(result["image_source"], "wellcome_open_access")
+        self.assertEqual(result["image_license_url"], "https://creativecommons.org/licenses/by/4.0/")
+        self.assertEqual(result["image_credit"], "Example creator")
+        self.assertEqual(result["image_provider_url"], "https://wellcomecollection.org/works/good-id")
+
+        with patch.object(world_pulse, "urlopen") as network:
+            self.assertEqual(world_pulse._search_wellcome_open_access_image("medical history", category="world"), {})
+            network.assert_not_called()
+
+
+class NewImageProviderPersistenceTests(unittest.TestCase):
+    def test_cleveland_and_wellcome_images_can_be_cached_only_from_their_official_hosts(self):
+        import io
+        from unittest.mock import MagicMock, patch
+        from PIL import Image
+
+        image_buffer = io.BytesIO()
+        Image.new("RGB", (800, 500), "#526b81").save(image_buffer, format="PNG")
+        image_bytes = image_buffer.getvalue()
+
+        fixtures = (
+            {
+                "image_url": "https://openaccess-cdn.clevelandart.org/123/123_web.jpg",
+                "image_source": "cleveland_museum_open_access",
+                "image_license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+            },
+            {
+                "image_url": "https://iiif.wellcomecollection.org/image/test/full/800,/0/default.jpg",
+                "image_source": "wellcome_open_access",
+                "image_license_url": "https://creativecommons.org/licenses/by/4.0/",
+            },
+        )
+        for candidate in fixtures:
+            with self.subTest(provider=candidate["image_source"]):
+                fake_connection = MagicMock()
+                response = MagicMock()
+                response.__enter__.return_value.read.return_value = image_bytes
+                result = dict(candidate, image_credit="Creator", image_credit_url="https://example.org/item",
+                              image_provider_url="https://example.org/item")
+
+                with patch.object(world_pulse, "_image_license_verified", return_value=True):
+                    with patch.object(world_pulse, "_catalogued_image_exists", return_value=False):
+                        with patch.object(world_pulse, "_ensure_schema", return_value=True):
+                            with patch.object(world_pulse, "_connect_db", return_value=fake_connection):
+                                with patch.object(world_pulse, "_release_db_connection"):
+                                    with patch.object(world_pulse, "urlopen", return_value=response):
+                                        cached = world_pulse._cache_reusable_image(result)
+
+                self.assertTrue(cached["image_url"].startswith("/media/catalogued/"))
+                self.assertEqual(cached["image_source"], candidate["image_source"])
+                fake_connection.commit.assert_called_once()
+                sql, _params = fake_connection.cursor.return_value.__enter__.return_value.execute.call_args.args
+                self.assertIn("INSERT INTO world_pulse_catalogued_images", sql)
+
+    def test_new_image_catalogue_sources_are_in_the_trusted_allowlist(self):
+        self.assertIn("cleveland_museum_open_access", world_pulse.TRUSTED_REUSABLE_IMAGE_SOURCES)
+        self.assertIn("wellcome_open_access", world_pulse.TRUSTED_REUSABLE_IMAGE_SOURCES)
+        self.assertEqual(
+            world_pulse._image_provider_label("cleveland_museum_open_access"),
+            "Cleveland Museum of Art (CC0 artwork)",
+        )
+        self.assertEqual(
+            world_pulse._image_provider_label("wellcome_open_access"),
+            "Wellcome Collection (CC0 / CC BY image)",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
