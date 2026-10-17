@@ -282,10 +282,7 @@
               <article class="group flex h-full flex-col overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-sm transition duration-300 hover:-translate-y-1 hover:border-slate-300 hover:shadow-soft">
                 <a href="{{ story_href }}"{% if story.source_only %} target="_blank" rel="noopener noreferrer"{% endif %} class="relative block aspect-[16/9] overflow-hidden bg-slate-200" tabindex="-1" aria-hidden="true">
                   <div aria-hidden="true" class="absolute inset-0 z-0 h-full w-full bg-gradient-to-br from-ink via-slate-800 to-slate-600"></div>
-                  <img src="{{ story.image_fallback_url }}" alt="" aria-hidden="true" loading="lazy" decoding="async" class="absolute inset-0 z-0 h-full w-full object-cover">
-                  {% if story.image_source != 'editorial_generated' %}
-                    <img src="{{ story.image_url }}" alt="{{ story.title }}" loading="lazy" decoding="async" class="absolute inset-0 z-[1] h-full w-full object-cover transition duration-700 group-hover:scale-105" onerror="this.onerror=null;this.style.display='none';">
-                  {% endif %}
+                  <img src="{{ story.image_url }}" data-fallback-src="{{ story.image_fallback_url }}" alt="{{ story.title }}" loading="lazy" decoding="async" class="absolute inset-0 z-[1] h-full w-full object-cover transition duration-700 group-hover:scale-105" onerror="if(this.dataset.fallbackSrc){this.onerror=null;this.src=this.dataset.fallbackSrc;}">
                   <span class="absolute {{ 'right-4' if lang == 'ar' else 'left-4' }} top-4 rounded-full border border-white/25 bg-ink/80 px-3 py-1.5 text-xs font-bold text-white backdrop-blur">{{ story.category_label }}</span>
                   {% if story.image_source in ['editorial_generated', 'gemini_generated'] %}<span class="absolute {{ 'left-4' if lang == 'ar' else 'right-4' }} top-4 rounded-full border border-white/25 bg-ink/80 px-3 py-1.5 text-[10px] font-extrabold text-white backdrop-blur">{{ 'رسم تحريري' if lang == 'ar' else 'Editorial illustration' }}</span>{% endif %}
                   {% if story.is_demo %}<span class="absolute bottom-3 {{ 'right-3' if lang == 'ar' else 'left-3' }} rounded-md bg-amber-100 px-2 py-1 text-[9px] font-extrabold text-amber-900">{{ ui.sample_badge }}</span>{% endif %}
@@ -368,10 +365,7 @@
       <article class="overflow-hidden rounded-[2rem] border border-slate-200/80 bg-white shadow-soft">
         <div class="relative aspect-[16/8] max-h-[540px] overflow-hidden bg-slate-200 sm:aspect-[16/7]">
           <div aria-hidden="true" class="absolute inset-0 z-0 h-full w-full bg-gradient-to-br from-ink via-slate-800 to-slate-600"></div>
-          <img src="{{ article.image_fallback_url }}" alt="" aria-hidden="true" class="absolute inset-0 z-0 h-full w-full object-cover">
-          {% if article.image_source != 'editorial_generated' %}
-            <img src="{{ article.image_url }}" alt="{{ article.title }}" loading="eager" fetchpriority="high" decoding="async" class="absolute inset-0 z-[1] h-full w-full object-cover" onerror="this.onerror=null;this.style.display='none';">
-          {% endif %}
+          <img src="{{ article.image_url }}" data-fallback-src="{{ article.image_fallback_url }}" alt="{{ article.title }}" loading="eager" fetchpriority="high" decoding="async" class="absolute inset-0 z-[1] h-full w-full object-cover" onerror="if(this.dataset.fallbackSrc){this.onerror=null;this.src=this.dataset.fallbackSrc;}">
           <div class="absolute inset-0 bg-gradient-to-t from-ink/75 via-ink/10 to-transparent"></div>
           {% if article.is_demo %}<span class="absolute {{ 'right-6' if lang == 'ar' else 'left-6' }} top-6 rounded-full bg-amber-100 px-3 py-1.5 text-[10px] font-extrabold text-amber-900">{{ ui.sample_badge }}</span>{% endif %}
           {% if article.image_source == 'gemini_generated' %}<span class="absolute {{ 'left-6' if lang == 'ar' else 'right-6' }} top-6 rounded-full border border-white/30 bg-ink/65 px-3 py-1.5 text-[10px] font-extrabold text-white backdrop-blur">{{ ui.illustrative_image }}</span>{% elif article.image_source == 'editorial_generated' %}<span class="absolute {{ 'left-6' if lang == 'ar' else 'right-6' }} top-6 rounded-full border border-white/30 bg-ink/65 px-3 py-1.5 text-[10px] font-extrabold text-white backdrop-blur">{{ 'رسم تحريري' if lang == 'ar' else 'Editorial illustration' }}</span>{% endif %}
@@ -461,10 +455,7 @@
                 <a href="{{ story.source_url if story.source_only else url_for('article', slug=story.slug, lang=lang) }}"{% if story.source_only %} target="_blank" rel="noopener noreferrer"{% endif %} class="group flex gap-3">
                   <span class="relative block h-20 w-24 shrink-0 overflow-hidden rounded-xl bg-slate-200">
                     <div aria-hidden="true" class="absolute inset-0 z-0 h-full w-full bg-gradient-to-br from-ink via-slate-800 to-slate-600"></div>
-                    <img src="{{ story.image_fallback_url }}" alt="" aria-hidden="true" loading="lazy" class="absolute inset-0 z-0 h-full w-full object-cover">
-                    {% if story.image_source != 'editorial_generated' %}
-                      <img src="{{ story.image_url }}" alt="{{ story.title }}" loading="lazy" decoding="async" class="absolute inset-0 z-[1] h-full w-full object-cover" onerror="this.onerror=null;this.style.display='none';">
-                    {% endif %}
+                    <img src="{{ story.image_url }}" data-fallback-src="{{ story.image_fallback_url }}" alt="{{ story.title }}" loading="lazy" decoding="async" class="absolute inset-0 z-[1] h-full w-full object-cover" onerror="if(this.dataset.fallbackSrc){this.onerror=null;this.src=this.dataset.fallbackSrc;}">
                   </span>
                   <span class="min-w-0">
                     <span class="mb-1 block text-[10px] font-extrabold text-pulse">{{ story.category_label }}</span>
