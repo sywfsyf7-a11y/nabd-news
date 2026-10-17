@@ -109,6 +109,16 @@ class AdminArchiveManagementTests(unittest.TestCase):
         self.assertEqual([row["slug"] for row in write_shared.call_args.args[0]], ["story-visible"])
         self.assertNotIn(hidden["source_url"], memory)
 
+    def test_hide_from_a_cold_worker_does_not_create_an_empty_shared_archive(self):
+        with patch.object(world_pulse, "_DB_ARTICLES_CACHE", None):
+            with patch.object(world_pulse, "_DB_ARTICLES_CACHE_AT", 0.0):
+                with patch.object(world_pulse, "_read_shared_archive_cache", return_value=None):
+                    with patch.object(world_pulse, "_write_shared_archive_cache") as write_shared:
+                        with patch.object(world_pulse, "_archive_file_lock", return_value=MagicMock()):
+                            with patch.object(world_pulse, "_archive_unlock"):
+                                world_pulse._remove_article_from_archive_cache("story-to-hide")
+        write_shared.assert_not_called()
+
     def test_soft_hide_updates_visibility_flag_and_never_deletes_article(self):
         connection = MagicMock()
         cursor = connection.cursor.return_value.__enter__.return_value
