@@ -58,7 +58,7 @@ The application normalizes the configured shared Supabase pooler URL before pass
 Images are selected by searching headline keywords plus source-excerpt context. Wikimedia Commons, Openverse and the Library of Congress use item-level licence checks. Culture stories can additionally use the Art Institute of Chicago and The Met when an individual record explicitly marks the object public domain. NASA is used only for relevant science/space/Earth stories; press-kit assets require item-specific pre-approval. A found photo is validated, optimized and cached in Supabase so article cards do not depend on third-party hotlink availability. The original source, creator and licence link are retained. When no suitable photo is found, the UI uses a lightweight language-specific SVG brand fallback; these placeholders are not represented as documentary photographs.
 
 ## Article reading experience
-Article pages include a prominent original-source link, an optional Arabic/English edition switch when both versions exist, clear labeling for AI-generated illustrative images, a compact source/timestamp/language metadata panel, and a sticky related-stories column on wide screens. Source attribution and licence links remain visible when provided.
+Article pages include a prominent original-source link, strict native-source-language routing, clear labeling for AI-generated illustrative images, a compact source/timestamp/language metadata panel, and a sticky related-stories column on wide screens. Source attribution and licence links remain visible when provided.
 
 ## Routes
 - `/`: latest news, language choice and category filters
