@@ -1215,5 +1215,29 @@ class BoundedImageProviderSearchTests(unittest.TestCase):
         self.assertEqual(result["image_url"], "")
         self.assertEqual(result["image_source"], "none")
 
+
+    def test_privacy_policy_covers_advertising_cookies_and_identifiers_in_both_languages(self):
+        privacy = world_pulse.STATIC_PAGES["privacy"]
+        arabic = " ".join(body for _heading, body in privacy["sections_ar"])
+        english = " ".join(body for _heading, body in privacy["sections_en"])
+
+        self.assertIn("Google AdSense", arabic)
+        self.assertIn("عناوين IP", arabic)
+        self.assertIn("إشارات الويب", arabic)
+        self.assertIn("Google AdSense", english)
+        self.assertIn("cookies", english.casefold())
+        self.assertIn("web beacons", english)
+        self.assertIn("IP addresses", english)
+        self.assertIn("consent mechanism", english)
+
+    def test_thin_or_headline_only_article_pages_are_not_indexed_as_full_articles(self):
+        source, _filename, _uptodate = world_pulse.app.jinja_env.loader.get_source(
+            world_pulse.app.jinja_env, "index.html"
+        )
+        self.assertIn("article.headline_only", source)
+        self.assertIn("article.source_only", source)
+        self.assertIn("(article.content|length < 180)", source)
+        self.assertIn('content="noindex,follow"', source)
+
 if __name__ == "__main__":
     unittest.main()
