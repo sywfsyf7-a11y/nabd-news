@@ -108,7 +108,7 @@ MAX_GEMINI_API_CALLS_PER_REFRESH = max(1, min(4, int(os.getenv("MAX_GEMINI_API_C
 CONTACT_EMAIL = os.getenv("CONTACT_EMAIL", "syfsywf86@gmail.com").strip() or "syfsywf86@gmail.com"
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 NEWS_REFRESH_WEBHOOK_TOKEN = os.getenv("NEWS_REFRESH_WEBHOOK_TOKEN", "").strip()
-MAX_ARTICLES_PER_REFRESH = max(2, min(32, int(os.getenv("MAX_ARTICLES_PER_REFRESH", "2"))))
+MAX_ARTICLES_PER_REFRESH = max(1, min(32, int(os.getenv("MAX_ARTICLES_PER_REFRESH", "1"))))
 MAX_ARTICLES_PER_CATEGORY = max(1, min(5, int(os.getenv("MAX_ARTICLES_PER_CATEGORY", "3"))))
 RSS_CANDIDATES_PER_CATEGORY = max(3, min(8, int(os.getenv("RSS_CANDIDATES_PER_CATEGORY", "6"))))
 MAX_RSS_CANDIDATES = max(32, min(96, MAX_ARTICLES_PER_REFRESH * 4))
@@ -508,8 +508,8 @@ def _display_category(row: dict[str, Any], lang: str) -> str:
     host = str(row.get("source_domain") or "").casefold().removeprefix("www.")
     if not host:
         host = _infer_source_domain_from_name(current, source_lang, str(row.get("source_name") or ""))
-    title = str(row.get(f"title_{lang}") or row.get(f"title_{source_lang}") or row.get("original_title") or "")
-    summary = str(row.get(f"summary_{lang}") or row.get(f"summary_{source_lang}") or row.get("original_summary") or "")
+    title = str(row.get(f"title_{source_lang}") or row.get("original_title") or row.get(f"title_{lang}") or "")
+    summary = str(row.get(f"summary_{source_lang}") or row.get("original_summary") or row.get(f"summary_{lang}") or "")
     detected = _classify_story(title, summary, current, host)
     if detected != current and host and _source_domain_for_category(detected, source_lang, host):
         return detected
@@ -543,18 +543,17 @@ def _text_matches_language(value: Any, lang: str) -> bool:
 
 
 def _row_allowed_on_language_site(row: dict[str, Any], lang: str) -> bool:
-    """Keep the shared archive language-safe, including legacy rows with incorrect labels."""
+    """Allow both native source languages in the same feed while enforcing publisher and text policy."""
     if lang not in {"ar", "en"}:
         return False
     source_lang = str(row.get("original_language") or "").casefold()
     if source_lang not in {"ar", "en"}:
         return False
-    # A language edition only publishes stories originally reported in that language.
-    # A translation is useful metadata, but it must not move an English-source article
-    # into the Arabic source feed (or an Arabic-source article into the English feed).
-    if source_lang != lang:
-        return False
 
+    # The interface language controls navigation and labels, not which source-language
+    # edition may contribute a story. Validate publisher eligibility against the story's
+    # native language, then let _normalise_story display a complete translation or safely
+    # fall back to the verified native-language title and content.
     category = str(row.get("category") or "world")
     host = str(row.get("source_domain") or "").casefold().removeprefix("www.")
     if not host:
@@ -565,31 +564,16 @@ def _row_allowed_on_language_site(row: dict[str, Any], lang: str) -> bool:
         return False
 
     source_title = str(row.get(f"title_{source_lang}") or row.get("original_title") or "").strip()
-    display_title = str(row.get(f"title_{lang}") or "").strip()
-    display_summary = str(row.get(f"summary_{lang}") or "").strip()
-    display_body = str(row.get(f"content_{lang}") or "").strip()
+    source_summary = str(row.get(f"summary_{source_lang}") or "").strip()
+    source_body = str(row.get(f"content_{source_lang}") or "").strip()
     if not _text_matches_language(source_title, source_lang):
         return False
-    if display_title and not _text_matches_language(display_title, lang):
+    # Stored native-language fields must agree with the original-language label. Optional
+    # translations are validated by _normalise_story; an incomplete/malformed translation
+    # causes a native-language fallback rather than making the whole story disappear.
+    if source_summary and not _text_matches_language(source_summary, source_lang):
         return False
-    if display_summary and not _text_matches_language(display_summary, lang):
-        return False
-    if display_body and not _text_matches_language(display_body, lang):
-        return False
-
-    if source_lang != lang:
-        if _is_headline_only_domain(host):
-            return False
-        if (
-            not display_title
-            or not display_summary
-            or len(display_body) < 180
-            or not _text_matches_language(display_title, lang)
-            or not _text_matches_language(display_summary, lang)
-            or not _text_matches_language(display_body, lang)
-        ):
-            return False
-    elif not display_title:
+    if source_body and not _text_matches_language(source_body, source_lang):
         return False
     return True
 
@@ -6077,17 +6061,22 @@ def _normalise_story(row: dict[str, Any], lang: str) -> dict[str, Any]:
     requested_title = str(story.get(f"title_{lang}") or "").strip()
     requested_summary = str(story.get(f"summary_{lang}") or "").strip()
     requested_body = str(story.get(f"content_{lang}") or "").strip()
-    # Only show a translation when its title, executive summary, and substantive body
-    # are all present. Otherwise preserve a coherent original-language article.
+    source_headline_only = _is_headline_only_domain(str(story.get("source_domain") or ""))
+    # Restricted headline-only publishers never enter the translation/editorial body path,
+    # including legacy records that happen to contain previously generated translation text.
     translation_complete = bool(
-        requested_title
+        not source_headline_only
+        and requested_title
         and requested_summary
         and len(requested_body) >= 180
         and _text_matches_language(requested_title, lang)
         and _text_matches_language(requested_summary, lang)
         and _text_matches_language(requested_body, lang)
     )
-    display_lang = lang if native_lang == lang or translation_complete else native_lang
+    display_lang = (
+        native_lang if source_headline_only
+        else (lang if native_lang == lang or translation_complete else native_lang)
+    )
     story["display_language"] = display_lang
     story["translation_fallback"] = display_lang != lang
     raw_title = story.get(f"title_{display_lang}") or story.get(f"title_{lang}") or ""
@@ -6096,7 +6085,6 @@ def _normalise_story(row: dict[str, Any], lang: str) -> dict[str, Any]:
     story["content"] = _normalise_summary_body(raw_summary, raw_content)
     # A one-sentence RSS excerpt can be identical to its executive summary. Keep the
     # clearly source-attributed excerpt visible in Details instead of rendering an empty block.
-    source_headline_only = _is_headline_only_domain(str(story.get("source_domain") or ""))
     if not story["content"] and raw_content.strip() and not source_headline_only:
         story["content"] = _clean_text(raw_content, 1200)
     story["title"] = _compact_display_title(raw_title, display_lang)
