@@ -632,11 +632,11 @@ _LAST_DB_STATUS: dict[str, Any] = {"state": "unknown", "error_code": "", "checke
 _DB_LAST_FETCHED_VALUE: datetime | None = None
 _DB_LAST_FETCHED_CHECKED = 0.0
 _DB_LAST_FETCHED_LOCK = threading.Lock()
-_DB_ARTICLE_CACHE_TTL_SECONDS = max(1, min(60, int(os.getenv("DB_ARTICLE_CACHE_TTL_SECONDS", "30"))))
+_DB_ARTICLE_CACHE_TTL_SECONDS = max(1, min(60, int(os.getenv("DB_ARTICLE_CACHE_TTL_SECONDS", "60"))))
 _DB_ARTICLES_CACHE: list[dict[str, Any]] | None = None
 _DB_ARTICLES_CACHE_AT = 0.0
 _DB_ARTICLES_CACHE_LOCK = threading.Lock()
-_DISPLAY_STORIES_CACHE_TTL_SECONDS = max(2, min(120, int(os.getenv("DISPLAY_STORIES_CACHE_TTL_SECONDS", "60"))))
+_DISPLAY_STORIES_CACHE_TTL_SECONDS = max(2, min(120, int(os.getenv("DISPLAY_STORIES_CACHE_TTL_SECONDS", "120"))))
 _DISPLAY_STORIES_CACHE: dict[str, tuple[float, list[dict[str, Any]]]] = {}
 _DISPLAY_STORIES_CACHE_LOCK = threading.Lock()
 _SCHEDULER_START_LOCK = threading.Lock()
@@ -1497,7 +1497,6 @@ def _db_fetch_all() -> list[dict[str, Any]]:
                               OR (COALESCE(source_domain, '') = '' AND LOWER(source_name) LIKE ANY(%s))
                           )
                         ORDER BY COALESCE(published_at, fetched_at) DESC, fetched_at DESC
-                        LIMIT 120
                     )
                     UNION ALL
                     (
@@ -1517,7 +1516,6 @@ def _db_fetch_all() -> list[dict[str, Any]]:
                               OR (COALESCE(source_domain, '') = '' AND LOWER(source_name) LIKE ANY(%s))
                           )
                         ORDER BY COALESCE(published_at, fetched_at) DESC, fetched_at DESC
-                        LIMIT 120
                     )
                 ) AS recent_articles
                 ORDER BY COALESCE(published_at, fetched_at) DESC, fetched_at DESC

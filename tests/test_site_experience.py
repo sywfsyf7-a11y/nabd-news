@@ -1355,7 +1355,7 @@ class BoundedImageProviderSearchTests(unittest.TestCase):
         self.assertNotIn("ROW_NUMBER()", query)
         self.assertIn("UNION ALL", query)
         self.assertIn("SELECT * FROM (", query)
-        self.assertEqual(query.count("LIMIT 120"), 2)
+        self.assertNotIn("LIMIT 120", query)
         self.assertIn("original_language = 'ar'", query)
         self.assertIn("original_language = 'en'", query)
         self.assertIn("LOWER(source_domain) = ANY(%s)", query)
