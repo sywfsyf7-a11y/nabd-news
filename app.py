@@ -1590,19 +1590,19 @@ def _looks_like_feed_section_title(value: Any, publisher: Any = "") -> bool:
     title = _clean_text(value, 350)
     if not title:
         return True
-    normalized = re.sub(r"[^\\w\\u0600-\\u06ff]+", " ", title.casefold()).strip()
-    normalized = re.sub(r"\\s+", " ", normalized)
+    normalized = re.sub(r"[^\w\u0600-\u06ff]+", " ", title.casefold()).strip()
+    normalized = re.sub(r"\s+", " ", normalized)
     if normalized in _GENERIC_FEED_SECTION_TITLES:
         return True
 
     # RSS aggregators often publish navigation labels such as "Latest Nintendo Life News".
     if re.fullmatch(
-        r"(?:latest|recent|top|all|more)\\s+(?:[\\w'’.-]+\\s+){0,5}(?:news|headlines|stories|updates)",
+        r"(?:latest|recent|top|all|more)\s+(?:[\w'’.-]+\s+){0,5}(?:news|headlines|stories|updates)",
         normalized,
     ):
         return True
     if re.fullmatch(
-        r"(?:آخر|اخر|أحدث|احدث)\\s+(?:أخبار|اخبار)\\s+[\\w\\u0600-\\u06ff]+(?:\\s+[\\w\\u0600-\\u06ff]+){0,3}",
+        r"(?:آخر|اخر|أحدث|احدث)\s+(?:أخبار|اخبار)\s+[\w\u0600-\u06ff]+(?:\s+[\w\u0600-\u06ff]+){0,3}",
         normalized,
     ):
         return True
@@ -1612,7 +1612,7 @@ def _looks_like_feed_section_title(value: Any, publisher: Any = "") -> bool:
     publisher_text = _clean_text(publisher, 120)
     if publisher_text:
         suffix = re.search(
-            r"\\s*(?:[-–—|:])\\s*" + re.escape(publisher_text) + r"\\s*$",
+            r"\s*(?:[-–—|:])\s*" + re.escape(publisher_text) + r"\s*$",
             title,
             flags=re.IGNORECASE,
         )
