@@ -119,7 +119,8 @@ MAX_IMAGE_LOOKUPS_PER_REFRESH = max(0, min(32, int(os.getenv("MAX_IMAGE_LOOKUPS_
 IMAGE_RETRY_AFTER_HOURS = max(1, min(168, int(os.getenv("IMAGE_RETRY_AFTER_HOURS", "1"))))
 IMAGE_CACHE_MAX_AGE_SECONDS = max(3600, int(os.getenv("IMAGE_CACHE_MAX_AGE_HOURS", "24")) * 3600)
 TRUSTED_REUSABLE_IMAGE_SOURCES = {
-    "wikimedia_relevant", "openverse_licensed", "loc_open_access", "nasa_images", "presskit_approved"
+    "wikimedia_relevant", "openverse_licensed", "loc_open_access", "nasa_images",
+    "artic_open_access", "met_open_access", "presskit_approved"
 }
 
 
@@ -809,6 +810,8 @@ def _known_control_cache_keys() -> set[str]:
         "image:openverse_licensed",
         "image:loc_open_access",
         "image:nasa_images",
+        "image:artic_open_access",
+        "image:met_open_access",
         "image:presskit_approved",
         "image:gemini_generated",
     })
@@ -958,6 +961,8 @@ def _known_source_controls() -> list[dict[str, Any]]:
         ("openverse_licensed", "Openverse openly licensed images", True),
         ("loc_open_access", "Library of Congress open-access photos", True),
         ("nasa_images", "NASA Image and Video Library", True),
+        ("artic_open_access", "Art Institute of Chicago public-domain artwork (culture only)", True),
+        ("met_open_access", "The Met public-domain collection (culture only)", True),
         ("presskit_approved", "صور صحفية معتمدة", _presskit_provider_configured()),
         ("gemini_generated", "توليد صور تحريرية باستخدام Gemini", bool(GEMINI_IMAGE_GENERATION_ENABLED and GEMINI_API_KEY) and genai is not None and types is not None),
     ]
@@ -1337,27 +1342,27 @@ def _db_upsert_many(articles: list[dict[str, Any]]) -> bool:
             source_name = EXCLUDED.source_name,
             source_domain = CASE WHEN EXCLUDED.source_domain <> '' THEN EXCLUDED.source_domain ELSE world_pulse_articles.source_domain END,
             image_url = CASE
-                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'openverse_licensed', 'loc_open_access', 'nasa_images', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
+                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'openverse_licensed', 'loc_open_access', 'nasa_images', 'artic_open_access', 'met_open_access', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
                     THEN world_pulse_articles.image_url
                 ELSE EXCLUDED.image_url END,
             image_source = CASE
-                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'openverse_licensed', 'loc_open_access', 'nasa_images', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
+                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'openverse_licensed', 'loc_open_access', 'nasa_images', 'artic_open_access', 'met_open_access', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
                     THEN world_pulse_articles.image_source
                 ELSE EXCLUDED.image_source END,
             image_credit = CASE
-                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'openverse_licensed', 'loc_open_access', 'nasa_images', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
+                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'openverse_licensed', 'loc_open_access', 'nasa_images', 'artic_open_access', 'met_open_access', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
                     THEN world_pulse_articles.image_credit
                 ELSE EXCLUDED.image_credit END,
             image_credit_url = CASE
-                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'openverse_licensed', 'loc_open_access', 'nasa_images', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
+                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'openverse_licensed', 'loc_open_access', 'nasa_images', 'artic_open_access', 'met_open_access', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
                     THEN world_pulse_articles.image_credit_url
                 ELSE EXCLUDED.image_credit_url END,
             image_provider_url = CASE
-                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'openverse_licensed', 'loc_open_access', 'nasa_images', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
+                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'openverse_licensed', 'loc_open_access', 'nasa_images', 'artic_open_access', 'met_open_access', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
                     THEN world_pulse_articles.image_provider_url
                 ELSE EXCLUDED.image_provider_url END,
             image_license_url = CASE
-                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'openverse_licensed', 'loc_open_access', 'nasa_images', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
+                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'openverse_licensed', 'loc_open_access', 'nasa_images', 'artic_open_access', 'met_open_access', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
                     THEN world_pulse_articles.image_license_url
                 ELSE EXCLUDED.image_license_url END,
             image_checked_at = COALESCE(EXCLUDED.image_checked_at, world_pulse_articles.image_checked_at),
@@ -1834,6 +1839,151 @@ def _search_loc_open_access_image(title: str, lang: str = "en", category: str = 
         logger.debug("Library of Congress image lookup failed (%s)", type(exc).__name__)
         return {}
 
+def _search_art_institute_image(title: str, lang: str = "en", category: str = "world") -> dict[str, Any]:
+    """Search Art Institute of Chicago records; only individually marked public-domain art passes."""
+    if category != "culture":
+        return {}
+    query = _image_search_phrase(_clean_text(title, 220), 5)
+    if not query:
+        return {}
+    try:
+        params = urlencode({
+            "q": query,
+            "query[term][is_public_domain]": "true",
+            "limit": 16,
+            "fields": "id,title,image_id,artist_title,description,date_display,is_public_domain",
+        })
+        req = Request(
+            "https://api.artic.edu/api/v1/artworks/search?" + params,
+            headers={"User-Agent": "WorldPulseNews/2.2 (public-domain culture image discovery)"},
+        )
+        with urlopen(req, timeout=IMAGE_SEARCH_TIMEOUT_SECONDS) as response:
+            data = json.loads(response.read(1_500_000).decode("utf-8", errors="replace"))
+        best: tuple[float, dict[str, Any]] | None = None
+        for item in (data.get("data") or [])[:16]:
+            if not isinstance(item, dict) or item.get("is_public_domain") is not True:
+                continue
+            image_id = _clean_text(item.get("image_id") or "", 100)
+            item_title = _clean_text(item.get("title") or "", 240)
+            if not image_id or not item_title or re.search(r"(?i)\b(logo|seal|insignia|coat of arms|brand mark)\b", item_title):
+                continue
+            artist = _clean_text(item.get("artist_title") or "", 180)
+            description = _clean_text(item.get("description") or "", 900)
+            date_text = _clean_text(item.get("date_display") or "", 100)
+            evidence = " ".join((item_title, artist, description, date_text))
+            score = max(_image_match_score(title, evidence), _image_match_score(query, evidence))
+            if score <= 0:
+                continue
+            try:
+                artwork_id = int(item.get("id"))
+            except (TypeError, ValueError):
+                continue
+            source_page = f"https://www.artic.edu/artworks/{artwork_id}"
+            image_url = "https://www.artic.edu/iiif/2/" + quote(image_id, safe="") + "/full/843,/0/default.jpg"
+            result = {
+                "image_url": image_url,
+                "image_source": "artic_open_access",
+                "image_credit": (artist + " · Art Institute of Chicago") if artist else "Art Institute of Chicago",
+                "image_credit_url": source_page,
+                "image_provider_url": source_page,
+                "image_license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+                "image_checked_at": datetime.now(timezone.utc),
+                "image_title": item_title,
+                "_image_relevance_score": score,
+            }
+            if best is None or score > best[0]:
+                best = (score, result)
+        return best[1] if best else {}
+    except Exception as exc:
+        logger.debug("Art Institute public-domain image lookup failed (%s)", type(exc).__name__)
+        return {}
+
+
+def _search_met_open_access_image(title: str, lang: str = "en", category: str = "world") -> dict[str, Any]:
+    """Search The Met; only public-domain objects with a primary image are eligible."""
+    if category != "culture":
+        return {}
+    query = _image_search_phrase(_clean_text(title, 220), 5)
+    if not query:
+        return {}
+    headers = {"User-Agent": "WorldPulseNews/2.2 (Metropolitan Museum public-domain image discovery)"}
+    try:
+        params = urlencode({"q": query, "isPublicDomain": "true", "hasImages": "true"})
+        req = Request(
+            "https://collectionapi.metmuseum.org/public/collection/v1.1/search?" + params,
+            headers=headers,
+        )
+        with urlopen(req, timeout=IMAGE_SEARCH_TIMEOUT_SECONDS) as response:
+            data = json.loads(response.read(1_000_000).decode("utf-8", errors="replace"))
+        object_ids = [str(value) for value in (data.get("objectIDs") or [])[:3] if str(value).isdigit()]
+        if not object_ids:
+            return {}
+
+        def read_object(object_id: str) -> dict[str, Any]:
+            try:
+                req = Request(
+                    "https://collectionapi.metmuseum.org/public/collection/v1/objects/" + quote(object_id, safe=""),
+                    headers=headers,
+                )
+                with urlopen(req, timeout=IMAGE_SEARCH_TIMEOUT_SECONDS) as response:
+                    value = json.loads(response.read(1_200_000).decode("utf-8", errors="replace"))
+                return value if isinstance(value, dict) else {}
+            except Exception:
+                return {}
+
+        best: tuple[float, dict[str, Any]] | None = None
+        pool = ThreadPoolExecutor(max_workers=min(3, len(object_ids)))
+        futures = [pool.submit(read_object, object_id) for object_id in object_ids]
+        try:
+            for future in as_completed(futures, timeout=IMAGE_SEARCH_TIMEOUT_SECONDS):
+                item = future.result()
+                if item.get("isPublicDomain") is not True:
+                    continue
+                image_url = _https_url(item.get("primaryImage"), {"metmuseum.org"})
+                item_title = _clean_text(item.get("title") or "", 240)
+                if not image_url or not item_title or re.search(r"(?i)\b(logo|seal|insignia|coat of arms|brand mark)\b", item_title):
+                    continue
+                artist = _clean_text(item.get("artistDisplayName") or "", 180)
+                metadata = " ".join(
+                    _clean_text(item.get(key) or "", 180)
+                    for key in ("objectName", "culture", "period", "medium", "classification", "objectDate")
+                )
+                evidence = " ".join((item_title, artist, metadata))
+                score = max(_image_match_score(title, evidence), _image_match_score(query, evidence))
+                if score <= 0:
+                    continue
+                object_id = str(item.get("objectID") or "")
+                source_page = _https_url(item.get("objectURL"), {"metmuseum.org"})
+                if not source_page and object_id.isdigit():
+                    source_page = "https://www.metmuseum.org/art/collection/search/" + object_id
+                if not source_page:
+                    continue
+                result = {
+                    "image_url": image_url,
+                    "image_source": "met_open_access",
+                    "image_credit": (artist + " · The Metropolitan Museum of Art") if artist else "The Metropolitan Museum of Art",
+                    "image_credit_url": source_page,
+                    "image_provider_url": source_page,
+                    "image_license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+                    "image_checked_at": datetime.now(timezone.utc),
+                    "image_title": item_title,
+                    "_image_relevance_score": score,
+                }
+                if best is None or score > best[0]:
+                    best = (score, result)
+        except FuturesTimeoutError:
+            pass
+        finally:
+            for future in futures:
+                if not future.done():
+                    future.cancel()
+            pool.shutdown(wait=False, cancel_futures=True)
+        return best[1] if best else {}
+    except Exception as exc:
+        logger.debug("Met public-domain image lookup failed (%s)", type(exc).__name__)
+        return {}
+
+
 def _search_nasa_image(title: str, lang: str = "en", category: str = "world") -> dict[str, str]:
     """Search NASA's public image archive for closely matching science/space/Earth stories."""
     if category not in {"science", "technology", "world"}:
@@ -2016,6 +2166,12 @@ def _cache_reusable_image(result: dict[str, Any]) -> dict[str, Any]:
             return result
     elif source == "loc_open_access":
         if not _domain_matches(source_parsed.hostname, "loc.gov"):
+            return result
+    elif source == "artic_open_access":
+        if not _domain_matches(source_parsed.hostname, "artic.edu"):
+            return result
+    elif source == "met_open_access":
+        if not _domain_matches(source_parsed.hostname, "metmuseum.org"):
             return result
     elif source == "nasa_images":
         if not _domain_matches(source_parsed.hostname, "nasa.gov"):
@@ -2378,7 +2534,7 @@ def _search_image_provider_group(
     if not active:
         return {}
 
-    executor = ThreadPoolExecutor(max_workers=min(4, len(active)))
+    executor = ThreadPoolExecutor(max_workers=min(5, len(active)))
     futures = {executor.submit(finder): key for key, finder in active}
     results: dict[str, dict[str, str]] = {}
     try:
@@ -2431,6 +2587,8 @@ def _search_any_reusable_image(
         ("image:openverse_licensed", lambda: _search_openverse_image(title, lang, category)),
         ("image:wikimedia_relevant", lambda: _search_commons_image(title, lang, category)),
         ("image:loc_open_access", lambda: _search_loc_open_access_image(title, lang, category)),
+        ("image:artic_open_access", lambda: _search_art_institute_image(title, lang, category)),
+        ("image:met_open_access", lambda: _search_met_open_access_image(title, lang, category)),
     )
     result = _search_image_provider_group("open_catalogues", open_catalogues)
     if result or open_only:
@@ -4119,6 +4277,33 @@ def _save_persisted_news_queue(state: dict[str, Any]) -> bool:
         _release_db_connection(conn)
 
 
+def _append_news_queue_candidates(
+    queued_items: list[dict[str, Any]],
+    candidates: list[dict[str, Any]],
+    known_url_keys: set[str],
+    *,
+    max_pending: int = MAX_PENDING_NEWS_CANDIDATES,
+    max_additions: int = MAX_QUEUE_ADDITIONS_PER_DISCOVERY,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Append fresh metadata in FIFO order without evicting older pending items."""
+    queued_keys = {
+        _canonical_story_url(item.get("source_url"))
+        for item in queued_items if item.get("source_url")
+    }
+    available_slots = max(0, max_pending - len(queued_items))
+    addition_limit = min(max(0, max_additions), available_slots)
+    additions: list[dict[str, Any]] = []
+    for candidate in candidates:
+        if len(additions) >= addition_limit:
+            break
+        key = _canonical_story_url(candidate.get("source_url"))
+        if not key or key in known_url_keys or key in queued_keys:
+            continue
+        queued_keys.add(key)
+        additions.append(candidate)
+    return list(queued_items) + additions, additions
+
+
 def _news_queue_discovery_due(state: dict[str, Any], now: datetime | None = None) -> bool:
     discovered_at = _queue_datetime(state.get("discovered_at"))
     if discovered_at is None:
@@ -4179,26 +4364,14 @@ def _refresh_news_job() -> None:
             known_urls = {str(row.get("source_url", "")) for row in database_rows if row.get("source_url")}
             known_urls.update(str(row.get("source_url", "")) for row in _MEMORY_ARTICLES.values() if row.get("source_url"))
             known_keys = {_canonical_story_url(url) for url in known_urls if url}
-            queued_keys = {
-                _canonical_story_url(item.get("source_url"))
-                for item in queue_items if item.get("source_url")
-            }
-            additions: list[dict[str, Any]] = []
-            for candidate in rss_candidates:
-                key = _canonical_story_url(candidate.get("source_url"))
-                if not key or key in known_keys or key in queued_keys:
-                    continue
-                queued_keys.add(key)
-                additions.append(candidate)
-                if len(additions) >= MAX_QUEUE_ADDITIONS_PER_DISCOVERY:
-                    break
-
-            # Keep intake close to publishing capacity: six new stories per 30 minutes
-            # matches one publication every five minutes. Do not evict older unsent queue
-            # entries just because one RSS scan found a burst of headlines.
-            queue_items.extend(additions)
-            queue_items.sort(key=_memory_article_timestamp, reverse=True)
-            queue_items = queue_items[:MAX_PENDING_NEWS_CANDIDATES]
+            # Keep the queue FIFO; no pending item is removed to make room for newer headlines.
+            queue_items, additions = _append_news_queue_candidates(
+                queue_items,
+                rss_candidates,
+                known_keys,
+                max_pending=MAX_PENDING_NEWS_CANDIDATES,
+                max_additions=MAX_QUEUE_ADDITIONS_PER_DISCOVERY,
+            )
             queue_state["discovered_at"] = datetime.now(timezone.utc).isoformat()
             queue_state["items"] = queue_items
             if not _save_persisted_news_queue(queue_state):
@@ -4535,6 +4708,10 @@ def _image_license_label(license_url: str, source: str = "") -> str:
         return "Original locally generated editorial illustration"
     if source == "loc_open_access":
         return "Item marked public domain / no known restrictions (verify item record)"
+    if source == "artic_open_access":
+        return "CC0 1.0 / individual artwork marked public domain"
+    if source == "met_open_access":
+        return "CC0 1.0 / individual object marked public domain"
     if source == "presskit_approved":
         return "Approved press-kit licence"
     if source == "gemini_generated":
@@ -4547,6 +4724,8 @@ def _image_provider_label(source: str) -> str:
         "openverse_licensed": "Openverse · openly licensed media",
         "loc_open_access": "Library of Congress (item marked reusable)",
         "nasa_images": "NASA Image and Video Library",
+        "artic_open_access": "Art Institute of Chicago (public-domain artwork)",
+        "met_open_access": "The Met (public-domain artwork)",
         "presskit_approved": "Approved press kit",
         "gemini_generated": "Gemini AI illustration",
         "editorial_generated": "World Pulse topic-specific editorial art",
@@ -4960,6 +5139,8 @@ def news_status():
             "gemini_image_generation": GEMINI_IMAGE_GENERATION_ENABLED and _control_enabled("image:gemini_generated", True),
             "wikimedia_commons": _control_enabled("image:wikimedia_relevant", True),
             "loc_open_access": _control_enabled("image:loc_open_access", True),
+            "artic_open_access": _control_enabled("image:artic_open_access", True),
+            "met_open_access": _control_enabled("image:met_open_access", True),
             "presskit_manifest_configured": _presskit_provider_configured(),
             "stock_image_apis_enabled": False,
         },
