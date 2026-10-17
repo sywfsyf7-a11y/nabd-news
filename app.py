@@ -1586,7 +1586,7 @@ _GENERIC_FEED_SECTION_TITLES = {
 
 
 def _looks_like_feed_section_title(value: Any, publisher: Any = "") -> bool:
-    """Reject obvious publisher-section labels without broadly filtering short real headlines."""
+    """Reject publisher navigation/SEO titles while preserving genuine story headlines."""
     title = _clean_text(value, 350)
     if not title:
         return True
@@ -1606,10 +1606,17 @@ def _looks_like_feed_section_title(value: Any, publisher: Any = "") -> bool:
         normalized,
     ):
         return True
+    # Arabic publisher landing pages frequently use a longer SEO label than "آخر الأخبار".
+    if re.fullmatch(
+        r"(?:آخر|اخر|أحدث|احدث)\s+الأخبار(?:\s+(?:العربية|الدولية|العالمية|والعالمية|والسياسية|والاقتصادية|والرياضية|والتقنية|والثقافية)){1,5}",
+        normalized,
+    ):
+        return True
 
-    # Google News appends the publisher after a dash. If the remaining "headline" is
-    # only a very short location/section label, do not publish it as a standalone story.
+    # Google News appends the publisher after a dash. Short location/section prefixes
+    # are not stories, even when the publisher name makes the whole title look longer.
     publisher_text = _clean_text(publisher, 120)
+    suffix = None
     if publisher_text:
         suffix = re.search(
             r"\s*(?:[-–—|:])\s*" + re.escape(publisher_text) + r"\s*$",
@@ -1620,6 +1627,20 @@ def _looks_like_feed_section_title(value: Any, publisher: Any = "") -> bool:
             prefix = title[:suffix.start()].strip()
             if len(prefix) < 18 and len(prefix.split()) <= 2:
                 return True
+
+    # Some feeds return the publisher's SEO/homepage title as an RSS item. Example:
+    # "Breaking News, World News and Video from Al Jazeera - Al Jazeera".
+    # Match only these explicit landing-page formulations; don't filter a real headline
+    # merely because it begins with "World News" or mentions the publisher.
+    landing_title = title[:suffix.start()].strip() if suffix else title
+    landing_normalized = re.sub(r"\s+", " ", landing_title.casefold()).strip(" \t-|:–—")
+    landing_patterns = (
+        r"^(?:breaking\s+news,\s*)?world\s+news\s+and\s+videos?\s+from\b",
+        r"^(?:latest\s+)?news\s+and\s+videos?\s+from\b",
+        r"^(?:breaking\s+news,\s*)?news,\s+headlines\s+and\s+videos?\s+from\b",
+    )
+    if any(re.match(pattern, landing_normalized, flags=re.IGNORECASE) for pattern in landing_patterns):
+        return True
     return False
 
 
@@ -5636,6 +5657,10 @@ def article(slug: str):
             stored
             and stored.get("source_url")
             and (stored.get(f"title_{lang}") or stored.get(f"title_{stored_language}"))
+            and not _looks_like_feed_section_title(
+                stored.get(f"title_{stored_language}") or stored.get(f"title_{lang}") or "",
+                stored.get("source_name", ""),
+            )
             and _row_allowed_on_language_site(stored, lang)
         ):
             corrected_category = _display_category(stored, lang)
