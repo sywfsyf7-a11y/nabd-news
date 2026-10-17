@@ -491,24 +491,36 @@ def _display_category(row: dict[str, Any], lang: str) -> str:
 
 
 def _row_allowed_on_language_site(row: dict[str, Any], lang: str) -> bool:
-    """Keep each source-language story on its matching interface, with source-policy checks."""
+    """Keep the archive bilingual while never leaking untranslated text into an interface."""
     if lang not in {"ar", "en"}:
         return False
     source_lang = str(row.get("original_language") or "").casefold()
-    # Never show an English-source headline inside the Arabic feed (or vice versa).
-    # This also prevents untranslated/half-translated cards from looking like mixed content.
-    if source_lang != lang:
+    if source_lang not in {"ar", "en"}:
         return False
+
     category = str(row.get("category") or "world")
     host = str(row.get("source_domain") or "").casefold().removeprefix("www.")
     if not host:
         host = _infer_source_domain_from_name(category, source_lang, str(row.get("source_name") or ""))
     if not host:
         return False
-    return bool(
-        _source_domain_for_category(category, source_lang, host)
-        and (not _domain_needs_license(host) or _is_headline_only_domain(host))
-    )
+    if not _source_domain_for_category(category, source_lang, host):
+        return False
+    if _domain_needs_license(host) and not _is_headline_only_domain(host):
+        return False
+
+    # Keep one shared bilingual archive, but an article from the other source language
+    # may enter this interface only after a complete title/summary/body translation exists.
+    # Headline-only publishers are not rewritten or translated by the editorial model.
+    if source_lang != lang:
+        if _is_headline_only_domain(host):
+            return False
+        translated_title = str(row.get(f"title_{lang}") or "").strip()
+        translated_summary = str(row.get(f"summary_{lang}") or "").strip()
+        translated_body = str(row.get(f"content_{lang}") or "").strip()
+        if not translated_title or not translated_summary or len(translated_body) < 80:
+            return False
+    return True
 
 
 LICENSE_REQUIRED_SOURCE_NAMES = (
@@ -1543,6 +1555,9 @@ _IMAGE_STOPWORDS = {
 
 def _image_tokens(value: str) -> set[str]:
     return {t.casefold() for t in re.findall(r"[\w\u0600-\u06ff]{3,}", value or "") if t.casefold() not in _IMAGE_STOPWORDS}
+
+MIN_IMAGE_RELEVANCE_SCORE = 0.26
+
 
 def _image_match_score(title: str, description: str) -> float:
     """Score rights-filtered catalogue results while tolerating title/metadata wording differences."""
@@ -2869,6 +2884,14 @@ def _search_article_image_with_variants(
         if score >= 0.42:
             break
     if not best:
+        return {}
+    if best_score < MIN_IMAGE_RELEVANCE_SCORE:
+        # A legally reusable photo can still be editorially wrong. Prefer the labelled
+        # story-specific SVG fallback over a weakly related picture.
+        logger.info(
+            "Image lookup rejected weak match: relevance=%.3f required=%.3f; using editorial fallback",
+            max(0.0, best_score), MIN_IMAGE_RELEVANCE_SCORE,
+        )
         return {}
     best.pop("_image_relevance_score", None)
     if best.get("image_url"):
