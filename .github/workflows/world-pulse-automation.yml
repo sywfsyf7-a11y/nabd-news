@@ -147,7 +147,7 @@ jobs:
               raise SystemExit("Live database probe failed; inspect Render logs and the protected admin monitor.")
 
           base_host = urlparse(site_url).hostname
-          load_paths = ["/healthz", "/", "/?lang=ar"]
+          load_paths = ["/healthz", "/?lang=en", "/?lang=ar"]
           article_paths = []
           for language, filename in (("en", "/tmp/home-en.html"), ("ar", "/tmp/home-ar.html")):
               page_html = Path(filename).read_text(encoding="utf-8")
