@@ -81,8 +81,9 @@ def add_security_headers(response):
 SITE_NAME_AR = "نبض العالم"
 SITE_NAME_EN = "World Pulse"
 TIMEZONE = ZoneInfo(os.getenv("SITE_TIMEZONE", "Asia/Amman"))
-NEWS_REFRESH_MINUTES = max(5, int(os.getenv("NEWS_REFRESH_MINUTES", "5")))
-NEWS_RETRY_MINUTES = max(5, int(os.getenv("NEWS_RETRY_MINUTES", "5")))
+# Keep the publishing tick and its retry interval fixed even if Render has stale environment values.
+NEWS_REFRESH_MINUTES = 5
+NEWS_RETRY_MINUTES = 5
 # Discover new publisher stories every 15 minutes; publishing itself remains a smaller five-minute tick.
 NEWS_DISCOVERY_REFRESH_MINUTES = 15
 MAX_PENDING_NEWS_CANDIDATES = max(24, min(160, int(os.getenv("MAX_PENDING_NEWS_CANDIDATES", "60"))))
@@ -105,7 +106,8 @@ GEMINI_TRANSIENT_ERROR_COOLDOWN_MINUTES = max(1, min(60, int(os.getenv("GEMINI_T
 GEMINI_INVALID_RESPONSE_COOLDOWN_MINUTES = max(1, min(60, int(os.getenv("GEMINI_INVALID_RESPONSE_COOLDOWN_MINUTES", "5"))))
 GEMINI_IMAGE_TIMEOUT_SECONDS = max(15, min(120, int(os.getenv("GEMINI_IMAGE_TIMEOUT_SECONDS", "75"))))
 GEMINI_TIMEOUT_SECONDS = max(8, min(45, int(os.getenv("GEMINI_TIMEOUT_SECONDS", "20"))))
-MAX_GEMINI_API_CALLS_PER_REFRESH = max(1, min(4, int(os.getenv("MAX_GEMINI_API_CALLS_PER_REFRESH", "2"))))
+# One initial request and at most one fallback request for the single story being processed.
+MAX_GEMINI_API_CALLS_PER_REFRESH = 2
 CONTACT_EMAIL = os.getenv("CONTACT_EMAIL", "syfsywf86@gmail.com").strip() or "syfsywf86@gmail.com"
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 NEWS_REFRESH_WEBHOOK_TOKEN = os.getenv("NEWS_REFRESH_WEBHOOK_TOKEN", "").strip()
