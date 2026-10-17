@@ -1422,8 +1422,10 @@ class BoundedImageProviderSearchTests(unittest.TestCase):
                         with patch.object(world_pulse, "_row_allowed_on_language_site", return_value=True):
                             with patch.object(world_pulse, "_display_category", return_value="world"):
                                 with patch.object(world_pulse, "_db_fetch_related_articles", return_value=[]):
-                                    with patch.object(world_pulse, "render_template", return_value="internal article page") as render:
-                                        response = world_pulse.app.test_client().get("/article/bbc-headline-only?lang=en")
+                                    with patch.object(world_pulse, "_get_display_stories", side_effect=AssertionError("cold article should not rebuild homepage")) as rebuild:
+                                        with patch.object(world_pulse, "render_template", return_value="internal article page") as render:
+                                            response = world_pulse.app.test_client().get("/article/bbc-headline-only?lang=en")
+                                        rebuild.assert_not_called()
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.get_data(as_text=True), "internal article page")
