@@ -1273,6 +1273,8 @@ class SiteExperienceTests(unittest.TestCase):
             "image_provider_url": "https://photos.example.org/item/new-photo",
             "image_license_url": "https://creativecommons.org/licenses/by/4.0/",
             "image_checked_at": checked_at,
+            "image_title": "New satellite technology photo",
+            "_image_relevance_evidence": "New satellite technology launch communications satellite",
             "_image_relevance_score": 0.82,
         }
         with patch.object(world_pulse, "_db_fetch_all", return_value=[stored]):
