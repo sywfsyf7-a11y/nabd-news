@@ -664,7 +664,8 @@ CREATE TABLE IF NOT EXISTS world_pulse_articles (
     fetched_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     read_minutes INTEGER NOT NULL DEFAULT 1,
     original_language TEXT NOT NULL DEFAULT 'en',
-    is_demo BOOLEAN NOT NULL DEFAULT FALSE
+    is_demo BOOLEAN NOT NULL DEFAULT FALSE,
+    is_hidden BOOLEAN NOT NULL DEFAULT FALSE
 );
 CREATE INDEX IF NOT EXISTS idx_world_pulse_published
     ON world_pulse_articles (published_at DESC NULLS LAST);
@@ -714,6 +715,10 @@ CREATE TABLE IF NOT EXISTS world_pulse_catalogued_images (
 CREATE INDEX IF NOT EXISTS idx_wp_catalogued_images_created
     ON world_pulse_catalogued_images (created_at DESC);
 ALTER TABLE world_pulse_articles ADD COLUMN IF NOT EXISTS source_domain TEXT NOT NULL DEFAULT '';
+ALTER TABLE world_pulse_articles ADD COLUMN IF NOT EXISTS is_hidden BOOLEAN NOT NULL DEFAULT FALSE;
+CREATE INDEX IF NOT EXISTS idx_world_pulse_hidden_live_date
+    ON world_pulse_articles (is_hidden, (COALESCE(published_at, fetched_at)) DESC)
+    WHERE is_demo = FALSE;
 """
 
 def _database_url() -> str:
@@ -1077,9 +1082,13 @@ def _content_quality_audit_issues(
     return issues
 
 
-def _run_content_quality_audit_once() -> None:
-    """Run an explicitly enabled, read-only archive/image audit at most once every 30 minutes."""
-    if os.getenv("NEWS_CONTENT_AUDIT_ONCE", "false").strip().casefold() not in {"1", "true", "yes", "on"}:
+def _run_content_quality_audit_once(*, force: bool = False) -> None:
+    """Run a read-only archive/image audit at most once every 30 minutes.
+
+    Scheduled startup audits remain opt-in. A logged-in administrator may explicitly
+    request a run even when the startup environment flag is off.
+    """
+    if not force and os.getenv("NEWS_CONTENT_AUDIT_ONCE", "false").strip().casefold() not in {"1", "true", "yes", "on"}:
         return
     if not _ensure_schema():
         logger.warning("Content audit skipped because the database schema is not ready")
@@ -1620,6 +1629,7 @@ def _query_persistent_archive_rows() -> list[dict[str, Any]] | None:
                                read_minutes, original_language, is_demo
                         FROM world_pulse_articles
                         WHERE is_demo = FALSE
+                          AND is_hidden = FALSE
                           AND original_language = 'ar'
                           AND LENGTH(TRIM(COALESCE(title_ar, ''))) > 0
                           AND LENGTH(TRIM(COALESCE(summary_ar, ''))) > 0
@@ -1640,6 +1650,7 @@ def _query_persistent_archive_rows() -> list[dict[str, Any]] | None:
                                read_minutes, original_language, is_demo
                         FROM world_pulse_articles
                         WHERE is_demo = FALSE
+                          AND is_hidden = FALSE
                           AND original_language = 'en'
                           AND LENGTH(TRIM(COALESCE(title_en, ''))) > 0
                           AND LENGTH(TRIM(COALESCE(summary_en, ''))) > 0
@@ -1812,7 +1823,7 @@ def _db_fetch_article_by_slug(slug: str) -> dict[str, Any] | None:
                        content_ar, content_en, published_at, fetched_at,
                        read_minutes, original_language, is_demo
                 FROM world_pulse_articles
-                WHERE slug = %s AND is_demo = FALSE
+                WHERE slug = %s AND is_demo = FALSE AND is_hidden = FALSE
                 LIMIT 1
             """, (slug,))
             row = cur.fetchone()
@@ -1844,8 +1855,9 @@ def _db_fetch_related_articles(
                        summary_en, content_ar, content_en, published_at, fetched_at,
                        read_minutes, original_language, is_demo
                 FROM world_pulse_articles
-                WHERE is_demo = FALSE
-                  AND original_language = %s
+                 WHERE is_demo = FALSE
+                   AND is_hidden = FALSE
+                   AND original_language = %s
                   AND slug <> %s
                   AND COALESCE(source_url, '') <> ''
                   AND LENGTH(TRIM(COALESCE({title_col}, ''))) > 0
@@ -1898,9 +1910,10 @@ def _db_search_articles(query: str, limit: int = 60) -> list[dict[str, Any]] | N
                title_ar, title_en, summary_ar, summary_en, content_ar, content_en,
                published_at, fetched_at, read_minutes, original_language, is_demo
         FROM world_pulse_articles
-        WHERE is_demo = FALSE
-          AND (
-              (original_language = 'ar'
+         WHERE is_demo = FALSE
+           AND is_hidden = FALSE
+           AND (
+               (original_language = 'ar'
                AND LENGTH(TRIM(COALESCE(title_ar, ''))) > 0
                AND LENGTH(TRIM(COALESCE(summary_ar, ''))) > 0
                AND (LOWER(source_domain) = ANY(%s) OR LOWER(source_domain) LIKE ANY(%s)
@@ -1938,9 +1951,10 @@ def _db_fetch_articles_needing_editorial(limit: int = 4) -> list[dict[str, Any]]
                        content_ar, content_en, published_at, fetched_at,
                        read_minutes, original_language, is_demo
                 FROM world_pulse_articles
-                WHERE is_demo = FALSE
-                  AND source_url <> ''
-                  AND (COALESCE(title_ar, '') <> '' OR COALESCE(title_en, '') <> '')
+                 WHERE is_demo = FALSE
+                   AND is_hidden = FALSE
+                   AND source_url <> ''
+                   AND (COALESCE(title_ar, '') <> '' OR COALESCE(title_en, '') <> '')
                   AND (
                     LENGTH(TRIM(COALESCE(content_ar, ''))) < 250
                     OR LENGTH(TRIM(COALESCE(content_en, ''))) < 250
@@ -1971,9 +1985,10 @@ def _db_fetch_articles_needing_images(limit: int = 6) -> list[dict[str, Any]]:
                        summary_ar, summary_en, content_ar, content_en, published_at,
                        fetched_at, read_minutes, original_language, is_demo
                 FROM world_pulse_articles
-                WHERE is_demo = FALSE
-                  AND source_url <> ''
-                  AND (
+                 WHERE is_demo = FALSE
+                   AND is_hidden = FALSE
+                   AND source_url <> ''
+                   AND (
                     (
                       (
                         COALESCE(image_url, '') = ''
@@ -2181,7 +2196,7 @@ def _db_last_fetched_at() -> datetime | None:
         return cached_value
     try:
         with conn.cursor() as cur:
-            cur.execute("SELECT MAX(fetched_at) FROM world_pulse_articles WHERE is_demo = FALSE")
+            cur.execute("SELECT MAX(fetched_at) FROM world_pulse_articles WHERE is_demo = FALSE AND is_hidden = FALSE")
             row = cur.fetchone()
             value = row[0] if row else None
             if isinstance(value, datetime):
@@ -5551,8 +5566,8 @@ def _prioritise_missing_image_rows(rows: list[dict[str, Any]]) -> list[dict[str,
     return missing + present
 
 
-def _refresh_existing_article_images_job(limit: int = 8) -> None:
-    """Re-query a small batch of existing stories' image searches from the admin panel."""
+def _refresh_existing_article_images_job(limit: int = 8, slug: str | None = None) -> None:
+    """Re-query a small batch of existing stories, or one selected slug, from the admin panel."""
     global _REFRESHING
     lock_file = None
     lock_acquired = False
@@ -5579,18 +5594,25 @@ def _refresh_existing_article_images_job(limit: int = 8) -> None:
                 time.sleep(3)
 
         rows_by_url: dict[str, dict[str, Any]] = {}
-        for row in _db_fetch_all():
-            if row.get("source_url"):
-                rows_by_url[str(row["source_url"])] = dict(row)
-        for row in _MEMORY_ARTICLES.values():
-            if row.get("source_url"):
-                rows_by_url.setdefault(str(row["source_url"]), dict(row))
+        if slug:
+            selected = _admin_fetch_article_by_slug(slug)
+            if selected and selected.get("source_url"):
+                rows_by_url[str(selected["source_url"])] = dict(selected)
+        else:
+            for row in _db_fetch_all():
+                if row.get("source_url"):
+                    rows_by_url[str(row["source_url"])] = dict(row)
+            for row in _MEMORY_ARTICLES.values():
+                if row.get("source_url"):
+                    rows_by_url.setdefault(str(row["source_url"]), dict(row))
         rows = _prioritise_missing_image_rows(list(rows_by_url.values()))
 
         candidates: list[dict[str, Any]] = []
-        max_items = max(1, min(12, int(limit)))
+        max_items = 1 if slug else max(1, min(12, int(limit)))
         for row in rows:
             if not row.get("source_url") or row.get("is_demo"):
+                continue
+            if slug and str(row.get("slug") or "") != slug:
                 continue
             if not (row.get("title_ar") or row.get("title_en")):
                 continue
