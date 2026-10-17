@@ -2136,7 +2136,7 @@ def _sync_cached_image_metadata(articles: list[dict[str, Any]]) -> None:
     """Update just image fields in warm caches; a photo update must not trigger a full archive scan."""
     image_fields = (
         "image_url", "image_source", "image_credit", "image_credit_url",
-        "image_provider_url", "image_license_url", "image_checked_at",
+        "image_provider_url", "image_license_url", "image_checked_at", "image_relevance_verified",
     )
     by_url: dict[str, dict[str, Any]] = {}
     for item in articles:
@@ -2144,7 +2144,7 @@ def _sync_cached_image_metadata(articles: list[dict[str, Any]]) -> None:
         if not key:
             continue
         source = str(item.get("image_source") or "none")
-        allowed = source in TRUSTED_REUSABLE_IMAGE_SOURCES
+        allowed = source in TRUSTED_REUSABLE_IMAGE_SOURCES and item.get("image_relevance_verified") is True and bool(item.get("image_url"))
         by_url[key] = {
             "image_url": str(item.get("image_url") or "") if allowed else "",
             "image_source": source if allowed else "none",
@@ -2153,6 +2153,7 @@ def _sync_cached_image_metadata(articles: list[dict[str, Any]]) -> None:
             "image_provider_url": str(item.get("image_provider_url") or "") if allowed else "",
             "image_license_url": str(item.get("image_license_url") or "") if allowed else "",
             "image_checked_at": item.get("image_checked_at") or datetime.now(timezone.utc),
+            "image_relevance_verified": bool(allowed),
         }
     if not by_url:
         return
@@ -2222,12 +2223,14 @@ def _db_update_article_images(articles: list[dict[str, Any]]) -> int:
                     UPDATE world_pulse_articles SET
                         image_url = %s, image_source = %s, image_credit = %s,
                         image_credit_url = %s, image_provider_url = %s,
-                        image_license_url = %s, image_checked_at = %s
+                        image_license_url = %s, image_checked_at = %s,
+                        image_relevance_verified = %s
                     WHERE source_url = %s AND is_demo = FALSE
                 """, (
                     image_url, source, str(item.get("image_credit") or ""),
                     str(item.get("image_credit_url") or ""), str(item.get("image_provider_url") or ""),
                     str(item.get("image_license_url") or ""), item.get("image_checked_at") or datetime.now(timezone.utc),
+                    bool(item.get("image_relevance_verified") is True and image_url and source in TRUSTED_REUSABLE_IMAGE_SOURCES and _image_license_verified(item)),
                     item["source_url"],
                 ))
                 updated += cur.rowcount
@@ -4039,6 +4042,7 @@ def _search_article_image_with_variants(
         best["image_credit"] = f"{credit} · {label}" if credit else label
     best.pop("_image_relevance_score", None)
     best.pop("_image_relevance_evidence", None)
+    best["image_relevance_verified"] = bool(best.get("image_url"))
     if best.get("image_url"):
         logger.info(
             "Image search selected source=%s relevance=%.3f",
@@ -4086,6 +4090,7 @@ def _resolve_article_image(raw: dict[str, Any]) -> dict[str, Any]:
     existing = str(raw.get("image_url") or "").strip()
     source = str(raw.get("image_source") or "")
     if (existing and source in TRUSTED_REUSABLE_IMAGE_SOURCES and existing not in LEGACY_IMAGE_URLS
+            and raw.get("image_relevance_verified") is True
             and _image_license_verified(raw) and _control_enabled(f"image:{source}", True)):
         checked = raw.get("image_checked_at")
         if isinstance(checked, str):
@@ -4104,6 +4109,7 @@ def _resolve_article_image(raw: dict[str, Any]) -> dict[str, Any]:
                 "image_provider_url": raw.get("image_provider_url") or "",
                 "image_license_url": raw.get("image_license_url") or "",
                 "image_checked_at": checked,
+                "image_relevance_verified": True,
             }
 
     search_title = _clean_text(raw.get("image_search_title") or raw.get("original_title") or "", 240)
@@ -4133,6 +4139,7 @@ def _resolve_article_image(raw: dict[str, Any]) -> dict[str, Any]:
         fallback_url = str(fallback.get("image_url") or "")
         if (
             fallback_url and fallback_source in TRUSTED_REUSABLE_IMAGE_SOURCES
+            and fallback.get("image_relevance_verified") is True
             and _image_license_verified(fallback)
             and _control_enabled(f"image:{fallback_source}", True)
         ):
@@ -4150,6 +4157,7 @@ def _resolve_article_image(raw: dict[str, Any]) -> dict[str, Any]:
         "image_provider_url": "",
         "image_license_url": "",
         "image_checked_at": datetime.now(timezone.utc),
+        "image_relevance_verified": False,
     }
 
 def _enrich_article_images(raw_articles: list[dict[str, Any]], *, force_refresh: bool = False, allow_ai_generation: bool = True) -> None:
@@ -4180,6 +4188,8 @@ def _enrich_article_images(raw_articles: list[dict[str, Any]], *, force_refresh:
         if (
             not force_refresh
             and input_source in TRUSTED_REUSABLE_IMAGE_SOURCES
+            and item.get("image_relevance_verified") is True
+            and not item.get("_revalidating_cached_image")
             and _control_enabled(f"image:{input_source}", True)
             and item.get("image_url") and isinstance(input_checked, datetime)
             and (now_utc - input_checked.astimezone(timezone.utc)).total_seconds() < IMAGE_CACHE_MAX_AGE_SECONDS
@@ -4189,11 +4199,14 @@ def _enrich_article_images(raw_articles: list[dict[str, Any]], *, force_refresh:
         item.update({
             "image_url": "", "image_source": "none", "image_credit": "",
             "image_credit_url": "", "image_provider_url": "", "image_license_url": "",
+            "image_relevance_verified": False,
         })
         cached = known_images.get(source_url)
         cached_source = str((cached or {}).get("image_source") or "")
         if (
             cached and cached.get("image_url") and cached_source in TRUSTED_REUSABLE_IMAGE_SOURCES
+            and cached.get("image_relevance_verified") is True
+            and not item.get("_revalidating_cached_image")
             and _control_enabled(f"image:{cached_source}", True)
         ):
             checked = cached.get("image_checked_at")
@@ -4288,7 +4301,7 @@ def _enrich_article_images(raw_articles: list[dict[str, Any]], *, force_refresh:
             if isinstance(fallback, dict):
                 fallback_url = str(fallback.get("image_url") or "")
                 fallback_source = str(fallback.get("image_source") or "")
-                if fallback_url and fallback_source in TRUSTED_REUSABLE_IMAGE_SOURCES:
+                if fallback_url and fallback_source in TRUSTED_REUSABLE_IMAGE_SOURCES and fallback.get("image_relevance_verified") is True:
                     item.update(fallback)
                     item["image_checked_at"] = datetime.now(timezone.utc)
                     continue
