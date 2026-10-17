@@ -4813,13 +4813,14 @@ def _normalise_story(row: dict[str, Any], lang: str) -> dict[str, Any]:
     source_headline_only = _is_headline_only_domain(str(story.get("source_domain") or ""))
     if not story["content"] and raw_content.strip() and not source_headline_only:
         story["content"] = _clean_text(raw_content, 1200)
-    story["title"] = _compact_display_title(raw_title, lang)
-    story["summary"] = _distinct_executive_summary(raw_title, raw_summary, story["content"], lang)
+    story["title"] = _compact_display_title(raw_title, display_lang)
+    story["summary"] = _distinct_executive_summary(raw_title, raw_summary, story["content"], display_lang)
     story["headline_only"] = _is_headline_only_domain(str(story.get("source_domain") or ""))
     if story["headline_only"]:
+        # Keep the publisher headline native, but localise the interface notice.
         story["summary"] = (
             "يعرض نبض العالم العنوان ورابط الناشر فقط لهذا المصدر. افتح المصدر الأصلي لقراءة التفاصيل والسياق وآخر التحديثات."
-            if display_lang == "ar"
+            if lang == "ar"
             else "Headline and source link only. Open the publisher's original page for full details, context, and updates."
         )
         story["content"] = ""
@@ -5022,16 +5023,8 @@ def search():
                 if (row.get(f"title_{lang}") or row.get(f"title_{str(row.get('original_language') or '').casefold()}"))
                 and _row_allowed_on_language_site(row, lang)
             ]
-            found_urls = {str(row.get("source_url", "")) for row in results}
-            terms = [term.casefold() for term in re.findall(r"[\w\u0600-\u06ff]+", query) if len(term) > 1]
-            for stored in _MEMORY_ARTICLES.values():
-                url = str(stored.get("source_url", ""))
-                if url in found_urls or not stored.get(f"title_{lang}") or not _row_allowed_on_language_site(stored, lang):
-                    continue
-                story = _normalise_story(stored, lang)
-                searchable = " ".join(str(story.get(key, "")) for key in ("title", "summary", "content", "source_name")).casefold()
-                if terms and all(term in searchable for term in terms):
-                    results.append(story)
+            # Search only the shared persistent archive. Process-local memory differs
+            # between Gunicorn workers and must not add phantom results to one visitor's search.
         else:
             all_stories = _get_display_stories(lang)
             terms = [term.casefold() for term in re.findall(r"[\w\u0600-\u06ff]+", query) if len(term) > 1]
