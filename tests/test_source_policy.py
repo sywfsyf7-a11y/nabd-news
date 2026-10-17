@@ -14,7 +14,7 @@ class SourcePolicyTests(unittest.TestCase):
             "",
         )
 
-    def test_bilingual_feed_accepts_native_sources_on_either_interface_language(self):
+    def test_combined_archive_requires_a_complete_translation_for_the_other_interface(self):
         arabic_story = {
             "category": "technology",
             "original_language": "ar",
@@ -24,12 +24,59 @@ class SourcePolicyTests(unittest.TestCase):
             "title_en": "",
             "summary_ar": "موجز المصدر",
             "summary_en": "",
+            "content_ar": "تفاصيل موثقة للخبر باللغة العربية تتضمن سياقاً إضافياً من المقتطف المتاح دون إضافة معلومات غير مؤكدة.",
+            "content_en": "",
         }
         self.assertTrue(world_pulse._row_allowed_on_language_site(arabic_story, "ar"))
-        self.assertTrue(world_pulse._row_allowed_on_language_site(arabic_story, "en"))
-        english_story = dict(arabic_story, original_language="en", source_domain="theverge.com")
-        self.assertTrue(world_pulse._row_allowed_on_language_site(english_story, "ar"))
+        self.assertFalse(world_pulse._row_allowed_on_language_site(arabic_story, "en"))
+
+        arabic_story_translated = dict(
+            arabic_story,
+            title_en="New technology update",
+            summary_en="The company reported a specific update to its technology product.",
+            content_en=("The source says the company reported a concrete technology update. "
+                         "The available report gives the basic development and its stated context, "
+                         "without adding unverified dates, figures, claims, or other unsupported background."),
+
+        )
+        self.assertTrue(world_pulse._row_allowed_on_language_site(arabic_story_translated, "en"))
+
+        english_story = {
+            "category": "technology",
+            "original_language": "en",
+            "source_domain": "theverge.com",
+            "source_name": "The Verge",
+            "title_en": "New technology update",
+            "summary_en": "The company reported a specific update to its technology product.",
+            "content_en": ("The source says the company reported a concrete technology update. "
+                           "The available report gives the basic development and its stated context, "
+                           "without adding unverified dates, figures, or claims."),
+            "title_ar": "",
+            "summary_ar": "",
+            "content_ar": "",
+        }
         self.assertTrue(world_pulse._row_allowed_on_language_site(english_story, "en"))
+        self.assertFalse(world_pulse._row_allowed_on_language_site(english_story, "ar"))
+
+        english_story_translated = dict(
+            english_story,
+            title_ar="تحديث تقني جديد",
+            summary_ar="أعلنت الشركة عن تحديث محدد لمنتجها التقني.",
+            content_ar=("يفيد المصدر بأن الشركة أعلنت عن تحديث تقني ملموس. وتوضح المادة المتاحة "
+                        "التطور الأساسي والسياق المذكور، من دون إضافة تواريخ أو أرقام أو ادعاءات غير مؤكدة. "
+                        "كما يقتصر هذا العرض على ما ورد في المادة ولا يضيف خلفيات أو تفاصيل غير مسندة للمصدر."),
+        )
+        self.assertTrue(world_pulse._row_allowed_on_language_site(english_story_translated, "ar"))
+
+        # Headline-only publishers cannot be rewritten/translated by the editorial model,
+        # even if an old row happens to contain language fields.
+        headline_only = dict(
+            english_story_translated,
+            category="world",
+            source_domain="aljazeera.com",
+            title_en="International report",
+        )
+        self.assertFalse(world_pulse._row_allowed_on_language_site(headline_only, "ar"))
 
         unapproved = dict(arabic_story, source_domain="unknown.example")
         self.assertFalse(world_pulse._row_allowed_on_language_site(unapproved, "ar"))
@@ -186,6 +233,23 @@ class SourcePolicyTests(unittest.TestCase):
         self.assertEqual(search.call_count, 2)
         self.assertEqual(search.call_args_list[1].kwargs, {"open_only": True})
 
+    def test_image_search_rejects_weak_matches_instead_of_showing_unrelated_photos(self):
+        from unittest.mock import patch
+
+        weak_match = {
+            "image_url": "https://images.example.test/unrelated.jpg",
+            "image_source": "openverse_licensed",
+            "_image_relevance_score": 0.18,
+        }
+        with patch.object(world_pulse, "_search_any_reusable_image", return_value=weak_match):
+            result = world_pulse._search_article_image_with_variants(
+                "Immigration and asylum policy", 
+                "A short source excerpt about immigration and asylum policy changes.",
+                "en",
+                "world",
+            )
+        self.assertEqual(result, {})
+
     def test_image_match_score_prefers_related_metadata(self):
         self.assertGreater(
             world_pulse._image_match_score("NASA Artemis mission", "NASA Artemis rocket launch"),
@@ -248,15 +312,16 @@ class SourcePolicyTests(unittest.TestCase):
         self.assertEqual(call["response_format"]["aspect_ratio"], "16:9")
         self.assertEqual(call["response_format"]["image_size"], "1K")
 
-    def test_reusable_images_are_tried_before_gemini_generation(self):
-        fallback = {
-            "image_url": "https://images.pexels.com/test.jpeg",
-            "image_source": "pexels_api",
+    def test_reusable_licensed_images_are_tried_before_any_optional_generator(self):
+        match = {
+            "image_url": "https://images.example.test/technology.jpg",
+            "image_source": "openverse_licensed",
             "image_credit": "Photographer",
-            "image_credit_url": "https://www.pexels.com/",
-            "image_provider_url": "https://www.pexels.com/photo/test/",
-            "image_license_url": "https://www.pexels.com/license/",
+            "image_credit_url": "https://openverse.example.test/item",
+            "image_provider_url": "https://openverse.example.test/item",
+            "image_license_url": "https://creativecommons.org/licenses/by/4.0/",
             "image_checked_at": None,
+            "_image_relevance_score": 0.82,
         }
         article = {
             "original_title": "Generic technology story",
@@ -267,12 +332,12 @@ class SourcePolicyTests(unittest.TestCase):
         }
         from unittest.mock import patch
         with patch.object(world_pulse, "_generate_gemini_article_image", return_value={}) as generator:
-            with patch.object(world_pulse, "_search_any_reusable_image", return_value=fallback) as reusable:
+            with patch.object(world_pulse, "_search_any_reusable_image", return_value=match) as reusable:
                 result = world_pulse._resolve_article_image(article)
         generator.assert_not_called()
         reusable.assert_called_once_with("Generic technology story", "en", "technology")
-        self.assertEqual(result["image_source"], "pexels_api")
-        self.assertEqual(result["image_url"], fallback["image_url"])
+        self.assertEqual(result["image_source"], "openverse_licensed")
+        self.assertEqual(result["image_url"], match["image_url"])
 
     def test_gemini_illustration_is_used_only_after_reusable_image_search_fails(self):
         generated = {
