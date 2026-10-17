@@ -237,9 +237,9 @@ class SourcePolicyTests(unittest.TestCase):
         self.assertEqual(variants[1], "NASA Artemis mission")
         self.assertEqual(variants[2], "The spacecraft carries astronauts")
 
-    def test_image_match_score_accepts_one_entity_for_a_two_term_query_but_not_a_long_query(self):
+    def test_image_match_score_needs_topic_overlap_not_just_a_country_name(self):
         self.assertEqual(
-            world_pulse._image_match_score("Trump tariff China", "China city skyline"),
+            world_pulse._image_match_score("Iran oil tanker blockade naval crisis", "Portrait of an Iran official"),
             0.0,
         )
         self.assertGreater(
@@ -257,6 +257,7 @@ class SourcePolicyTests(unittest.TestCase):
             "image_credit_url": "https://openverse.example.test/item",
             "image_provider_url": "https://openverse.example.test/item",
             "image_license_url": "https://creativecommons.org/licenses/by/4.0/",
+            "_image_relevance_evidence": "Vinicius Jr football portrait; player suspension ban; Mourinho",
             "_image_relevance_score": 0.75,
         }
         article = {
@@ -291,6 +292,41 @@ class SourcePolicyTests(unittest.TestCase):
                 "world",
             )
         self.assertEqual(result, {})
+
+    def test_story_image_relevance_rejects_portrait_that_matches_only_the_country(self):
+        from unittest.mock import patch
+
+        portrait = {
+            "image_url": "https://images.example.test/iran-official.jpg",
+            "image_source": "openverse_licensed",
+            "image_title": "Iranian official portrait",
+            "_image_relevance_evidence": "Portrait of an Iranian official speaking at a conference",
+            "_image_relevance_score": 0.95,
+        }
+        with patch.object(
+            world_pulse, "_image_search_query_variants",
+            return_value=["Iran oil tanker blockade maritime crisis", "Iran", "Iran oil tanker"],
+        ):
+            with patch.object(world_pulse, "_category_image_search_query", return_value=""):
+                with patch.object(world_pulse, "_search_any_reusable_image", return_value=portrait):
+                    result = world_pulse._search_article_image_with_variants(
+                        "Iran oil tanker blockade maritime crisis",
+                        "Ships and oil supplies are affected by the maritime blockade near the Strait of Hormuz.",
+                        "en",
+                        "world",
+                    )
+        self.assertEqual(result, {})
+
+    def test_arabic_image_anchors_include_the_reported_subject_not_only_the_country(self):
+        query = world_pulse._english_image_anchor_query(
+            "أزمة بحرية وحصار نفطي في إيران",
+            "تتأثر ناقلات النفط وإمداداته في مضيق هرمز",
+        ).casefold()
+        self.assertIn("iran", query)
+        self.assertIn("oil", query)
+        self.assertIn("blockade", query)
+        self.assertIn("maritime", query)
+        self.assertIn("strait of hormuz", query)
 
     def test_image_match_score_prefers_related_metadata(self):
         self.assertGreater(
