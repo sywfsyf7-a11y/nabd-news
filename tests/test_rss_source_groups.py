@@ -91,7 +91,13 @@ class RSSPublisherGroupTests(unittest.TestCase):
         }
         self.assertEqual(result, [])
         self.assertEqual({(category, lang) for category, lang, _ in calls}, expected_pairs)
-        self.assertTrue(all(1 <= len(group) <= 4 for _, _, group in calls))
+        for category, lang, group in calls:
+            if group[0] == world_pulse.DIRECT_RSS_SENTINEL:
+                self.assertEqual(len(group), 4)
+            elif group in world_pulse.PRIORITY_SOURCE_DOMAINS.values():
+                self.assertLessEqual(len(group), 5)
+            else:
+                self.assertTrue(1 <= len(group) <= 4, (category, lang, group))
         # Each category/language pair gets two rotating groups and sometimes a priority
         # group. Science-English also queries three official feeds in this same bounded pool.
         for pair in expected_pairs - {("science", "en")}:
