@@ -4312,6 +4312,60 @@ def _stories_are_near_duplicates(
     return difflib.SequenceMatcher(None, left_title, right_title).ratio() >= 0.94
 
 
+def _display_dedupe_signature(row: dict[str, Any], lang: str) -> dict[str, Any]:
+    """Compute title keys and token sets once, rather than once per candidate pair."""
+    native_title = _story_title_key(
+        row.get("original_title") or row.get("title") or row.get("title_ar") or row.get("title_en")
+    )
+    display_title = _story_title_key(row.get(f"title_{lang}") or row.get("title") or "")
+    return {
+        "native_lang": str(row.get("original_language") or "").casefold(),
+        "native_title": native_title,
+        "display_title": display_title,
+        "native_tokens": set(native_title.split()),
+        "display_tokens": set(display_title.split()),
+        "published_at": row.get("published_at"),
+    }
+
+
+def _display_signatures_are_near_duplicates(
+    left: dict[str, Any], right: dict[str, Any], lang: str
+) -> bool:
+    """Fast fuzzy duplicate check for precomputed signatures in a single display feed."""
+    left_lang = left["native_lang"]
+    right_lang = right["native_lang"]
+    cross_language = bool(left_lang and right_lang and left_lang != right_lang)
+    if cross_language and lang not in {"ar", "en"}:
+        return False
+    if cross_language:
+        left_title, right_title = left["display_title"], right["display_title"]
+        left_tokens, right_tokens = left["display_tokens"], right["display_tokens"]
+    else:
+        left_title, right_title = left["native_title"], right["native_title"]
+        left_tokens, right_tokens = left["native_tokens"], right["native_tokens"]
+    if not left_title or not right_title:
+        return False
+
+    left_date, right_date = left["published_at"], right["published_at"]
+    if left_date and right_date:
+        try:
+            if abs((left_date - right_date).total_seconds()) > 48 * 60 * 60:
+                return False
+        except (TypeError, AttributeError):
+            pass
+    if left_title == right_title:
+        return True
+    if min(len(left_title), len(right_title)) < 30:
+        return False
+    max_length = max(len(left_title), len(right_title))
+    if abs(len(left_title) - len(right_title)) > max(4, int(max_length * 0.12)):
+        return False
+    overlap = len(left_tokens & right_tokens) / max(1, min(len(left_tokens), len(right_tokens)))
+    if overlap < 0.35:
+        return False
+    return difflib.SequenceMatcher(None, left_title, right_title).ratio() >= 0.94
+
+
 
 def _log_rss_selection(stories: list[dict[str, Any]], candidates_before_selection: int) -> None:
     languages = {lang: sum(1 for story in stories if story.get("original_language") == lang) for lang in ("ar", "en")}
