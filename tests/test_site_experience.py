@@ -441,6 +441,41 @@ class SiteExperienceTests(unittest.TestCase):
         self.assertNotEqual(story["title"], story["summary"])
         self.assertTrue(story["content"])
 
+    def test_category_photo_query_uses_topic_anchors_and_section_terms(self):
+        cases = (
+            ("technology", "New laptop chip launched", "computer technology circuit board"),
+            ("gaming", "New console game release", "video game console controller gaming setup"),
+            ("sports", "Football final match announced", "sports stadium football basketball athletes"),
+            ("science", "Telescope discovers distant planet", "science laboratory telescope microscope astronomy"),
+            ("culture", "New art exhibition opens", "art museum painting sculpture cultural heritage"),
+        )
+        for category, title, expected_terms in cases:
+            with self.subTest(category=category):
+                query = world_pulse._category_image_search_query(title, "", category).casefold()
+                self.assertTrue(query)
+                for term in expected_terms.split():
+                    self.assertIn(term, query)
+                self.assertTrue(any(token in query for token in title.casefold().split() if len(token) > 2))
+
+    def test_category_fallback_photo_is_labelled_illustrative_and_keeps_credit(self):
+        candidate = {
+            "image_url": "https://images.example.test/category.jpg",
+            "image_source": "openverse_licensed",
+            "image_credit": "Photographer Name",
+            "image_license_url": "https://creativecommons.org/licenses/by/4.0/",
+            "image_title": "Gaming setup with a controller",
+            "_image_relevance_score": 0.31,
+        }
+        with patch.object(world_pulse, "_image_search_query_variants", return_value=["specific story", "category query"]):
+            with patch.object(world_pulse, "_category_image_search_query", return_value="category query"):
+                with patch.object(world_pulse, "_search_any_reusable_image", side_effect=[{}, dict(candidate)]):
+                    result = world_pulse._search_article_image_with_variants(
+                        "New video game hardware", "", "en", "gaming"
+                    )
+        self.assertIn("illustrative category image", result["image_credit"])
+        self.assertIn("Photographer Name", result["image_credit"])
+        self.assertEqual(result["image_license_url"], candidate["image_license_url"])
+
     def test_article_route_reuses_warm_display_pool_without_database_scan(self):
         stories = [
             {"slug": "story-one", "category": "technology", "title": "Short title"},
@@ -901,9 +936,7 @@ class SiteExperienceTests(unittest.TestCase):
                                                                 world_pulse._refresh_news_job()
         self.assertEqual(events, ["save", "images"])
         image_update.assert_called_once()
-        image_backfill.assert_called_once_with(
-            limit=min(world_pulse.IMAGE_REVALIDATION_BATCH_SIZE, world_pulse.MAX_IMAGE_LOOKUPS_PER_REFRESH)
-        )
+        image_backfill.assert_not_called()
         stored_in_memory = world_pulse._MEMORY_ARTICLES[raw["source_url"]]
         self.assertEqual(stored_in_memory["image_url"], image_candidate["image_url"])
         self.assertEqual(world_pulse._LAST_REFRESH_STATE, "success")

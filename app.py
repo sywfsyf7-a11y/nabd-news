@@ -2267,13 +2267,38 @@ def _english_image_anchor_query(title: str, context: str = "") -> str:
             break
     return " ".join(matches)
 
-def _image_search_query_variants(title: str, context: str = "") -> list[str]:
-    """Try contextual, bilingual entity, headline and source-context queries."""
+CATEGORY_IMAGE_SEARCH_TERMS = {
+    "technology": "computer technology circuit board",
+    "gaming": "video game console controller gaming setup",
+    "sports": "sports stadium football basketball athletes",
+    "science": "science laboratory telescope microscope astronomy",
+    "culture": "art museum painting sculpture cultural heritage",
+}
+
+
+def _category_image_search_query(title: str, context: str = "", category: str = "world") -> str:
+    """Build a clearly illustrative, category-level query for the last rights-safe fallback."""
+    section_terms = CATEGORY_IMAGE_SEARCH_TERMS.get(str(category or "").casefold())
+    if not section_terms:
+        return ""
+    anchors = _english_image_anchor_query(title, context)
+    if not anchors:
+        anchors = _image_search_phrase(title, 3)
+    if not anchors:
+        anchors = _image_search_phrase(context, 2)
+    return _clean_text(" ".join(part for part in (anchors, section_terms) if part), 180)
+
+
+def _image_search_query_variants(
+    title: str, context: str = "", category: str = "world"
+) -> list[str]:
+    """Try story-specific searches first and a category-themed query last."""
     anchor_query = _english_image_anchor_query(title, context)
+    category_query = _category_image_search_query(title, context, category)
     candidates = (
         _image_search_query(title, context),
         anchor_query or _image_search_phrase(title, 4),
-        _image_search_phrase(context, 4) if context else "",
+        category_query or (_image_search_phrase(context, 4) if context else ""),
     )
     variants: list[str] = []
     seen: set[str] = set()
@@ -3420,15 +3445,17 @@ def _search_article_image_with_variants(
     category: str = "world",
 ) -> dict[str, Any]:
     """Try bounded headline/context variants and prefer a stronger topic match."""
-    variants = _image_search_query_variants(title, context)
+    variants = _image_search_query_variants(title, context, category)
+    category_query = _category_image_search_query(title, context, category)
     best: dict[str, Any] = {}
     best_score = -1.0
+    best_is_category_fallback = False
     for index, query in enumerate(variants):
+        is_category_fallback = bool(category_query and query.casefold() == category_query.casefold())
         if index == 0:
             result = _search_any_reusable_image(query, lang, category)
         else:
-            # The full query already tried fallback catalogues; keep alternatives to the
-            # three concurrently searched, openly licensed catalogues to bound latency.
+            # The last category query uses only the bounded general openly licensed catalogues.
             result = _search_any_reusable_image(query, lang, category, open_only=True)
         if not result:
             continue
@@ -3436,7 +3463,8 @@ def _search_article_image_with_variants(
         if score > best_score:
             best_score = score
             best = dict(result)
-        # A strong first-query match needs no extra provider requests.
+            best_is_category_fallback = is_category_fallback
+        # Any strong match ends the search early, including later headline/context queries.
         if score >= 0.42:
             break
     if not best:
@@ -3449,6 +3477,12 @@ def _search_article_image_with_variants(
             max(0.0, best_score), MIN_IMAGE_RELEVANCE_SCORE,
         )
         return {}
+    if best_is_category_fallback:
+        # Treat broad section photography as illustrative context, not as evidence that
+        # this exact person, object, team or location appeared in the news report.
+        credit = str(best.get("image_credit") or "").strip()
+        label = "illustrative category image" if lang == "en" else "صورة توضيحية للقسم"
+        best["image_credit"] = f"{credit} · {label}" if credit else label
     best.pop("_image_relevance_score", None)
     if best.get("image_url"):
         logger.info(
@@ -5782,22 +5816,10 @@ def _refresh_news_job() -> None:
                 type(image_exc).__name__,
             )
 
-        # Revalidate older archive images only during the less frequent discovery cycle.
-        # Fresh-story images take priority on five-minute publishing ticks; keeping archive
-        # repair off ordinary ticks prevents provider lookups from competing with page requests.
-        if discovery_due and MAX_IMAGE_LOOKUPS_PER_REFRESH > 0:
-            revalidation_limit = min(IMAGE_REVALIDATION_BATCH_SIZE, MAX_IMAGE_LOOKUPS_PER_REFRESH)
-            try:
-                revalidated = _backfill_missing_article_images(limit=revalidation_limit)
-                logger.info(
-                    "Scheduled image revalidation after publishing tick: batch_limit=%d reusable_images=%d",
-                    revalidation_limit, revalidated,
-                )
-            except Exception as repair_exc:
-                logger.warning(
-                    "Scheduled image revalidation skipped (%s)",
-                    type(repair_exc).__name__,
-                )
+        # This tick has already done one image pass for the newly persisted story.
+        # Do not start a second archive-image search in the same cycle: the production
+        # load check showed long-tail latency spikes while image-provider work was active.
+        # Archive image repairs still run on an idle queue tick (see the early-return path).
 
         _LAST_REFRESH_SUCCESS = time.monotonic()
         _LAST_REFRESH_AT = datetime.now(timezone.utc)

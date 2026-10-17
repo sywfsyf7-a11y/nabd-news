@@ -62,7 +62,7 @@ Google's publisher policies disallow serving ads on screens that contain copied 
 
 ## Image catalogue and reuse rules
 
-The image catalogue is broader than the publisher list because it searches public-domain and openly licensed imagery, not other publishers' article photographs. Searches derive short, topic-aware terms from the story headline and category. A provider result is accepted only after relevance and item-level reuse checks. The selected image keeps an item/source page, creator or credit, licence URL, and verification time in the story metadata.
+The image catalogue is broader than the publisher list because it searches public-domain and openly licensed imagery, not other publishers' article photographs. Searches derive short, topic-aware terms from the story headline and category. A provider result is accepted only after relevance and item-level reuse checks. If no adequate story-specific image is found for technology, gaming, sports, science, or culture, the last bounded search tries a category-themed image through the same open catalogues; the credit explicitly labels it as illustrative. If that attempt fails, the site keeps its local category-specific SVG. The selected image keeps an item/source page, creator or credit, licence URL, and verification time in the story metadata.
 
 ### Providers used by the newsroom
 1. **Wikimedia Commons** — public-domain, CC0, CC BY, and CC BY-SA files. Attribution and licence links are saved for CC BY/CC BY-SA. Noncommercial and no-derivatives licences are rejected.
