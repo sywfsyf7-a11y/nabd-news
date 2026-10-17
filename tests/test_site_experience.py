@@ -1054,6 +1054,7 @@ class SiteExperienceTests(unittest.TestCase):
                 "image_credit_url": "https://commons.wikimedia.org/wiki/Old_first",
                 "image_provider_url": "https://commons.wikimedia.org/wiki/Old_first",
                 "image_license_url": "https://creativecommons.org/licenses/by/4.0/",
+                "image_relevance_verified": True,
                 "image_checked_at": stale_checked,
             },
             {
@@ -1065,6 +1066,7 @@ class SiteExperienceTests(unittest.TestCase):
                 "image_credit_url": "https://photos.example.org/old-second",
                 "image_provider_url": "https://photos.example.org/old-second",
                 "image_license_url": "https://creativecommons.org/licenses/by/4.0/",
+                "image_relevance_verified": True,
                 "image_checked_at": stale_checked,
             },
         ]
@@ -1800,6 +1802,7 @@ class BoundedImageProviderSearchTests(unittest.TestCase):
             "image_credit_url": "https://commons.wikimedia.org/wiki/File:new.jpg",
             "image_provider_url": "https://commons.wikimedia.org/wiki/File:new.jpg",
             "image_license_url": "https://creativecommons.org/licenses/by/4.0/",
+            "image_relevance_verified": True,
             "image_checked_at": datetime.now(timezone.utc),
         }
         cache_time = time.monotonic() - 1.0
