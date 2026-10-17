@@ -1048,6 +1048,7 @@ class ExpandedSourceAndImageCatalogueTests(unittest.TestCase):
         for domain in (
             "aljazeera.net", "aljazeera.com", "reuters.com", "apnews.com",
             "techcrunch.com", "espn.com", "sciencedaily.com", "theguardian.com",
+            "saudigazette.com.sa",
         ):
             self.assertTrue(world_pulse._is_headline_only_domain(domain), domain)
 
@@ -1056,7 +1057,7 @@ class ExpandedSourceAndImageCatalogueTests(unittest.TestCase):
         self.assertEqual(world_pulse.NEWS_DISCOVERY_REFRESH_MINUTES, 30)
         self.assertEqual(world_pulse.MAX_ARTICLES_PER_REFRESH, 1)
         self.assertLessEqual(world_pulse.MAX_GEMINI_API_CALLS_PER_REFRESH, 2)
-        self.assertEqual(world_pulse.MAX_IMAGE_LOOKUPS_PER_REFRESH, 1)
+        self.assertEqual(world_pulse.MAX_IMAGE_LOOKUPS_PER_REFRESH, 2)
 
     def test_cleveland_museum_adapter_uses_only_cc0_images_and_culture_category(self):
         import json
