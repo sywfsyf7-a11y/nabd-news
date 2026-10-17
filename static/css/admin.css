@@ -1,0 +1,29 @@
+/* Unified dark Admin studio: YouTube-inspired, responsive, RTL-friendly. */
+:root{color-scheme:dark!important;--admin-bg:#0f0f0f;--admin-panel:#181818;--admin-panel2:#222;--admin-border:#303030;--admin-text:#f1f1f1;--admin-muted:#aaa;--admin-red:#f03}
+html,body{background:var(--admin-bg)!important;color:var(--admin-text)!important;font-family:system-ui,-apple-system,"Segoe UI",sans-serif!important}
+body{min-height:100vh}main{max-width:1480px!important}
+h1,h2,h3,strong,label,.story-title{color:var(--admin-text)!important}
+p,.muted,.foot{color:var(--admin-muted)!important}
+a{color:#3ea6ff!important}
+.card,.stat,.metric,.story,.notice,.toolbar,.panel,.box{background:var(--admin-panel)!important;color:var(--admin-text)!important;border-color:var(--admin-border)!important;box-shadow:none!important}
+input,select,textarea,button{font:inherit}
+input,select,textarea{background:#121212!important;color:var(--admin-text)!important;border:1px solid #3f3f3f!important;border-radius:10px!important}
+input:focus,select:focus,textarea:focus{outline:2px solid #3ea6ff!important;outline-offset:1px}
+button,.button{background:var(--admin-red)!important;color:#fff!important;border:0!important;border-radius:999px!important;font-weight:750!important}
+button:hover,.button:hover{filter:brightness(1.12)}
+.secondary,.dark{background:#272727!important;color:#f1f1f1!important}
+.danger{background:#4a1717!important;color:#ffb4b4!important}
+.notice,.warning,.error,.bad{background:#292929!important;color:#f1f1f1!important;border:1px solid #454545!important}
+.pill,.tag,.status{background:#272727!important;color:#ddd!important;border-color:#444!important}
+.pill.good,.tag.good,.status.good{background:#143b27!important;color:#9be7b4!important}
+.pill.hidden,.status.warn{background:#46320f!important;color:#ffdf91!important}
+.status.bad,.error{background:#471b1b!important;color:#ffb4b4!important}
+table th,table td{border-color:#303030!important}code{background:#272727!important;color:#ddd!important}
+hr{border-color:#303030!important}
+.top{padding-bottom:14px;border-bottom:1px solid #303030}
+.top h1{letter-spacing:-.025em}
+img{max-width:100%}
+.thumb,.preview{background:#222!important;border:1px solid #303030}
+.nav,.actions{gap:9px}
+form{min-width:0}
+@media(max-width:760px){body{padding:12px!important}.card{padding:14px!important}.nav,.actions{align-items:stretch}.button,button{min-height:42px}}
