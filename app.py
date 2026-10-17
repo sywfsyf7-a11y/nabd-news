@@ -276,22 +276,22 @@ CATEGORY_SOURCE_DOMAINS = {
 # Run the requested trusted publishers first; remaining allowlisted publishers rotate
 # through small Google News RSS groups after these priority sources.
 PRIORITY_SOURCE_DOMAINS = {
-    ("politics", "ar"): ("aljazeera.net", "alarabiya.net", "skynewsarabia.com", "aawsat.com"),
-    ("politics", "en"): ("bbc.com", "reuters.com", "apnews.com", "politico.com", "theguardian.com"),
-    ("economy", "ar"): ("asharqbusiness.com", "cnbcarabia.com", "mubasher.info", "argaam.com"),
-    ("economy", "en"): ("bloomberg.com", "ft.com", "wsj.com", "cnbc.com", "marketwatch.com"),
-    ("technology", "ar"): ("aitnews.com", "tech-wd.com", "arabhardware.net"),
-    ("technology", "en"): ("theverge.com", "techcrunch.com", "wired.com", "arstechnica.com"),
-    ("gaming", "ar"): ("saudigamer.com", "arabhardware.net"),
-    ("gaming", "en"): ("ign.com", "gamespot.com", "polygon.com", "eurogamer.net", "kotaku.com"),
-    ("sports", "ar"): ("filgoal.com", "kooora.com", "beinsports.com", "yallakora.com"),
-    ("sports", "en"): ("bbc.com", "espn.com", "skysports.com", "theathletic.com"),
-    ("science", "ar"): ("nationalgeographic.com", "aljazeera.net"),
-    ("science", "en"): ("nasa.gov", "space.com", "livescience.com", "scientificamerican.com", "nature.com"),
-    ("culture", "ar"): ("alaraby.co.uk", "alarab.co.uk"),
-    ("culture", "en"): ("lithub.com", "artsy.net", "theguardian.com", "newyorker.com"),
-    ("world", "ar"): ("bbc.com", "france24.com", "dw.com"),
-    ("world", "en"): ("bbc.com", "euronews.com", "apnews.com", "cnn.com"),
+    ("politics", "ar"): ("aljazeera.net", "alarabiya.net", "skynewsarabia.com"),
+    ("politics", "en"): ("bbc.com", "reuters.com", "apnews.com"),
+    ("economy", "ar"): ("asharqbusiness.com", "cnbcarabia.com"),
+    ("economy", "en"): ("bloomberg.com", "ft.com", "wsj.com"),
+    ("technology", "ar"): ("aitnews.com", "tech-wd.com"),
+    ("technology", "en"): ("theverge.com", "techcrunch.com"),
+    ("gaming", "ar"): ("saudigamer.com",),
+    ("gaming", "en"): ("ign.com", "gamespot.com", "polygon.com"),
+    ("sports", "ar"): ("kooora.com", "beinsports.com", "filgoal.com"),
+    ("sports", "en"): ("bbc.com", "espn.com", "skysports.com"),
+    ("science", "ar"): ("nationalgeographic.com",),
+    ("science", "en"): ("nasa.gov", "space.com", "nature.com"),
+    ("culture", "ar"): ("alaraby.co.uk",),
+    ("culture", "en"): ("theguardian.com", "newyorker.com"),
+    ("world", "ar"): ("bbc.com", "france24.com"),
+    ("world", "en"): ("bbc.com", "apnews.com", "cnn.com"),
 }
 
 # Official NASA news feeds supplement its Google News RSS results. Both are NASA properties.
@@ -513,6 +513,15 @@ def _display_category(row: dict[str, Any], lang: str) -> str:
     detected = _classify_story(title, summary, current, host)
     if detected != current and host and _source_domain_for_category(detected, source_lang, host):
         return detected
+    if host and not _source_domain_for_category(current, source_lang, host):
+        # If an old row was assigned to a section that no longer permits this publisher,
+        # keep it in a section where the curated policy explicitly allows the publisher.
+        allowed_categories = [
+            name for name, language_map in CATEGORY_SOURCE_DOMAINS.items()
+            if any(_domain_matches(host, domain) for domain in language_map.get(source_lang, []))
+        ]
+        if allowed_categories:
+            return allowed_categories[0]
     return current
 
 
