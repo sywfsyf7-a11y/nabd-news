@@ -706,6 +706,7 @@ CREATE TABLE IF NOT EXISTS world_pulse_articles (
     image_provider_url TEXT NOT NULL DEFAULT '',
     image_license_url TEXT NOT NULL DEFAULT '',
     image_checked_at TIMESTAMPTZ NULL,
+    image_relevance_verified BOOLEAN NOT NULL DEFAULT FALSE,
     title_ar TEXT NOT NULL DEFAULT '',
     title_en TEXT NOT NULL DEFAULT '',
     summary_ar TEXT NOT NULL DEFAULT '',
@@ -719,6 +720,7 @@ CREATE TABLE IF NOT EXISTS world_pulse_articles (
     is_demo BOOLEAN NOT NULL DEFAULT FALSE,
     is_hidden BOOLEAN NOT NULL DEFAULT FALSE
 );
+ALTER TABLE world_pulse_articles ADD COLUMN IF NOT EXISTS image_relevance_verified BOOLEAN NOT NULL DEFAULT FALSE;
 CREATE INDEX IF NOT EXISTS idx_world_pulse_published
     ON world_pulse_articles (published_at DESC NULLS LAST);
 CREATE INDEX IF NOT EXISTS idx_world_pulse_category
@@ -1735,7 +1737,7 @@ def _query_persistent_archive_rows() -> list[dict[str, Any]] | None:
                 SELECT * FROM (
                     (
                         SELECT slug, source_url, category, source_name, source_domain, image_url,
-                               image_source, image_credit, image_credit_url, image_provider_url, image_license_url, image_checked_at,
+                               image_source, image_credit, image_credit_url, image_provider_url, image_license_url, image_checked_at, image_relevance_verified,
                                title_ar, title_en, summary_ar, summary_en,
                                content_ar, content_en, published_at, fetched_at,
                                read_minutes, original_language, is_demo
@@ -1756,7 +1758,7 @@ def _query_persistent_archive_rows() -> list[dict[str, Any]] | None:
                     UNION ALL
                     (
                         SELECT slug, source_url, category, source_name, source_domain, image_url,
-                               image_source, image_credit, image_credit_url, image_provider_url, image_license_url, image_checked_at,
+                               image_source, image_credit, image_credit_url, image_provider_url, image_license_url, image_checked_at, image_relevance_verified,
                                title_ar, title_en, summary_ar, summary_en,
                                content_ar, content_en, published_at, fetched_at,
                                read_minutes, original_language, is_demo
@@ -1930,7 +1932,7 @@ def _db_fetch_article_by_slug(slug: str) -> dict[str, Any] | None:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute("""
                 SELECT slug, source_url, category, source_name, source_domain, image_url,
-                       image_source, image_credit, image_credit_url, image_provider_url, image_license_url, image_checked_at,
+                       image_source, image_credit, image_credit_url, image_provider_url, image_license_url, image_checked_at, image_relevance_verified,
                        title_ar, title_en, summary_ar, summary_en,
                        content_ar, content_en, published_at, fetched_at,
                        read_minutes, original_language, is_demo
@@ -1963,7 +1965,7 @@ def _db_fetch_related_articles(
             cur.execute(f"""
                 SELECT slug, source_url, category, source_name, source_domain, image_url,
                        image_source, image_credit, image_credit_url, image_provider_url,
-                       image_license_url, image_checked_at, title_ar, title_en, summary_ar,
+                       image_license_url, image_checked_at, image_relevance_verified, title_ar, title_en, summary_ar,
                        summary_en, content_ar, content_en, published_at, fetched_at,
                        read_minutes, original_language, is_demo
                 FROM world_pulse_articles
@@ -2018,7 +2020,7 @@ def _db_search_articles(query: str, limit: int = 60) -> list[dict[str, Any]] | N
         params.extend([like_value] * len(fields))
     sql = """
         SELECT slug, source_url, category, source_name, source_domain, image_url,
-               image_source, image_credit, image_credit_url, image_provider_url, image_license_url, image_checked_at,
+               image_source, image_credit, image_credit_url, image_provider_url, image_license_url, image_checked_at, image_relevance_verified,
                title_ar, title_en, summary_ar, summary_en, content_ar, content_en,
                published_at, fetched_at, read_minutes, original_language, is_demo
         FROM world_pulse_articles
@@ -2093,7 +2095,7 @@ def _db_fetch_articles_needing_images(limit: int = 6) -> list[dict[str, Any]]:
             cur.execute("""
                 SELECT slug, source_url, category, source_name, source_domain, image_url,
                        image_source, image_credit, image_credit_url, image_provider_url,
-                       image_license_url, image_checked_at, title_ar, title_en,
+                       image_license_url, image_checked_at, image_relevance_verified, title_ar, title_en,
                        summary_ar, summary_en, content_ar, content_en, published_at,
                        fetched_at, read_minutes, original_language, is_demo
                 FROM world_pulse_articles
@@ -2285,6 +2287,7 @@ def _raw_from_stored_article(row: dict[str, Any]) -> dict[str, Any]:
         "image_provider_url": row.get("image_provider_url", "") if row.get("image_source") in TRUSTED_REUSABLE_IMAGE_SOURCES else "",
         "image_license_url": row.get("image_license_url", "") if row.get("image_source") in TRUSTED_REUSABLE_IMAGE_SOURCES else "",
         "image_checked_at": row.get("image_checked_at"),
+        "image_relevance_verified": row.get("image_relevance_verified") is True,
         "original_title": title,
         "original_summary": summary,
         "original_language": original_language,
@@ -6724,6 +6727,7 @@ def _normalise_story(row: dict[str, Any], lang: str) -> dict[str, Any]:
     if story.get("image_url") and (
         story.get("image_source") not in TRUSTED_REUSABLE_IMAGE_SOURCES
         or not _image_license_verified(story)
+        or story.get("image_relevance_verified") is not True
     ):
         story.update({"image_url": "", "image_source": "none", "image_credit": "",
                       "image_credit_url": "", "image_provider_url": "", "image_license_url": ""})
@@ -7072,6 +7076,13 @@ def article(slug: str):
     selected = next((story for story in pool or [] if story.get("slug") == slug), None)
     if selected is None:
         stored = _db_fetch_article_by_slug(slug)
+        if stored is None:
+            # Legacy records can have no stored slug even when their cards derive a stable one from source_url.
+            stored = next((
+                row for row in _all_live_articles()
+                if str(row.get("slug") or "") == slug
+                or (row.get("source_url") and _slug_for_url(str(row.get("source_url"))) == slug)
+            ), None)
         stored_language = str((stored or {}).get("original_language") or "").casefold()
         if (
             stored
