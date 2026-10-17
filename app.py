@@ -83,7 +83,7 @@ SITE_NAME_EN = "World Pulse"
 TIMEZONE = ZoneInfo(os.getenv("SITE_TIMEZONE", "Asia/Amman"))
 NEWS_REFRESH_MINUTES = max(5, int(os.getenv("NEWS_REFRESH_MINUTES", "5")))
 NEWS_RETRY_MINUTES = max(5, int(os.getenv("NEWS_RETRY_MINUTES", "5")))
-NEWS_DISCOVERY_REFRESH_MINUTES = max(15, int(os.getenv("NEWS_DISCOVERY_REFRESH_MINUTES", "30")))
+NEWS_DISCOVERY_REFRESH_MINUTES = max(15, int(os.getenv("NEWS_DISCOVERY_REFRESH_MINUTES", "15")))
 MAX_PENDING_NEWS_CANDIDATES = max(24, min(160, int(os.getenv("MAX_PENDING_NEWS_CANDIDATES", "60"))))
 MAX_QUEUE_ADDITIONS_PER_DISCOVERY = max(1, min(12, int(os.getenv("MAX_QUEUE_ADDITIONS_PER_DISCOVERY", "6"))))
 NEWS_AUTO_FETCH = os.getenv("NEWS_AUTO_FETCH", "true").lower() not in {"0", "false", "no"}
@@ -236,74 +236,70 @@ CATEGORY_QUERIES = {
 }
 
 CATEGORY_SOURCE_DOMAINS = {
+    # Curated list requested for World Pulse: publisher allowlists are category- and
+    # language-specific. Google News is the discovery transport, not the article publisher.
     "politics": {
-        "ar": ["aljazeera.net","bbc.com","alarabiya.net","skynewsarabia.com","aawsat.com","alquds.co.uk","alghad.com","almamlakatv.com","roya.tv","arabic.rt.com","cnn.com","france24.com","dw.com","euronews.com","aa.com.tr","alhurra.com","independentarabia.com","wam.ae","petra.gov.jo","spa.gov.sa","sabq.org","okaz.com.sa"],
-        "en": ["bbc.com","bbc.co.uk","aljazeera.com","cnn.com","reuters.com","apnews.com","politico.com","thehill.com","axios.com","voanews.com","rferl.org","dw.com","france24.com","euronews.com","abc.net.au","cbc.ca","npr.org","theconversation.com","almonitor.com","foreignpolicy.com","defensenews.com","opendemocracy.net","chinadaily.com.cn","thenationalnews.com","khaleejtimes.com","gulfnews.com","arabnews.com","saudigazette.com.sa","thearabweekly.com","globalvoices.org","theguardian.com"],
+        "ar": ["aljazeera.net", "alarabiya.net", "skynewsarabia.com", "aawsat.com", "alquds.co.uk", "wam.ae", "spa.gov.sa"],
+        "en": ["bbc.com", "reuters.com", "apnews.com", "politico.com", "theguardian.com"],
     },
     "economy": {
-        "ar": ["asharqbusiness.com","cnbcarabia.com","mubasher.info","alarabiya.net","argaam.com","aleqt.com","zawya.com","almalnews.com","amwalalghad.com","almamlakatv.com","alghad.com","albayan.ae","alittihad.ae","wam.ae","petra.gov.jo","spa.gov.sa","sabq.org","okaz.com.sa"],
-        "en": ["bloomberg.com","ft.com","wsj.com","cnbc.com","marketwatch.com","fortune.com","businessinsider.com","investopedia.com","finance.yahoo.com","economist.com","economictimes.indiatimes.com","forbes.com","theinformation.com","techcrunch.com","axios.com","cnn.com","dw.com","reuters.com","apnews.com","thenationalnews.com","khaleejtimes.com","gulfnews.com","arabnews.com","arabianbusiness.com","saudigazette.com.sa"],
+        "ar": ["asharqbusiness.com", "cnbcarabia.com", "mubasher.info", "argaam.com"],
+        "en": ["bloomberg.com", "ft.com", "wsj.com", "cnbc.com", "marketwatch.com"],
     },
     "technology": {
-        "ar": ["aitnews.com","tech-wd.com","arabhardware.net","alarabiya.net","almamlakatv.com","france24.com","dw.com","cnn.com","aljazeera.net","arabic.rt.com","spa.gov.sa"],
-        "en": ["theverge.com","techcrunch.com","wired.com","arstechnica.com","engadget.com","zdnet.com","cnet.com","techradar.com","androidauthority.com","tomshardware.com","venturebeat.com","9to5mac.com","thenextweb.com","digitaltrends.com","gizmodo.com","technologyreview.com","theregister.com","bloomberg.com","cnn.com","apnews.com","9to5google.com","androidcentral.com","macrumors.com","windowscentral.com","techspot.com","notebookcheck.net"],
+        "ar": ["aitnews.com", "tech-wd.com", "arabhardware.net"],
+        "en": ["theverge.com", "techcrunch.com", "wired.com", "arstechnica.com"],
     },
     "gaming": {
-        "ar": ["saudigamer.com","arabhardware.net","arabgamenews.com","vga4a.com","agdn-online.com","true-gaming.net","l3ab.co","gamers8.gg","ign.com"],
-        "en": ["ign.com","gamespot.com","polygon.com","pcgamer.com","eurogamer.net","gamesradar.com","destructoid.com","rockpapershotgun.com","gematsu.com","videogameschronicle.com","kotaku.com","gamingbolt.com","nintendolife.com","pushsquare.com","purexbox.com","theverge.com","thegamer.com","pcgamesn.com","gamingonlinux.com","tech4gamers.com","esportsinsider.com","gameinformer.com","mmorpg.com","windowscentral.com"],
+        "ar": ["saudigamer.com", "arabhardware.net"],
+        "en": ["ign.com", "gamespot.com", "polygon.com", "eurogamer.net", "kotaku.com"],
     },
     "sports": {
-        "ar": ["filgoal.com","kooora.com","beinsports.com","yallakora.com","goal.com","arriyadiyah.com","alriyadh.com","sports360.com","365scores.com","fifa.com","olympics.com","almamlakatv.com","alghad.com","cnn.com","spa.gov.sa","sabq.org"],
-        "en": ["bbc.com","espn.com","skysports.com","formula1.com","fifa.com","olympics.com","goal.com","sportingnews.com","bleacherreport.com","talksport.com","motorsport.com","nba.com","nfl.com","mlb.com","apnews.com","reuters.com","cbssports.com","foxsports.com","sports.yahoo.com","the-race.com","theathletic.com"],
+        "ar": ["filgoal.com", "kooora.com", "beinsports.com", "yallakora.com"],
+        "en": ["bbc.com", "espn.com", "skysports.com", "theathletic.com"],
     },
     "science": {
-        "ar": ["ngalarabiya.com","aljazeera.net","alarabiya.net","dw.com","france24.com","euronews.com","cnn.com","aa.com.tr","alhurra.com","petra.gov.jo","wam.ae","almamlakatv.com","arabic.rt.com","spa.gov.sa"],
-        "en": ["jpl.nasa.gov","nasa.gov","space.com","scientificamerican.com","livescience.com","phys.org","sciencenews.org","eurekalert.org","noaa.gov","usgs.gov","nsf.gov","energy.gov","nih.gov","esa.int","nature.com","newscientist.com","sciencedaily.com","science.org","eos.org","cnn.com","apnews.com","nationalgeographic.com","sciencealert.com","theconversation.com"],
+        "ar": ["nationalgeographic.com", "aljazeera.net"],
+        # JPL is an official NASA sub-site, retained as an institutional NASA feed.
+        "en": ["nasa.gov", "jpl.nasa.gov", "space.com", "livescience.com", "scientificamerican.com", "nature.com"],
     },
     "culture": {
-        "ar": ["alqafilah.com","thifaf.com","aljazeera.net","alaraby.co.uk","alarab.co.uk","alarabiya.net","albayan.ae","alittihad.ae","masrawy.com","almasryalyoum.com","youm7.com","cairo24.com","alkhaleej.ae","cnn.com","france24.com","dw.com","spa.gov.sa","okaz.com.sa"],
-        "en": ["lithub.com","artsy.net","theguardian.com","smithsonianmag.com","artnews.com","hyperallergic.com","pitchfork.com","variety.com","hollywoodreporter.com","npr.org","theconversation.com","bfi.org.uk","literaryreview.co.uk","cnn.com","apnews.com","euronews.com","moma.org","nationalgallery.org.uk","newyorker.com"],
+        "ar": ["alaraby.co.uk", "alarab.co.uk"],
+        "en": ["lithub.com", "artsy.net", "theguardian.com", "newyorker.com"],
     },
     "world": {
-        "ar": ["aljazeera.net","bbc.com","dw.com","france24.com","euronews.com","alarabiya.net","skynewsarabia.com","alghad.com","almamlakatv.com","roya.tv","arabic.rt.com","alhurra.com","cnn.com","aa.com.tr","wam.ae","petra.gov.jo","independentarabia.com","alqabas.com","alain.com","spa.gov.sa","sabq.org","okaz.com.sa"],
-        "en": ["euronews.com","bbc.com","bbc.co.uk","aljazeera.com","cnn.com","apnews.com","reuters.com","voanews.com","rferl.org","axios.com","abc.net.au","cbc.ca","france24.com","dw.com","thehill.com","npr.org","theconversation.com","almonitor.com","chinadaily.com.cn","straitstimes.com","japantimes.co.jp","theafricareport.com","restofworld.org","foreignpolicy.com","opendemocracy.net","theguardian.com","thenationalnews.com","khaleejtimes.com","gulfnews.com","arabnews.com","saudigazette.com.sa","globalvoices.org"],
+        "ar": ["bbc.com", "france24.com", "dw.com"],
+        "en": ["bbc.com", "euronews.com", "apnews.com", "cnn.com"],
     },
 }
 
-# Ensure requested and regionally useful publishers are checked each discovery rather than
-# only when their rotating domain group happens to be selected. Rights gates still apply.
+# Run the requested trusted publishers first; remaining allowlisted publishers rotate
+# through small Google News RSS groups after these priority sources.
 PRIORITY_SOURCE_DOMAINS = {
-    # User-requested editorial priorities: each group is still filtered through the
-    # category/language allowlist and the publisher's content-rights gate.
-    ("politics", "ar"): ("aljazeera.net", "alarabiya.net", "skynewsarabia.com", "aawsat.com", "alquds.co.uk"),
+    ("politics", "ar"): ("aljazeera.net", "alarabiya.net", "skynewsarabia.com", "aawsat.com"),
     ("politics", "en"): ("bbc.com", "reuters.com", "apnews.com", "politico.com", "theguardian.com"),
     ("economy", "ar"): ("asharqbusiness.com", "cnbcarabia.com", "mubasher.info", "argaam.com"),
-    ("economy", "en"): ("bloomberg.com", "ft.com", "wsj.com", "marketwatch.com", "cnbc.com"),
+    ("economy", "en"): ("bloomberg.com", "ft.com", "wsj.com", "cnbc.com", "marketwatch.com"),
     ("technology", "ar"): ("aitnews.com", "tech-wd.com", "arabhardware.net"),
     ("technology", "en"): ("theverge.com", "techcrunch.com", "wired.com", "arstechnica.com"),
-    ("gaming", "ar"): ("saudigamer.com", "arabhardware.net", "arabgamenews.com"),
+    ("gaming", "ar"): ("saudigamer.com", "arabhardware.net"),
     ("gaming", "en"): ("ign.com", "gamespot.com", "polygon.com", "eurogamer.net", "kotaku.com"),
     ("sports", "ar"): ("filgoal.com", "kooora.com", "beinsports.com", "yallakora.com"),
     ("sports", "en"): ("bbc.com", "espn.com", "skysports.com", "theathletic.com"),
-    ("science", "ar"): ("ngalarabiya.com", "aljazeera.net"),
+    ("science", "ar"): ("nationalgeographic.com", "aljazeera.net"),
     ("science", "en"): ("nasa.gov", "space.com", "livescience.com", "scientificamerican.com", "nature.com"),
-    ("culture", "ar"): ("alqafilah.com", "thifaf.com", "aljazeera.net", "alaraby.co.uk"),
+    ("culture", "ar"): ("alaraby.co.uk", "alarab.co.uk"),
     ("culture", "en"): ("lithub.com", "artsy.net", "theguardian.com", "newyorker.com"),
-    ("world", "ar"): ("aljazeera.net", "bbc.com", "france24.com", "dw.com"),
+    ("world", "ar"): ("bbc.com", "france24.com", "dw.com"),
     ("world", "en"): ("bbc.com", "euronews.com", "apnews.com", "cnn.com"),
 }
 
-# Direct official institutional RSS feeds complement Google News discovery. They run only on
-# the 30-minute discovery pass, not on each five-minute publishing tick. Failures are isolated.
+# Official NASA news feeds supplement its Google News RSS results. Both are NASA properties.
 DIRECT_RSS_SENTINEL = "__direct_rss__"
 DIRECT_RSS_FEEDS = (
     {
         "category": "science", "lang": "en", "domain": "nasa.gov",
         "name": "NASA News Releases", "url": "https://www.nasa.gov/news-release/feed/",
-    },
-    {
-        "category": "science", "lang": "en", "domain": "noaa.gov",
-        "name": "NOAA", "url": "https://www.noaa.gov/rss.xml",
     },
     {
         "category": "science", "lang": "en", "domain": "jpl.nasa.gov",
@@ -435,6 +431,13 @@ _SOURCE_NAME_ALIASES = {
     "aljazeera.com": ("al jazeera", "al-jazeera", "aljazeera", "الجزيرة"),
     "aljazeera.net": ("al jazeera", "al-jazeera", "aljazeera", "الجزيرة"),
     "alarabiya.net": ("al arabiya", "alarabiya", "العربية"),
+    "nationalgeographic.com": ("national geographic", "nationalgeographic", "ناشيونال جيوغرافيك", "ناشونال جيوغرافيك"),
+    "yallakora.com": ("yalla kora", "yallakora", "يلا كورة"),
+    "wam.ae": ("wam", "emirates news agency", "وكالة أنباء الإمارات", "وام"),
+    "spa.gov.sa": ("spa", "saudi press agency", "وكالة الأنباء السعودية"),
+    "cnbc.com": ("cnbc",),
+    "marketwatch.com": ("marketwatch",),
+    "newyorker.com": ("new yorker", "the new yorker"),
     "skynewsarabia.com": ("sky news arabia", "سكاي نيوز عربية", "سكاي نيوز عربي"),
     "aawsat.com": ("asharq al-awsat", "asharq alawsat", "الشرق الأوسط", "الشرق الاوسط"),
     "alquds.co.uk": ("al-quds al-arabi", "al quds al arabi", "القدس العربي"),
@@ -3691,7 +3694,7 @@ def _parse_any_rss(feed_url: str, category: str, lang: str, default_source: str)
                     default="",
                 )
             items.append({
-                "category": category, "source_url": url, "source_name": publisher, "source_domain": publisher_host,
+                "category": category, "source_url": url, "source_name": publisher, "source_domain": matched_domain,
                 "image_url": "", "image_source": "none", "image_credit": "",
                 "image_credit_url": "", "image_provider_url": "", "image_license_url": "", "image_checked_at": None,
                 "original_title": title, "original_summary": _clean_text(summary_raw, 900),
