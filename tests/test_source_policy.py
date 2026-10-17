@@ -453,7 +453,8 @@ class SourcePolicyTests(unittest.TestCase):
         self.assertIn("not a line-by-line paraphrase and not a synonym swap", prompt)
         self.assertIn("rather than padding a thin on-site page", prompt)
         self.assertIn("headline and RSS excerpt", prompt)
-        self.assertIn("no more than 120 words", prompt)
+        self.assertIn("usually 140–220 words", prompt)
+        self.assertIn("never pad it with generic background", prompt)
 
     def test_library_of_congress_image_search_accepts_only_item_level_open_rights(self):
         import io
