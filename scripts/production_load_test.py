@@ -88,7 +88,28 @@ def main() -> int:
         article_paths = ["/?lang=en", "/?lang=ar"]
     print("Article samples:", json.dumps(article_paths, ensure_ascii=False))
 
-    paths = ["/?lang=en", "/?lang=ar", "/healthz", "/api/news-status"] + article_paths
+    image_paths: list[str] = []
+    for result in base_results[1:3]:
+        for image_src in re.findall(r'''<img\\b[^>]*\\bsrc=["']([^"']+)["']''', result["body"], re.I):
+            image_src = unescape(image_src)
+            parsed = urlparse(image_src)
+            if parsed.netloc and parsed.hostname != urlparse(BASE_URL).hostname:
+                continue
+            path = parsed.path if parsed.scheme or parsed.netloc else image_src.split("?", 1)[0]
+            query = parsed.query if parsed.scheme or parsed.netloc else (image_src.split("?", 1)[1] if "?" in image_src else "")
+            if not (path.startswith("/media/catalogued/") or path.startswith("/media/editorial.svg") or path.startswith("/media/generated/")):
+                continue
+            full_path = path + ("?" + query if query else "")
+            if full_path not in image_paths:
+                image_paths.append(full_path)
+            if len(image_paths) >= 4:
+                break
+        if len(image_paths) >= 4:
+            break
+    if not image_paths:
+        print("WARNING: no local cached/editorial images found on the current homepages")
+
+    paths = ["/?lang=en", "/?lang=ar", "/healthz", "/api/news-status"] + article_paths + image_paths
     samples = []
     failures = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=WORKERS) as pool:
@@ -97,8 +118,13 @@ def main() -> int:
             result = future.result()
             samples.append(result)
             final_host = urlparse(result.get("final_url", "")).hostname
-            if result["status"] != 200 or (result["path"].startswith("/article/") and final_host != urlparse(BASE_URL).hostname):
-                if result["status"] == 200 and result["path"].startswith("/article/"):
+            content_type = next((v for k, v in (result.get("headers") or {}).items() if k.casefold() == "content-type"), "")
+            is_image = result["path"].startswith("/media/")
+            bad_image = is_image and not content_type.casefold().startswith("image/")
+            if result["status"] != 200 or bad_image or (result["path"].startswith("/article/") and final_host != urlparse(BASE_URL).hostname):
+                if bad_image:
+                    result["error"] = "media route did not return an image content type"
+                elif result["status"] == 200 and result["path"].startswith("/article/"):
                     result["error"] = "article route redirected off-site instead of rendering an internal story page"
                 failures.append(result)
     times = [r["seconds"] for r in samples]
@@ -113,7 +139,7 @@ def main() -> int:
             "max": round(max(times), 3) if times else 0,
             "mean": round(statistics.mean(times), 3) if times else 0,
         },
-        "bytes_by_path": {p: next((r["bytes"] for r in base_results if r["path"] == p), None) for p in paths},
+        "article_routes_sampled": len(article_paths),\n        "image_routes_sampled": len(image_paths),\n        "bytes_by_path": {p: next((r["bytes"] for r in base_results if r["path"] == p), None) for p in paths},
         "slowest_requests": sorted(
             [{"path": r["path"], "status": r["status"], "seconds": round(r["seconds"], 3),
               "bytes": r["bytes"], "final_host": urlparse(r.get("final_url", "")).hostname}
