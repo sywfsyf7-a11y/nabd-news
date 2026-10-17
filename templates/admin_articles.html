@@ -2,8 +2,8 @@
 <html lang="ar" dir="rtl">
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="color-scheme" content="light">
-  <title>إدارة الأخبار — نبض العالم</title>
+  <meta name="color-scheme" content="dark">
+  <title>إدارة المحتوى — نبض العالم</title>
   <style>
     :root{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;color:#172033;background:#f3f6fb;font-synthesis:none}
     *{box-sizing:border-box}body{margin:0;padding:22px}main{max-width:1320px;margin:auto}
@@ -26,12 +26,14 @@
     details>summary{font-weight:800;cursor:pointer;padding:8px 0}.foot{margin:24px 2px;color:#64748b;font-size:.82rem;line-height:1.8}
     @media(max-width:760px){body{padding:12px}.toolbar,.fields{grid-template-columns:1fr}.wide{grid-column:auto}.story{grid-template-columns:66px minmax(0,1fr)}.thumb{width:66px;height:58px}.row-actions{grid-column:1/-1;justify-content:start}.card{padding:14px}.pagination{align-items:stretch;flex-direction:column}}
   </style>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}?v=1">
 </head>
 <body><main>
   <header class="top">
-    <div><h1>إدارة الأخبار والأرشيف</h1><p class="muted">التعديل والإضافة والإخفاء والاستعادة وإعادة البحث عن صورة الخبر؛ الحذف هنا قابل للعكس ولا يمسح السجل الدائم.</p></div>
+    <div><h1>إدارة المحتوى</h1><p class="muted">التعديل والإضافة والإخفاء والاستعادة وإعادة البحث عن صورة الخبر؛ الحذف هنا قابل للعكس ولا يمسح السجل الدائم.</p></div>
     <div class="nav">
-      <a class="button dark" href="{{ url_for('admin_monitor') }}">لوحة المراقبة</a>
+      <a class="button secondary" href="{{ url_for('admin_index') }}">الرئيسية</a>
+      <a class="button dark" href="{{ url_for('admin_monitor') }}">لوحة Admin</a>
       <a class="button secondary" href="{{ url_for('admin_sources') }}">المصادر والصور</a>
       <a class="button secondary" href="{{ url_for('admin_audit') }}">تدقيق الأرشيف</a>
       <form method="post" action="{{ url_for('admin_logout') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="secondary" type="submit">تسجيل الخروج</button></form>
