@@ -1,0 +1,31 @@
+/* World Pulse Admin Studio — dark-first, responsive shared workspace */
+:root{color-scheme:dark!important;--studio-bg:#0b1220;--studio-panel:#111c2e;--studio-panel-2:#17243a;--studio-border:#29384f;--studio-text:#e5edf8;--studio-muted:#9aabc2;--studio-accent:#ef4655;--studio-input:#0c1627}
+html,body{background:var(--studio-bg)!important;color:var(--studio-text)!important}
+body{font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif!important}
+main{max-width:1440px!important}
+h1,h2,h3,h4,strong,label,.story-title,.item-title{color:var(--studio-text)}
+p,.muted,.foot,.top p,.tiny{color:var(--studio-muted)!important}
+.card,.notice,.metric,.row,.story,.item,.pagination,details,.status,.pill{background-color:var(--studio-panel)!important;color:var(--studio-text)!important;border-color:var(--studio-border)!important;box-shadow:none!important}
+.notice{border:1px solid #285c4a!important;background:#102b27!important;color:#a7f3d0!important}
+.warning,.error{background:#33251a!important;color:#fed7aa!important;border-color:#6b4224!important}
+a{color:#ff7b86!important}
+.button,button{background:var(--studio-accent)!important;color:white!important;border:1px solid transparent!important;border-radius:10px!important}
+.button.secondary,button.secondary,.secondary,.dark,button.off{background:#26364f!important;color:#e5edf8!important}
+.danger{background:#3b1e2a!important;color:#fecdd3!important}
+input,select,textarea,input[type=text],input[type=password],input[type=search]{background:var(--studio-input)!important;color:var(--studio-text)!important;border:1px solid #354761!important}
+input::placeholder,textarea::placeholder{color:#8193ac!important}
+img.thumb,.image,.preview{background:#0c1627!important;border-color:var(--studio-border)!important}
+.pill.good,.tag.ok,.status.good{background:#12372d!important;color:#a7f3d0!important}
+.pill.hidden,.tag,.status.warn{background:#3a2b19!important;color:#fcd9a5!important}
+.status.bad{background:#3d1d29!important;color:#fecdd3!important}
+code{background:#1d2b40!important;color:#dbeafe!important}
+table{border-color:var(--studio-border)!important}th,td{border-color:var(--studio-border)!important;color:var(--studio-text)}
+/* A consistent creator-studio header across admin tools */
+.studio-header{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;padding:14px 18px;margin:-8px 0 22px;background:#111c2e;border:1px solid #29384f;border-radius:16px}
+.studio-brand{display:flex;align-items:center;gap:11px;font-weight:850;color:#f8fafc!important;text-decoration:none!important}
+.studio-logo{display:grid;place-items:center;width:38px;height:38px;border-radius:11px;background:#ef4655;color:white;font-weight:900}
+.studio-links{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.studio-links a{display:inline-block;padding:8px 11px;border-radius:9px;background:#1b2a40;color:#dce7f7!important;text-decoration:none;font-size:.9rem;font-weight:700}
+.studio-links a:hover,.studio-links a[aria-current=page]{background:#334660;color:white!important}
+@media(max-width:760px){.studio-header{margin:0 0 14px;padding:12px}.studio-links{width:100%}.studio-links a{flex:1;text-align:center}.card{padding:14px!important}}
+@media(prefers-reduced-motion:no-preference){button,.button,.studio-links a{transition:background-color .15s ease,border-color .15s ease}}

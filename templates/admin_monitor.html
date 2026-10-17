@@ -46,9 +46,11 @@
     code{background:#f1f5f9;border-radius:5px;padding:2px 5px;direction:ltr;unicode-bidi:plaintext}
     @media(max-width:760px){body{padding:14px}.grid{grid-template-columns:1fr}.card.wide{grid-column:auto}.metrics{grid-template-columns:repeat(3,minmax(0,1fr))}.metric{padding:9px}.metric strong{font-size:1.2rem}.form-row{align-items:stretch;flex-direction:column}.row{gap:8px}}
   </style>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/admin-studio.css') }}">
 </head>
 <body>
 <main>
+<header class="studio-header"><a class="studio-brand" href="{{ url_for('admin_monitor') }}"><span class="studio-logo">WP</span><span>World Pulse Studio<small style="display:block;font-size:.76rem;font-weight:500;color:#9aabc2">استوديو نبض العالم</small></span></a><nav class="studio-links" aria-label="أقسام الإدارة"><a href="{{ url_for('admin_monitor') }}">نظرة عامة</a><a href="{{ url_for('admin_articles') }}">المحتوى والأخبار</a><a href="{{ url_for('admin_sources') }}">المصادر والصور</a><a href="{{ url_for('admin_audit') }}">تدقيق الأرشيف</a><a href="{{ url_for('index') }}">عرض الموقع</a></nav></header>
   <header class="top">
     <div>
       <h1>لوحة المراقبة</h1>
