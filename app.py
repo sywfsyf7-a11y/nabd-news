@@ -108,7 +108,7 @@ MAX_GEMINI_API_CALLS_PER_REFRESH = max(1, min(4, int(os.getenv("MAX_GEMINI_API_C
 CONTACT_EMAIL = os.getenv("CONTACT_EMAIL", "syfsywf86@gmail.com").strip() or "syfsywf86@gmail.com"
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 NEWS_REFRESH_WEBHOOK_TOKEN = os.getenv("NEWS_REFRESH_WEBHOOK_TOKEN", "").strip()
-MAX_ARTICLES_PER_REFRESH = max(1, min(32, int(os.getenv("MAX_ARTICLES_PER_REFRESH", "1"))))
+MAX_ARTICLES_PER_REFRESH = max(2, min(32, int(os.getenv("MAX_ARTICLES_PER_REFRESH", "2"))))
 MAX_ARTICLES_PER_CATEGORY = max(1, min(5, int(os.getenv("MAX_ARTICLES_PER_CATEGORY", "3"))))
 RSS_CANDIDATES_PER_CATEGORY = max(3, min(8, int(os.getenv("RSS_CANDIDATES_PER_CATEGORY", "6"))))
 MAX_RSS_CANDIDATES = max(32, min(96, MAX_ARTICLES_PER_REFRESH * 4))
@@ -5515,14 +5515,32 @@ def _refresh_news_job() -> None:
         # editorial repairs run only when no queued new story is waiting.
         selected_queue_keys: set[str] = set()
         if queue_items:
-            batch = queue_items[:MAX_ARTICLES_PER_REFRESH]
+            # Keep publishing fresh news every tick, but reserve one slot in the same
+            # Gemini request for repairing an older thin article. This prevents the
+            # permanent archive backlog from starving while the incoming queue stays busy.
+            fresh_limit = max(1, MAX_ARTICLES_PER_REFRESH - 1)
+            batch = queue_items[:fresh_limit]
             raw_articles = [dict(item) for item in batch]
             selected_queue_keys = {
                 key for key in (_canonical_story_url(item.get("source_url")) for item in batch) if key
             }
+            if len(raw_articles) < MAX_ARTICLES_PER_REFRESH:
+                queued_keys = set(selected_queue_keys)
+                for stored in _db_fetch_articles_needing_editorial(limit=8):
+                    stored_key = _canonical_story_url(stored.get("source_url"))
+                    if (
+                        not stored_key
+                        or stored_key in queued_keys
+                        or _is_headline_only_domain(str(stored.get("source_domain") or ""))
+                    ):
+                        continue
+                    raw_articles.append(_raw_from_stored_article(stored))
+                    queued_keys.add(stored_key)
+                    if len(raw_articles) >= MAX_ARTICLES_PER_REFRESH:
+                        break
         else:
             editorial_retry_candidates = []
-            for stored in _db_fetch_articles_needing_editorial(limit=4):
+            for stored in _db_fetch_articles_needing_editorial(limit=8):
                 if _is_headline_only_domain(str(stored.get("source_domain") or "")):
                     continue
                 editorial_retry_candidates.append(_raw_from_stored_article(stored))
