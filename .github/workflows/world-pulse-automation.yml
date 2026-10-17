@@ -250,3 +250,15 @@ jobs:
               raise SystemExit("Production p95 latency exceeded 20 seconds under light load.")
           print("  result: passed")
           PY
+
+  
+  production-load-test:
+    if: github.event_name == 'workflow_dispatch'
+    needs: wake-and-check
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Run gentle read-only production load test
+        run: python scripts/production_load_test.py

@@ -945,7 +945,14 @@ def _content_quality_audit_issues(
         issues.append("invalid_or_missing_source_url")
     if not source_domain:
         issues.append("missing_source_domain")
-    elif source_host and not _domain_matches(source_host, source_domain):
+    # Google News RSS links are discovery/redirect URLs, while source_domain stores
+    # the publisher validated from the feed's source metadata. They are expected to
+    # differ; treat a mismatch as suspicious only for a direct publisher URL.
+    elif (
+        source_host
+        and not _domain_matches(source_host, "news.google.com")
+        and not _domain_matches(source_host, source_domain)
+    ):
         issues.append("source_domain_mismatch")
 
     if source_language in {"ar", "en"}:
@@ -983,12 +990,21 @@ def _content_quality_audit_issues(
         ):
             issues.append(f"incomplete_{other_language}_translation")
 
+        # Validate the recorded publisher host, not the Google News RSS wrapper
+        # URL. This is the same trusted publisher identity used by display filtering.
+        allowlist_host = source_domain or _infer_source_domain_from_name(
+            category, source_language, source_name
+        )
         allowlisted_category = category
-        if category in CATEGORY_NAMES and source_host:
-            corrected = _display_category(row, source_language)
+        if category in CATEGORY_NAMES and allowlist_host:
+            corrected_row = dict(row)
+            corrected_row["source_domain"] = allowlist_host
+            corrected = _display_category(corrected_row, source_language)
             if corrected in CATEGORY_NAMES:
                 allowlisted_category = corrected
-        if source_host and not _source_domain_for_category(allowlisted_category, source_language, source_host):
+        if allowlist_host and not _source_domain_for_category(
+            allowlisted_category, source_language, allowlist_host
+        ):
             issues.append("source_not_allowlisted_for_category_language")
 
     published_at = row.get("published_at")
