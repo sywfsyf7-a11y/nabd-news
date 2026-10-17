@@ -1538,5 +1538,21 @@ class BoundedImageProviderSearchTests(unittest.TestCase):
         self.assertIn("source_domain_mismatch", issues)
 
 
+    def test_editorial_prompt_requires_original_source_supported_reports(self):
+        prompt = world_pulse._build_editorial_prompt([{
+            "index": 0,
+            "category": "world",
+            "source": "Example News",
+            "source_url": "https://example.com/story",
+            "headline": "Government announces a new policy",
+            "rss_excerpt": "The government announced the policy on Tuesday.",
+            "source_language": "en",
+        }])
+        self.assertIn("independent editorial synthesis", prompt)
+        self.assertIn("not a line-by-line paraphrase", prompt)
+        self.assertIn("140–220 words", prompt)
+        self.assertIn("never pad it with generic background or invented context", prompt)
+
+
 if __name__ == "__main__":
     unittest.main()
