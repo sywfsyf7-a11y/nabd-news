@@ -1472,7 +1472,14 @@ def _remove_article_from_archive_cache(slug: str) -> None:
                     _MEMORY_ARTICLES.pop(key, None)
     except Exception as exc:
         logger.warning("Could not prune hidden story from warm archive caches (%s)", type(exc).__name__)
-        _invalidate_db_articles_cache()
+        with _DB_ARTICLES_CACHE_LOCK:
+            _DB_ARTICLES_CACHE_AT = 0.0
+        try:
+            os.unlink(_ARCHIVE_SHARED_CACHE_PATH)
+        except OSError:
+            pass
+        with _DISPLAY_STORIES_CACHE_LOCK:
+            _DISPLAY_STORIES_CACHE.clear()
     finally:
         _archive_unlock(cache_handle)
 
