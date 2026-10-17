@@ -1000,9 +1000,30 @@ def _content_quality_audit_issues(
         cached = re.fullmatch(r"/media/catalogued/([a-f0-9]{40})", image_url)
         if cached and cached.group(1) not in catalogued_image_ids:
             issues.append("catalogued_image_bytes_missing")
+        if image_url.startswith("https://"):
+            # A valid remote URL is still a durability risk: the permanent Supabase
+            # image route is preferred so a provider-side URL change cannot break the archive.
+            issues.append("trusted_image_not_cached_in_supabase")
+        checked_at = row.get("image_checked_at")
+        if isinstance(checked_at, str):
+            try:
+                checked_at = datetime.fromisoformat(checked_at.replace("Z", "+00:00"))
+            except ValueError:
+                checked_at = None
+        if isinstance(checked_at, datetime):
+            if checked_at.tzinfo is None:
+                checked_at = checked_at.replace(tzinfo=timezone.utc)
+            image_age_seconds = (now - checked_at).total_seconds()
+        else:
+            image_age_seconds = IMAGE_CACHE_MAX_AGE_SECONDS + 1
+        if image_age_seconds > IMAGE_CACHE_MAX_AGE_SECONDS:
+            issues.append("image_metadata_stale_or_unchecked")
         if image_source == "openverse_licensed":
             license_url = str(row.get("image_license_url") or "").strip()
-            license_path = urlparse(license_url).path.casefold()
+            try:
+                license_path = urlparse(license_url).path.casefold()
+            except ValueError:
+                license_path = ""
             license_code = (
                 "by-sa" if "/licenses/by-sa/" in license_path else
                 "by" if "/licenses/by/" in license_path else
