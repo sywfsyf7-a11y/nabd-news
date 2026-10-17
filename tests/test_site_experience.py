@@ -190,6 +190,31 @@ class SiteExperienceTests(unittest.TestCase):
         self.assertTrue(world_pulse._row_allowed_on_language_site(row, "ar"))
         self.assertFalse(world_pulse._row_allowed_on_language_site(row, "en"))
 
+    def test_old_cross_language_bookmark_redirects_to_allowlisted_source_if_translation_is_missing(self):
+        source_url = "https://www.theverge.com/2026/10/16/example-story"
+        stored = {
+            "slug": "old-international-story",
+            "source_url": source_url,
+            "source_name": "The Verge",
+            "source_domain": "theverge.com",
+            "category": "technology",
+            "original_language": "en",
+            "title_en": "An English-only technology headline",
+            "title_ar": "",
+            "summary_en": "A source-language summary for the archived story.",
+            "summary_ar": "",
+            "content_en": "A substantive English article body for the archived story, without an Arabic translation.",
+            "content_ar": "",
+        }
+        from unittest.mock import patch
+        with patch.object(world_pulse, "current_language", return_value="ar"):
+            with patch.object(world_pulse, "_DISPLAY_STORIES_CACHE", {}):
+                with patch.object(world_pulse, "_db_fetch_article_by_slug", return_value=stored):
+                    response = world_pulse.app.test_client().get("/article/old-international-story?lang=ar")
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers["Location"], source_url)
+
     def test_headline_only_article_stays_native_language_and_is_not_translated(self):
         row = {
             "slug": "aljazeera-headline",
