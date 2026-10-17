@@ -284,6 +284,24 @@ PRIORITY_SOURCE_DOMAINS = {
     ("science", "en"): ("nasa.gov", "noaa.gov", "science.org"),
 }
 
+# Direct official institutional RSS feeds complement Google News discovery. They run only on
+# the 30-minute discovery pass, not on each five-minute publishing tick. Failures are isolated.
+DIRECT_RSS_SENTINEL = "__direct_rss__"
+DIRECT_RSS_FEEDS = (
+    {
+        "category": "science", "lang": "en", "domain": "nasa.gov",
+        "name": "NASA News Releases", "url": "https://www.nasa.gov/news-release/feed/",
+    },
+    {
+        "category": "science", "lang": "en", "domain": "noaa.gov",
+        "name": "NOAA", "url": "https://www.noaa.gov/rss.xml",
+    },
+    {
+        "category": "science", "lang": "en", "domain": "nasa.gov",
+        "name": "NASA Jet Propulsion Laboratory", "url": "https://www.jpl.nasa.gov/feeds/news/",
+    },
+)
+
 # Precompute publisher-to-category membership once. Building this mapping inside
 # _classify_story multiplied the work by every candidate RSS entry during each refresh.
 _DOMAIN_CATEGORY_LOOKUP: dict[str, set[str]] = {}
@@ -3180,6 +3198,13 @@ def _parse_feed_task(
     lang: str,
     source_group: tuple[str, ...] | None = None,
 ) -> tuple[str, str, list[dict[str, Any]]]:
+    if source_group and source_group[0] == DIRECT_RSS_SENTINEL:
+        if len(source_group) != 4:
+            return category, lang, []
+        _sentinel, expected_domain, source_name, feed_url = source_group
+        return _parse_direct_rss_feed(
+            feed_url, category, lang, expected_domain, source_name
+        )
     query = CATEGORY_QUERIES[category][lang]
     domains = [
         domain for domain in CATEGORY_SOURCE_DOMAINS.get(category, {}).get(lang, [])
@@ -3299,6 +3324,104 @@ def _log_rss_selection(stories: list[dict[str, Any]], candidates_before_selectio
     )
 
 
+def _parse_direct_rss_feed(
+    feed_url: str,
+    category: str,
+    lang: str,
+    expected_domain: str,
+    source_name: str,
+) -> tuple[str, str, list[dict[str, Any]]]:
+    """Parse an official RSS feed and keep only links on its expected publisher host."""
+    if category not in CATEGORY_NAMES or lang not in {"ar", "en"}:
+        return category, lang, []
+    if not _source_domain_for_category(category, lang, expected_domain):
+        logger.warning("Direct RSS feed is not allowlisted: source=%s", source_name)
+        return category, lang, []
+
+    try:
+        request_obj = Request(
+            feed_url,
+            headers={
+                "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml",
+                "User-Agent": "WorldPulseNews/2.4 (+official institutional RSS discovery)",
+            },
+        )
+        with urlopen(request_obj, timeout=RSS_TIMEOUT_SECONDS) as response:
+            raw = response.read(1_500_000)
+        feed = feedparser.parse(raw)
+        items: list[dict[str, Any]] = []
+        for entry in feed.entries[:min(RSS_ENTRIES_PER_FEED, 18)]:
+            title = _clean_text(entry.get("title", ""), 350)
+            url = str(entry.get("link") or "").strip()
+            if not title or not url.startswith(("https://", "http://")):
+                continue
+            host = (urlparse(url).hostname or "").casefold().rstrip(".").removeprefix("www.")
+            if not host or not _domain_matches(host, expected_domain):
+                continue
+            matched_domain = _source_domain_for_category(category, lang, host)
+            if not matched_domain or not _control_enabled(
+                f"news:{category}:{lang}:{matched_domain}", True
+            ):
+                continue
+            if (lang == "ar" and not _looks_arabic(title)) or (
+                lang == "en" and _looks_arabic(title)
+            ):
+                continue
+
+            headline_only = _is_headline_only_domain(host)
+            if (
+                _domain_needs_license(host)
+                or _publisher_requires_license(source_name, (url, feed_url))
+            ) and not headline_only:
+                continue
+
+            if headline_only:
+                excerpt = (
+                    "يعرض نبض العالم العنوان ورابط الناشر فقط لهذا المصدر. افتح المصدر الأصلي للتفاصيل."
+                    if lang == "ar"
+                    else "Headline and source link only. Open the original publisher for details."
+                )
+            else:
+                excerpt_values = [entry.get("summary", ""), entry.get("description", "")]
+                contents = entry.get("content") or []
+                if isinstance(contents, list):
+                    excerpt_values.extend(
+                        part.get("value", "") for part in contents[:2] if isinstance(part, dict)
+                    )
+                excerpt = max(
+                    (_clean_text(value, 900) for value in excerpt_values),
+                    key=len,
+                    default="",
+                )
+            items.append({
+                "slug": _slug_for_url(url),
+                "category": category,
+                "source_url": url,
+                "source_name": source_name,
+                "source_domain": matched_domain,
+                "image_url": "",
+                "image_source": "none",
+                "image_credit": "",
+                "image_credit_url": "",
+                "image_provider_url": "",
+                "image_license_url": "",
+                "image_checked_at": None,
+                "original_title": title,
+                "original_summary": _clean_text(excerpt, 900),
+                "published_at": _parse_published(entry),
+                "original_language": lang,
+                "headline_only": headline_only,
+            })
+        logger.info("Direct RSS source checked: source=%s accepted=%d", source_name, len(items))
+        return category, lang, items
+    except Exception as exc:
+        logger.warning(
+            "Direct RSS source unavailable: source=%s error=%s",
+            source_name, type(exc).__name__,
+        )
+        return category, lang, []
+
+
 def _collect_rss_articles() -> list[dict[str, Any]]:
     # Warm source enable/disable state before fan-out to the parallel RSS workers.
     _prime_source_control_cache()
@@ -3333,7 +3456,28 @@ def _collect_rss_articles() -> list[dict[str, Any]]:
                 selected_group_indexes.append((first_group + 1) % len(groups))
             for group_index in selected_group_indexes:
                 tasks.append((category, lang, groups[group_index]))
-    # Priority and rotating groups may overlap; query an identical group only once.
+
+    for source in DIRECT_RSS_FEEDS:
+        category = str(source["category"])
+        lang = str(source["lang"])
+        domain = str(source["domain"])
+        if (
+            _source_domain_for_category(category, lang, domain)
+            and _control_enabled(f"news:{category}:{lang}:{domain}", True)
+            and (not _domain_needs_license(domain) or _is_headline_only_domain(domain))
+        ):
+            tasks.append((
+                category,
+                lang,
+                (
+                    DIRECT_RSS_SENTINEL,
+                    domain,
+                    str(source["name"]),
+                    str(source["url"]),
+                ),
+            ))
+
+    # Priority, direct and rotating groups may overlap; query an identical task only once.
     unique_tasks: list[tuple[str, str, tuple[str, ...]]] = []
     seen_tasks: set[tuple[str, str, tuple[str, ...]]] = set()
     for task in tasks:
