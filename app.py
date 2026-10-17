@@ -620,13 +620,18 @@ _LAST_DB_STATUS: dict[str, Any] = {"state": "unknown", "error_code": "", "checke
 _DB_LAST_FETCHED_VALUE: datetime | None = None
 _DB_LAST_FETCHED_CHECKED = 0.0
 _DB_LAST_FETCHED_LOCK = threading.Lock()
-_DB_ARTICLE_CACHE_TTL_SECONDS = max(1, min(60, int(os.getenv("DB_ARTICLE_CACHE_TTL_SECONDS", "30"))))
+_DB_ARTICLE_CACHE_TTL_SECONDS = max(1, min(60, int(os.getenv("DB_ARTICLE_CACHE_TTL_SECONDS", "60"))))
 _DB_ARTICLES_CACHE: list[dict[str, Any]] | None = None
 _DB_ARTICLES_CACHE_AT = 0.0
 _DB_ARTICLES_CACHE_LOCK = threading.Lock()
-_DISPLAY_STORIES_CACHE_TTL_SECONDS = max(2, min(120, int(os.getenv("DISPLAY_STORIES_CACHE_TTL_SECONDS", "60"))))
+_DB_ARTICLES_LOAD_LOCK = threading.Lock()
+_DISPLAY_STORIES_CACHE_TTL_SECONDS = max(2, min(120, int(os.getenv("DISPLAY_STORIES_CACHE_TTL_SECONDS", "120"))))
 _DISPLAY_STORIES_CACHE: dict[str, tuple[float, list[dict[str, Any]]]] = {}
 _DISPLAY_STORIES_CACHE_LOCK = threading.Lock()
+_ARCHIVE_SHARED_CACHE_PATH = os.getenv("WORLD_PULSE_ARCHIVE_CACHE_FILE", "/tmp/world-pulse-archive-cache.json")
+_ARCHIVE_SHARED_CACHE_MAX_STALE_SECONDS = max(120, min(900, int(os.getenv("ARCHIVE_CACHE_MAX_STALE_SECONDS", "300"))))
+_ARCHIVE_REFRESH_THREAD_LOCK = threading.Lock()
+_ARCHIVE_REFRESH_THREAD: threading.Thread | None = None
 _SCHEDULER_START_LOCK = threading.Lock()
 _SCHEDULER_THREAD: threading.Thread | None = None
 _SCHEDULER_LOCK_FILE_HANDLE = None
@@ -1413,55 +1418,175 @@ def _invalidate_db_articles_cache() -> None:
         _DISPLAY_STORIES_CACHE.clear()
 
 
-def _cached_db_article_snapshot() -> list[dict[str, Any]]:
-    """Return a copy of the last successful archive read, even if it is stale."""
-    with _DB_ARTICLES_CACHE_LOCK:
-        if _DB_ARTICLES_CACHE is None:
-            return []
-        return [dict(row) for row in _DB_ARTICLES_CACHE]
+def _archive_file_lock():
+    """Acquire an inter-process lock so both Gunicorn workers share one cold archive read."""
+    path = _ARCHIVE_SHARED_CACHE_PATH + ".lock"
+    handle = open(path, "a+", encoding="utf-8")
+    fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+    return handle
 
 
-def _archive_source_filter_params(lang: str) -> tuple[list[str], list[str], list[str]]:
-    """Create SQL predicates so disallowed publishers do not crowd out valid recent stories."""
-    if lang not in {"ar", "en"}:
-        return [], [], []
-    domains = sorted({
-        str(domain).casefold().removeprefix("www.")
-        for languages in CATEGORY_SOURCE_DOMAINS.values()
-        for domain in languages.get(lang, [])
-    })
-    host_patterns = [f"%.{domain}" for domain in domains]
-    source_aliases: set[str] = set()
-    for domain in domains:
-        aliases = _SOURCE_NAME_ALIASES.get(
-            domain, (domain.split(".")[0].replace("-", " "),)
-        )
-        source_aliases.update(
-            re.sub(r"\s+", " ", str(alias).casefold()).strip()
-            for alias in aliases if str(alias).strip()
-        )
-    source_name_patterns = [f"%{alias}%" for alias in sorted(source_aliases)]
-    return domains, host_patterns, source_name_patterns
+def _archive_unlock(handle) -> None:
+    try:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    finally:
+        handle.close()
 
 
-def _db_fetch_all() -> list[dict[str, Any]]:
-    """Read the persistent archive, retaining the last good snapshot during outages."""
+def _read_shared_archive_cache(*, max_age_seconds: int | None = None) -> tuple[list[dict[str, Any]], float] | None:
+    try:
+        with open(_ARCHIVE_SHARED_CACHE_PATH, "r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+        cached_at = float(payload.get("cached_at", 0))
+        age = max(0.0, time.time() - cached_at)
+        if not isinstance(payload.get("rows"), list):
+            return None
+        if max_age_seconds is not None and age > max_age_seconds:
+            return None
+        rows = []
+        for stored in payload["rows"]:
+            if not isinstance(stored, dict):
+                continue
+            row = dict(stored)
+            for key in ("published_at", "fetched_at", "image_checked_at"):
+                value = row.get(key)
+                if isinstance(value, str):
+                    try:
+                        row[key] = datetime.fromisoformat(value.replace("Z", "+00:00"))
+                    except ValueError:
+                        row[key] = None
+            rows.append(row)
+        return rows, age
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        return None
+
+
+def _write_shared_archive_cache(rows: list[dict[str, Any]]) -> None:
+    path = _ARCHIVE_SHARED_CACHE_PATH
+    directory = os.path.dirname(path)
+    if directory:
+        os.makedirs(directory, exist_ok=True)
+    temporary_path = f"{path}.{os.getpid()}.{threading.get_ident()}.tmp"
+
+    def encode_value(value):
+        if isinstance(value, datetime):
+            return value.isoformat()
+        raise TypeError(f"Unsupported archive cache value: {type(value).__name__}")
+
+    try:
+        with open(temporary_path, "w", encoding="utf-8") as handle:
+            json.dump({"cached_at": time.time(), "rows": rows}, handle, ensure_ascii=False, default=encode_value)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary_path, path)
+    except (OSError, TypeError, ValueError) as exc:
+        logger.debug("Could not write shared archive snapshot (%s)", type(exc).__name__)
+        try:
+            os.unlink(temporary_path)
+        except OSError:
+            pass
+
+
+def _archive_cache_sort_timestamp(row: dict[str, Any]) -> float:
+    for key in ("published_at", "fetched_at"):
+        value = row.get(key)
+        if isinstance(value, str):
+            try:
+                value = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            except ValueError:
+                value = None
+        if isinstance(value, datetime):
+            if value.tzinfo is None:
+                value = value.replace(tzinfo=timezone.utc)
+            return value.timestamp()
+    return 0.0
+
+
+def _install_archive_snapshot(rows: list[dict[str, Any]], *, age_seconds: float = 0.0, clear_display: bool = False) -> None:
     global _DB_ARTICLES_CACHE, _DB_ARTICLES_CACHE_AT
-    now = time.monotonic()
     with _DB_ARTICLES_CACHE_LOCK:
-        if (
-            _DB_ARTICLES_CACHE is not None
-            and now - _DB_ARTICLES_CACHE_AT < _DB_ARTICLE_CACHE_TTL_SECONDS
-        ):
-            return [dict(row) for row in _DB_ARTICLES_CACHE]
+        _DB_ARTICLES_CACHE = [dict(row) for row in rows]
+        _DB_ARTICLES_CACHE_AT = time.monotonic() - max(0.0, age_seconds)
+    if clear_display:
+        with _DISPLAY_STORIES_CACHE_LOCK:
+            _DISPLAY_STORIES_CACHE.clear()
 
+
+def _merge_article_rows_into_archive_cache(articles: list[dict[str, Any]]) -> bool:
+    """Merge successful database writes into cached archive rows without forcing a cold reread."""
+    if not articles:
+        return False
+    cache_handle = _archive_file_lock()
+    merged_rows: list[dict[str, Any]] | None = None
+    try:
+        with _DB_ARTICLES_CACHE_LOCK:
+            local_rows = [dict(row) for row in _DB_ARTICLES_CACHE] if _DB_ARTICLES_CACHE is not None else None
+        shared = _read_shared_archive_cache(max_age_seconds=_ARCHIVE_SHARED_CACHE_MAX_STALE_SECONDS)
+        existing_rows = local_rows if local_rows is not None else (shared[0] if shared else None)
+        if existing_rows is None:
+            return False
+
+        by_url = {
+            _canonical_story_url(row.get("source_url")): dict(row)
+            for row in existing_rows if _canonical_story_url(row.get("source_url"))
+        }
+        image_fields = (
+            "image_url", "image_source", "image_credit", "image_credit_url",
+            "image_provider_url", "image_license_url", "image_checked_at",
+        )
+        for incoming in articles:
+            key = _canonical_story_url(incoming.get("source_url"))
+            if not key:
+                continue
+            previous = by_url.get(key, {})
+            merged = dict(previous)
+            old_image_source = str(previous.get("image_source") or "")
+            incoming_image_source = str(incoming.get("image_source") or "")
+            keep_existing_image = bool(
+                previous.get("image_url")
+                and old_image_source in TRUSTED_REUSABLE_IMAGE_SOURCES
+                and incoming_image_source not in TRUSTED_REUSABLE_IMAGE_SOURCES
+            )
+            for field, value in incoming.items():
+                if keep_existing_image and field in image_fields:
+                    continue
+                if value not in (None, "") or field not in merged:
+                    merged[field] = value
+            merged["source_url"] = incoming.get("source_url") or previous.get("source_url")
+            by_url[key] = merged
+
+        per_language: dict[str, list[dict[str, Any]]] = {"ar": [], "en": []}
+        for row in by_url.values():
+            lang = str(row.get("original_language") or "").casefold()
+            if lang not in per_language or row.get("is_demo"):
+                continue
+            if not row.get("source_url") or not row.get(f"title_{lang}") or not row.get(f"summary_{lang}"):
+                continue
+            if not _row_allowed_on_language_site(row, lang):
+                continue
+            per_language[lang].append(row)
+
+        merged_rows = []
+        for lang in ("ar", "en"):
+            per_language[lang].sort(key=_archive_cache_sort_timestamp, reverse=True)
+            merged_rows.extend(per_language[lang][:120])
+        merged_rows.sort(key=_archive_cache_sort_timestamp, reverse=True)
+        _write_shared_archive_cache(merged_rows)
+    finally:
+        _archive_unlock(cache_handle)
+
+    _install_archive_snapshot(merged_rows, clear_display=True)
+    return True
+
+
+def _query_persistent_archive_rows() -> list[dict[str, Any]] | None:
+    """Run the indexed, bounded archive query once; None signals that the database was unavailable."""
     if not _ensure_schema():
-        logger.warning("Archive database check failed; serving last known article snapshot")
-        return _cached_db_article_snapshot()
+        return None
     conn = _connect_db()
     if conn is None:
-        logger.warning("Archive database connection unavailable; serving last known article snapshot")
-        return _cached_db_article_snapshot()
+        return None
+    started = time.monotonic()
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             ar_domains, ar_host_patterns, ar_name_patterns = _archive_source_filter_params("ar")
@@ -1514,18 +1639,135 @@ def _db_fetch_all() -> list[dict[str, Any]]:
                 en_domains, en_host_patterns, en_name_patterns,
             ))
             rows = [dict(row) for row in cur.fetchall()]
-        with _DB_ARTICLES_CACHE_LOCK:
-            _DB_ARTICLES_CACHE = rows
-            _DB_ARTICLES_CACHE_AT = time.monotonic()
-        return [dict(row) for row in rows]
+        logger.info("Persistent archive read completed: rows=%d elapsed=%.3fs", len(rows), time.monotonic() - started)
+        return rows
     except Exception as exc:
-        logger.warning(
-            "Could not read persistent news archive; serving last known snapshot (%s)",
-            type(exc).__name__,
-        )
-        return _cached_db_article_snapshot()
+        logger.warning("Persistent archive read failed (%s)", type(exc).__name__)
+        return None
     finally:
         _release_db_connection(conn)
+
+
+def _refresh_shared_archive_cache() -> None:
+    global _ARCHIVE_REFRESH_THREAD
+    try:
+        cache_handle = _archive_file_lock()
+        try:
+            shared = _read_shared_archive_cache(max_age_seconds=_DB_ARTICLE_CACHE_TTL_SECONDS)
+            if shared is not None:
+                _install_archive_snapshot(shared[0], age_seconds=shared[1], clear_display=True)
+                return
+            rows = _query_persistent_archive_rows()
+            if rows is not None:
+                _write_shared_archive_cache(rows)
+                _install_archive_snapshot(rows, clear_display=True)
+        finally:
+            _archive_unlock(cache_handle)
+    finally:
+        with _ARCHIVE_REFRESH_THREAD_LOCK:
+            _ARCHIVE_REFRESH_THREAD = None
+
+
+def _start_archive_cache_refresh() -> None:
+    global _ARCHIVE_REFRESH_THREAD
+    with _ARCHIVE_REFRESH_THREAD_LOCK:
+        if _ARCHIVE_REFRESH_THREAD is not None and _ARCHIVE_REFRESH_THREAD.is_alive():
+            return
+        _ARCHIVE_REFRESH_THREAD = threading.Thread(
+            target=_refresh_shared_archive_cache, name="world-pulse-archive-cache-refresh", daemon=True
+        )
+        _ARCHIVE_REFRESH_THREAD.start()
+
+
+def _cached_db_article_snapshot() -> list[dict[str, Any]]:
+    """Return a copy of the last successful archive read, even if it is stale."""
+    with _DB_ARTICLES_CACHE_LOCK:
+        if _DB_ARTICLES_CACHE is None:
+            return []
+        return [dict(row) for row in _DB_ARTICLES_CACHE]
+
+
+def _archive_source_filter_params(lang: str) -> tuple[list[str], list[str], list[str]]:
+    """Create SQL predicates so disallowed publishers do not crowd out valid recent stories."""
+    if lang not in {"ar", "en"}:
+        return [], [], []
+    domains = sorted({
+        str(domain).casefold().removeprefix("www.")
+        for languages in CATEGORY_SOURCE_DOMAINS.values()
+        for domain in languages.get(lang, [])
+    })
+    host_patterns = [f"%.{domain}" for domain in domains]
+    source_aliases: set[str] = set()
+    for domain in domains:
+        aliases = _SOURCE_NAME_ALIASES.get(
+            domain, (domain.split(".")[0].replace("-", " "),)
+        )
+        source_aliases.update(
+            re.sub(r"\s+", " ", str(alias).casefold()).strip()
+            for alias in aliases if str(alias).strip()
+        )
+    source_name_patterns = [f"%{alias}%" for alias in sorted(source_aliases)]
+    return domains, host_patterns, source_name_patterns
+
+
+def _db_fetch_all() -> list[dict[str, Any]]:
+    """Serve the shared warm archive snapshot and serialize cold database reads across workers."""
+    global _DB_ARTICLES_CACHE, _DB_ARTICLES_CACHE_AT
+    now = time.monotonic()
+    with _DB_ARTICLES_CACHE_LOCK:
+        if (
+            _DB_ARTICLES_CACHE is not None
+            and now - _DB_ARTICLES_CACHE_AT < _DB_ARTICLE_CACHE_TTL_SECONDS
+        ):
+            return [dict(row) for row in _DB_ARTICLES_CACHE]
+
+    shared_fresh = _read_shared_archive_cache(max_age_seconds=_DB_ARTICLE_CACHE_TTL_SECONDS)
+    if shared_fresh is not None:
+        _install_archive_snapshot(shared_fresh[0], age_seconds=shared_fresh[1], clear_display=True)
+        return [dict(row) for row in shared_fresh[0]]
+
+    # Prefer a slightly stale successful snapshot over blocking a visitor on a slow
+    # database read. A background refresh updates this worker and the sibling worker cache.
+    with _DB_ARTICLES_CACHE_LOCK:
+        local_rows = [dict(row) for row in _DB_ARTICLES_CACHE] if _DB_ARTICLES_CACHE is not None else None
+        local_age = max(0.0, now - _DB_ARTICLES_CACHE_AT) if _DB_ARTICLES_CACHE is not None else float("inf")
+    shared_stale = _read_shared_archive_cache(max_age_seconds=_ARCHIVE_SHARED_CACHE_MAX_STALE_SECONDS)
+    stale_rows = local_rows if local_rows is not None else (shared_stale[0] if shared_stale else None)
+    stale_age = local_age if local_rows is not None else (shared_stale[1] if shared_stale else float("inf"))
+    if stale_rows is not None and stale_age <= _ARCHIVE_SHARED_CACHE_MAX_STALE_SECONDS:
+        _install_archive_snapshot(stale_rows, age_seconds=stale_age)
+        _start_archive_cache_refresh()
+        return [dict(row) for row in stale_rows]
+
+    # Cold start only: take a cross-process lock and re-check after waiting, so the
+    # second Gunicorn worker reuses the first worker's fresh archive snapshot.
+    with _DB_ARTICLES_LOAD_LOCK:
+        now = time.monotonic()
+        with _DB_ARTICLES_CACHE_LOCK:
+            if (
+                _DB_ARTICLES_CACHE is not None
+                and now - _DB_ARTICLES_CACHE_AT < _DB_ARTICLE_CACHE_TTL_SECONDS
+            ):
+                return [dict(row) for row in _DB_ARTICLES_CACHE]
+        cache_handle = _archive_file_lock()
+        try:
+            shared = _read_shared_archive_cache(max_age_seconds=_DB_ARTICLE_CACHE_TTL_SECONDS)
+            if shared is not None:
+                _install_archive_snapshot(shared[0], age_seconds=shared[1], clear_display=True)
+                return [dict(row) for row in shared[0]]
+            rows = _query_persistent_archive_rows()
+            if rows is not None:
+                _write_shared_archive_cache(rows)
+                _install_archive_snapshot(rows)
+                return [dict(row) for row in rows]
+            fallback = _cached_db_article_snapshot()
+            if not fallback and shared_stale is not None:
+                fallback = shared_stale[0]
+            logger.warning("Archive database unavailable; serving %d last-known stories", len(fallback))
+            return [dict(row) for row in fallback]
+        finally:
+            _archive_unlock(cache_handle)
+
 
 
 def _db_fetch_article_by_slug(slug: str) -> dict[str, Any] | None:
