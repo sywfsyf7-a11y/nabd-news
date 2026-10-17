@@ -352,18 +352,20 @@ class SiteExperienceTests(unittest.TestCase):
         self.assertNotEqual(story["title"], story["summary"])
         self.assertTrue(story["content"])
 
-    def test_article_route_builds_the_display_pool_only_once(self):
+    def test_article_route_reuses_warm_display_pool_without_database_scan(self):
         stories = [
             {"slug": "story-one", "category": "technology", "title": "Short title"},
             {"slug": "story-two", "category": "technology", "title": "Related story"},
         ]
-        with patch.object(world_pulse, "_get_display_stories", return_value=stories) as pool:
-            with patch.object(world_pulse, "_find_article", side_effect=AssertionError("duplicate DB scan")):
-                with patch.object(world_pulse, "render_template", return_value="article rendered"):
-                    response = world_pulse.app.test_client().get("/article/story-one?lang=en")
+        warm_cache = {"en": (time.monotonic(), stories)}
+        with patch.object(world_pulse, "_ensure_background_scheduler"):
+            with patch.object(world_pulse, "current_language", return_value="en"):
+                with patch.object(world_pulse, "_DISPLAY_STORIES_CACHE", warm_cache):
+                    with patch.object(world_pulse, "_db_fetch_article_by_slug", side_effect=AssertionError("warm cache should win")):
+                        with patch.object(world_pulse, "render_template", return_value="article rendered"):
+                            response = world_pulse.app.test_client().get("/article/story-one?lang=en")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.get_data(as_text=True), "article rendered")
-        pool.assert_called_once_with("en")
 
     def test_source_control_cache_primes_all_known_toggles_with_one_database_query(self):
         class FakeCursor:
