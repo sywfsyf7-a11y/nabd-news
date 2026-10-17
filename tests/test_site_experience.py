@@ -1396,7 +1396,7 @@ class BoundedImageProviderSearchTests(unittest.TestCase):
         self.assertEqual(story["summary"], row["summary_ar"])
         self.assertTrue(story["content"])
 
-    def test_headline_only_article_redirects_to_original_publisher(self):
+    def test_headline_only_article_opens_internal_detail_with_original_source_link(self):
         row = {
             "slug": "bbc-headline-only",
             "source_url": "https://www.bbc.com/news/example-story",
@@ -1421,17 +1421,25 @@ class BoundedImageProviderSearchTests(unittest.TestCase):
                     with patch.object(world_pulse, "_db_fetch_article_by_slug", return_value=row):
                         with patch.object(world_pulse, "_row_allowed_on_language_site", return_value=True):
                             with patch.object(world_pulse, "_display_category", return_value="world"):
-                                response = world_pulse.app.test_client().get("/article/bbc-headline-only?lang=en")
+                                with patch.object(world_pulse, "_db_fetch_related_articles", return_value=[]):
+                                    with patch.object(world_pulse, "render_template", return_value="internal article page") as render:
+                                        response = world_pulse.app.test_client().get("/article/bbc-headline-only?lang=en")
 
-        self.assertEqual(response.status_code, 302)
-        self.assertEqual(response.headers["Location"], row["source_url"])
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_data(as_text=True), "internal article page")
+        self.assertEqual(render.call_args.kwargs["article"]["source_url"], row["source_url"])
+        self.assertEqual(render.call_args.kwargs["article"]["content"], "")
 
-    def test_source_only_cards_use_publisher_links_and_refresh_status_is_hidden(self):
+    def test_source_only_cards_open_internal_article_pages_and_keep_status_ui_hidden(self):
         template_path = os.path.join(os.path.dirname(world_pulse.__file__), "templates", "index.html")
         with open(template_path, encoding="utf-8") as handle:
             template = handle.read()
 
-        self.assertIn("story.source_url if story.source_only", template)
+        self.assertNotIn("story.source_url if story.source_only", template)
+        self.assertNotIn("breaking_story.source_url if breaking_story.source_only", template)
+        self.assertIn("url_for('article', slug=story.slug, lang=lang)", template)
+        self.assertNotIn('{% if story.source_only %} target="_blank"', template)
+        self.assertIn("article.source_url", template)
         self.assertIn('id="latest-stories"', template)
         self.assertNotIn('id="refreshNews"', template)
         self.assertNotIn('id="newsStatusText"', template)
