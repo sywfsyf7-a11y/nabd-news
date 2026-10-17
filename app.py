@@ -1615,7 +1615,12 @@ def _db_search_articles(query: str, limit: int = 60) -> list[dict[str, Any]] | N
     if conn is None:
         return None
     conditions = []
-    params: list[Any] = []
+    ar_domains, ar_host_patterns, ar_name_patterns = _archive_source_filter_params("ar")
+    en_domains, en_host_patterns, en_name_patterns = _archive_source_filter_params("en")
+    params: list[Any] = [
+        ar_domains, ar_host_patterns, ar_name_patterns,
+        en_domains, en_host_patterns, en_name_patterns,
+    ]
     fields = ("title_ar", "title_en", "summary_ar", "summary_en", "content_ar", "content_en", "source_name", "category")
     for term in terms:
         conditions.append("(" + " OR ".join(f"COALESCE({field}, '') ILIKE %s" for field in fields) + ")")
@@ -1628,8 +1633,19 @@ def _db_search_articles(query: str, limit: int = 60) -> list[dict[str, Any]] | N
                published_at, fetched_at, read_minutes, original_language, is_demo
         FROM world_pulse_articles
         WHERE is_demo = FALSE
-          AND ((original_language = 'ar' AND LENGTH(TRIM(COALESCE(title_ar, ''))) > 0 AND LENGTH(TRIM(COALESCE(summary_ar, ''))) > 0)
-               OR (original_language = 'en' AND LENGTH(TRIM(COALESCE(title_en, ''))) > 0 AND LENGTH(TRIM(COALESCE(summary_en, ''))) > 0))
+          AND (
+              (original_language = 'ar'
+               AND LENGTH(TRIM(COALESCE(title_ar, ''))) > 0
+               AND LENGTH(TRIM(COALESCE(summary_ar, ''))) > 0
+               AND (LOWER(source_domain) = ANY(%s) OR LOWER(source_domain) LIKE ANY(%s)
+                    OR (COALESCE(source_domain, '') = '' AND LOWER(source_name) LIKE ANY(%s))))
+              OR
+              (original_language = 'en'
+               AND LENGTH(TRIM(COALESCE(title_en, ''))) > 0
+               AND LENGTH(TRIM(COALESCE(summary_en, ''))) > 0
+               AND (LOWER(source_domain) = ANY(%s) OR LOWER(source_domain) LIKE ANY(%s)
+                    OR (COALESCE(source_domain, '') = '' AND LOWER(source_name) LIKE ANY(%s))))
+          )
           AND """ + " AND ".join(conditions) + " ORDER BY COALESCE(published_at, fetched_at) DESC, fetched_at DESC LIMIT %s"
     params.append(max(1, min(100, int(limit))))
     try:
