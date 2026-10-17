@@ -35,15 +35,15 @@ class RSSPublisherGroupTests(unittest.TestCase):
             world_pulse, "_parse_any_rss", side_effect=fake_parse
         ):
             result = world_pulse._parse_feed_task(
-                "politics", "en", ("bbc.com", "cnn.com")
+                "politics", "en", ("bbc.com", "reuters.com")
             )
 
         self.assertEqual(result, ("politics", "en", []))
         query = parse_qs(urlparse(captured["url"]).query)["q"][0]
         self.assertIn("site:bbc.com", query)
-        self.assertIn("site:cnn.com", query)
+        self.assertIn("site:reuters.com", query)
         self.assertIn("when:3d", query)
-        self.assertNotIn("site:reuters.com", query)
+        self.assertNotIn("site:apnews.com", query)
 
     def test_disallowed_group_is_rejected_before_network_access(self):
         controls = self._patch_rss_catalogue()
@@ -105,11 +105,11 @@ class RSSPublisherGroupTests(unittest.TestCase):
             self.assertTrue(2 <= count <= 3, (pair, count))
         science_en_groups = [group for c, l, group in calls if (c, l) == ("science", "en")]
         direct_feeds = [group for group in science_en_groups if group[0] == world_pulse.DIRECT_RSS_SENTINEL]
-        self.assertEqual(len(direct_feeds), 3)
-        self.assertEqual({group[1] for group in direct_feeds}, {"nasa.gov", "noaa.gov", "jpl.nasa.gov"})
+        self.assertEqual(len(direct_feeds), 2)
+        self.assertEqual({group[1] for group in direct_feeds}, {"nasa.gov", "jpl.nasa.gov"})
         for category, lang, priority_domains in (
-            ("gaming", "ar", ("saudigamer.com", "arabhardware.net", "arabgamenews.com")),
-            ("world", "ar", ("aljazeera.net", "bbc.com", "france24.com", "dw.com")),
+            ("gaming", "ar", ("saudigamer.com",)),
+            ("world", "ar", ("bbc.com", "france24.com")),
         ):
             pair_groups = [group for c, l, group in calls if (c, l) == (category, lang)]
             self.assertIn(priority_domains, pair_groups)

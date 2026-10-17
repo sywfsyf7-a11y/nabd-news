@@ -2,9 +2,9 @@ name: World Pulse automation checks
 
 on:
   schedule:
-    # Wake the free Render service twice an hour; the app's guarded scheduler
-    # performs the refresh and serializes work across Gunicorn workers.
-    - cron: "7,37 * * * *"
+    # Wake the free Render service every 15 minutes; the app's guarded scheduler
+    # performs publishing/discovery work and serializes it across Gunicorn workers.
+    - cron: "7,22,37,52 * * * *"
   push:
     paths:
       - "app.py"
@@ -206,10 +206,13 @@ jobs:
                       body = response.read(5 * 1024 * 1024 + 1)
                       elapsed = time.perf_counter() - started_at
                       content_type = response.headers.get("Content-Type", "")
+                      final_host = urlparse(response.geturl()).hostname
                       if len(body) > 5 * 1024 * 1024:
                           return path, None, elapsed, len(body), content_type, "response_over_5_mib"
                       if path.startswith("/media/") and not content_type.casefold().startswith("image/"):
                           return path, response.status, elapsed, len(body), content_type, "media_route_not_image"
+                      if path.startswith("/article/") and final_host != base_host:
+                          return path, response.status, elapsed, len(body), content_type, "article_redirected_off_site"
                       return path, response.status, elapsed, len(body), content_type, ""
               except HTTPError as exc:
                   return path, exc.code, time.perf_counter() - started_at, 0, "", f"http_{exc.code}"

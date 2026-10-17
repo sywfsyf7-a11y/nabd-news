@@ -78,7 +78,8 @@ class NewsQualityTests(unittest.TestCase):
             "title_en": "Fuel crisis deepens in Yemen as prices surge",
             "summary_en": "Fuel shortages and energy prices are rising.",
         }
-        self.assertEqual(_display_category(row, "en"), "economy")
+        # CNN is permitted in World News only under the curated publisher policy.
+        self.assertEqual(_display_category(row, "en"), "world")
 
     def test_category_correction_respects_publisher_allowlist(self):
         row = {

@@ -83,7 +83,7 @@ SITE_NAME_EN = "World Pulse"
 TIMEZONE = ZoneInfo(os.getenv("SITE_TIMEZONE", "Asia/Amman"))
 NEWS_REFRESH_MINUTES = max(5, int(os.getenv("NEWS_REFRESH_MINUTES", "5")))
 NEWS_RETRY_MINUTES = max(5, int(os.getenv("NEWS_RETRY_MINUTES", "5")))
-NEWS_DISCOVERY_REFRESH_MINUTES = max(15, int(os.getenv("NEWS_DISCOVERY_REFRESH_MINUTES", "30")))
+NEWS_DISCOVERY_REFRESH_MINUTES = max(15, int(os.getenv("NEWS_DISCOVERY_REFRESH_MINUTES", "15")))
 MAX_PENDING_NEWS_CANDIDATES = max(24, min(160, int(os.getenv("MAX_PENDING_NEWS_CANDIDATES", "60"))))
 MAX_QUEUE_ADDITIONS_PER_DISCOVERY = max(1, min(12, int(os.getenv("MAX_QUEUE_ADDITIONS_PER_DISCOVERY", "6"))))
 NEWS_AUTO_FETCH = os.getenv("NEWS_AUTO_FETCH", "true").lower() not in {"0", "false", "no"}
@@ -121,7 +121,7 @@ IMAGE_PROVIDER_GROUP_TIMEOUT_SECONDS = min(
     15, max(IMAGE_SEARCH_TIMEOUT_SECONDS + 5, IMAGE_SEARCH_TIMEOUT_SECONDS * 3)
 )
 IMAGE_DOWNLOAD_TIMEOUT_SECONDS = max(5, min(20, int(os.getenv("IMAGE_DOWNLOAD_TIMEOUT_SECONDS", "10"))))
-MAX_IMAGE_LOOKUPS_PER_REFRESH = max(0, min(32, int(os.getenv("MAX_IMAGE_LOOKUPS_PER_REFRESH", "2"))))
+MAX_IMAGE_LOOKUPS_PER_REFRESH = max(0, min(32, int(os.getenv("MAX_IMAGE_LOOKUPS_PER_REFRESH", "4"))))
 # Gradually repair older archived stories without running large, long-lived image batches.
 IMAGE_REVALIDATION_BATCH_SIZE = max(1, min(4, int(os.getenv("IMAGE_REVALIDATION_BATCH_SIZE", "2"))))
 IMAGE_RETRY_AFTER_HOURS = max(1, min(168, int(os.getenv("IMAGE_RETRY_AFTER_HOURS", "1"))))
@@ -236,74 +236,70 @@ CATEGORY_QUERIES = {
 }
 
 CATEGORY_SOURCE_DOMAINS = {
+    # Curated list requested for World Pulse: publisher allowlists are category- and
+    # language-specific. Google News is the discovery transport, not the article publisher.
     "politics": {
-        "ar": ["aljazeera.net","bbc.com","alarabiya.net","skynewsarabia.com","aawsat.com","alquds.co.uk","alghad.com","almamlakatv.com","roya.tv","arabic.rt.com","cnn.com","france24.com","dw.com","euronews.com","aa.com.tr","alhurra.com","independentarabia.com","wam.ae","petra.gov.jo","spa.gov.sa","sabq.org","okaz.com.sa"],
-        "en": ["bbc.com","bbc.co.uk","aljazeera.com","cnn.com","reuters.com","apnews.com","politico.com","thehill.com","axios.com","voanews.com","rferl.org","dw.com","france24.com","euronews.com","abc.net.au","cbc.ca","npr.org","theconversation.com","almonitor.com","foreignpolicy.com","defensenews.com","opendemocracy.net","chinadaily.com.cn","thenationalnews.com","khaleejtimes.com","gulfnews.com","arabnews.com","saudigazette.com.sa","thearabweekly.com","globalvoices.org","theguardian.com"],
+        "ar": ["aljazeera.net", "alarabiya.net", "skynewsarabia.com", "aawsat.com", "alquds.co.uk", "wam.ae", "spa.gov.sa"],
+        "en": ["bbc.com", "reuters.com", "apnews.com", "politico.com", "theguardian.com"],
     },
     "economy": {
-        "ar": ["asharqbusiness.com","cnbcarabia.com","mubasher.info","alarabiya.net","argaam.com","aleqt.com","zawya.com","almalnews.com","amwalalghad.com","almamlakatv.com","alghad.com","albayan.ae","alittihad.ae","wam.ae","petra.gov.jo","spa.gov.sa","sabq.org","okaz.com.sa"],
-        "en": ["bloomberg.com","ft.com","wsj.com","cnbc.com","marketwatch.com","fortune.com","businessinsider.com","investopedia.com","finance.yahoo.com","economist.com","economictimes.indiatimes.com","forbes.com","theinformation.com","techcrunch.com","axios.com","cnn.com","dw.com","reuters.com","apnews.com","thenationalnews.com","khaleejtimes.com","gulfnews.com","arabnews.com","arabianbusiness.com","saudigazette.com.sa"],
+        "ar": ["asharqbusiness.com", "cnbcarabia.com", "mubasher.info", "argaam.com"],
+        "en": ["bloomberg.com", "ft.com", "wsj.com", "cnbc.com", "marketwatch.com"],
     },
     "technology": {
-        "ar": ["aitnews.com","tech-wd.com","arabhardware.net","alarabiya.net","almamlakatv.com","france24.com","dw.com","cnn.com","aljazeera.net","arabic.rt.com","spa.gov.sa"],
-        "en": ["theverge.com","techcrunch.com","wired.com","arstechnica.com","engadget.com","zdnet.com","cnet.com","techradar.com","androidauthority.com","tomshardware.com","venturebeat.com","9to5mac.com","thenextweb.com","digitaltrends.com","gizmodo.com","technologyreview.com","theregister.com","bloomberg.com","cnn.com","apnews.com","9to5google.com","androidcentral.com","macrumors.com","windowscentral.com","techspot.com","notebookcheck.net"],
+        "ar": ["aitnews.com", "tech-wd.com", "arabhardware.net"],
+        "en": ["theverge.com", "techcrunch.com", "wired.com", "arstechnica.com"],
     },
     "gaming": {
-        "ar": ["saudigamer.com","arabhardware.net","arabgamenews.com","vga4a.com","agdn-online.com","true-gaming.net","l3ab.co","gamers8.gg","ign.com"],
-        "en": ["ign.com","gamespot.com","polygon.com","pcgamer.com","eurogamer.net","gamesradar.com","destructoid.com","rockpapershotgun.com","gematsu.com","videogameschronicle.com","kotaku.com","gamingbolt.com","nintendolife.com","pushsquare.com","purexbox.com","theverge.com","thegamer.com","pcgamesn.com","gamingonlinux.com","tech4gamers.com","esportsinsider.com","gameinformer.com","mmorpg.com","windowscentral.com"],
+        "ar": ["saudigamer.com", "arabhardware.net"],
+        "en": ["ign.com", "gamespot.com", "polygon.com", "eurogamer.net", "kotaku.com"],
     },
     "sports": {
-        "ar": ["filgoal.com","kooora.com","beinsports.com","yallakora.com","goal.com","arriyadiyah.com","alriyadh.com","sports360.com","365scores.com","fifa.com","olympics.com","almamlakatv.com","alghad.com","cnn.com","spa.gov.sa","sabq.org"],
-        "en": ["bbc.com","espn.com","skysports.com","formula1.com","fifa.com","olympics.com","goal.com","sportingnews.com","bleacherreport.com","talksport.com","motorsport.com","nba.com","nfl.com","mlb.com","apnews.com","reuters.com","cbssports.com","foxsports.com","sports.yahoo.com","the-race.com","theathletic.com"],
+        "ar": ["filgoal.com", "kooora.com", "beinsports.com", "yallakora.com"],
+        "en": ["bbc.com", "espn.com", "skysports.com", "theathletic.com"],
     },
     "science": {
-        "ar": ["ngalarabiya.com","aljazeera.net","alarabiya.net","dw.com","france24.com","euronews.com","cnn.com","aa.com.tr","alhurra.com","petra.gov.jo","wam.ae","almamlakatv.com","arabic.rt.com","spa.gov.sa"],
-        "en": ["jpl.nasa.gov","nasa.gov","space.com","scientificamerican.com","livescience.com","phys.org","sciencenews.org","eurekalert.org","noaa.gov","usgs.gov","nsf.gov","energy.gov","nih.gov","esa.int","nature.com","newscientist.com","sciencedaily.com","science.org","eos.org","cnn.com","apnews.com","nationalgeographic.com","sciencealert.com","theconversation.com"],
+        "ar": ["nationalgeographic.com", "aljazeera.net"],
+        # JPL is an official NASA sub-site, retained as an institutional NASA feed.
+        "en": ["nasa.gov", "jpl.nasa.gov", "space.com", "livescience.com", "scientificamerican.com", "nature.com"],
     },
     "culture": {
-        "ar": ["alqafilah.com","thifaf.com","aljazeera.net","alaraby.co.uk","alarab.co.uk","alarabiya.net","albayan.ae","alittihad.ae","masrawy.com","almasryalyoum.com","youm7.com","cairo24.com","alkhaleej.ae","cnn.com","france24.com","dw.com","spa.gov.sa","okaz.com.sa"],
-        "en": ["lithub.com","artsy.net","theguardian.com","smithsonianmag.com","artnews.com","hyperallergic.com","pitchfork.com","variety.com","hollywoodreporter.com","npr.org","theconversation.com","bfi.org.uk","literaryreview.co.uk","cnn.com","apnews.com","euronews.com","moma.org","nationalgallery.org.uk","newyorker.com"],
+        "ar": ["alaraby.co.uk", "alarab.co.uk"],
+        "en": ["lithub.com", "artsy.net", "theguardian.com", "newyorker.com"],
     },
     "world": {
-        "ar": ["aljazeera.net","bbc.com","dw.com","france24.com","euronews.com","alarabiya.net","skynewsarabia.com","alghad.com","almamlakatv.com","roya.tv","arabic.rt.com","alhurra.com","cnn.com","aa.com.tr","wam.ae","petra.gov.jo","independentarabia.com","alqabas.com","alain.com","spa.gov.sa","sabq.org","okaz.com.sa"],
-        "en": ["euronews.com","bbc.com","bbc.co.uk","aljazeera.com","cnn.com","apnews.com","reuters.com","voanews.com","rferl.org","axios.com","abc.net.au","cbc.ca","france24.com","dw.com","thehill.com","npr.org","theconversation.com","almonitor.com","chinadaily.com.cn","straitstimes.com","japantimes.co.jp","theafricareport.com","restofworld.org","foreignpolicy.com","opendemocracy.net","theguardian.com","thenationalnews.com","khaleejtimes.com","gulfnews.com","arabnews.com","saudigazette.com.sa","globalvoices.org"],
+        "ar": ["bbc.com", "france24.com", "dw.com"],
+        "en": ["bbc.com", "euronews.com", "apnews.com", "cnn.com"],
     },
 }
 
-# Ensure requested and regionally useful publishers are checked each discovery rather than
-# only when their rotating domain group happens to be selected. Rights gates still apply.
+# Run the requested trusted publishers first; remaining allowlisted publishers rotate
+# through small Google News RSS groups after these priority sources.
 PRIORITY_SOURCE_DOMAINS = {
-    # User-requested editorial priorities: each group is still filtered through the
-    # category/language allowlist and the publisher's content-rights gate.
-    ("politics", "ar"): ("aljazeera.net", "alarabiya.net", "skynewsarabia.com", "aawsat.com", "alquds.co.uk"),
-    ("politics", "en"): ("bbc.com", "reuters.com", "apnews.com", "politico.com", "theguardian.com"),
-    ("economy", "ar"): ("asharqbusiness.com", "cnbcarabia.com", "mubasher.info", "argaam.com"),
-    ("economy", "en"): ("bloomberg.com", "ft.com", "wsj.com", "marketwatch.com", "cnbc.com"),
-    ("technology", "ar"): ("aitnews.com", "tech-wd.com", "arabhardware.net"),
-    ("technology", "en"): ("theverge.com", "techcrunch.com", "wired.com", "arstechnica.com"),
-    ("gaming", "ar"): ("saudigamer.com", "arabhardware.net", "arabgamenews.com"),
-    ("gaming", "en"): ("ign.com", "gamespot.com", "polygon.com", "eurogamer.net", "kotaku.com"),
-    ("sports", "ar"): ("filgoal.com", "kooora.com", "beinsports.com", "yallakora.com"),
-    ("sports", "en"): ("bbc.com", "espn.com", "skysports.com", "theathletic.com"),
-    ("science", "ar"): ("ngalarabiya.com", "aljazeera.net"),
-    ("science", "en"): ("nasa.gov", "space.com", "livescience.com", "scientificamerican.com", "nature.com"),
-    ("culture", "ar"): ("alqafilah.com", "thifaf.com", "aljazeera.net", "alaraby.co.uk"),
-    ("culture", "en"): ("lithub.com", "artsy.net", "theguardian.com", "newyorker.com"),
-    ("world", "ar"): ("aljazeera.net", "bbc.com", "france24.com", "dw.com"),
-    ("world", "en"): ("bbc.com", "euronews.com", "apnews.com", "cnn.com"),
+    ("politics", "ar"): ("aljazeera.net", "alarabiya.net", "skynewsarabia.com"),
+    ("politics", "en"): ("bbc.com", "reuters.com", "apnews.com"),
+    ("economy", "ar"): ("asharqbusiness.com", "cnbcarabia.com"),
+    ("economy", "en"): ("bloomberg.com", "ft.com", "wsj.com"),
+    ("technology", "ar"): ("aitnews.com", "tech-wd.com"),
+    ("technology", "en"): ("theverge.com", "techcrunch.com"),
+    ("gaming", "ar"): ("saudigamer.com",),
+    ("gaming", "en"): ("ign.com", "gamespot.com", "polygon.com"),
+    ("sports", "ar"): ("kooora.com", "beinsports.com", "filgoal.com"),
+    ("sports", "en"): ("bbc.com", "espn.com", "skysports.com"),
+    ("science", "ar"): ("nationalgeographic.com",),
+    ("science", "en"): ("nasa.gov", "space.com", "nature.com"),
+    ("culture", "ar"): ("alaraby.co.uk",),
+    ("culture", "en"): ("theguardian.com", "newyorker.com"),
+    ("world", "ar"): ("bbc.com", "france24.com"),
+    ("world", "en"): ("bbc.com", "apnews.com", "cnn.com"),
 }
 
-# Direct official institutional RSS feeds complement Google News discovery. They run only on
-# the 30-minute discovery pass, not on each five-minute publishing tick. Failures are isolated.
+# Official NASA news feeds supplement its Google News RSS results. Both are NASA properties.
 DIRECT_RSS_SENTINEL = "__direct_rss__"
 DIRECT_RSS_FEEDS = (
     {
         "category": "science", "lang": "en", "domain": "nasa.gov",
         "name": "NASA News Releases", "url": "https://www.nasa.gov/news-release/feed/",
-    },
-    {
-        "category": "science", "lang": "en", "domain": "noaa.gov",
-        "name": "NOAA", "url": "https://www.noaa.gov/rss.xml",
     },
     {
         "category": "science", "lang": "en", "domain": "jpl.nasa.gov",
@@ -435,6 +431,13 @@ _SOURCE_NAME_ALIASES = {
     "aljazeera.com": ("al jazeera", "al-jazeera", "aljazeera", "الجزيرة"),
     "aljazeera.net": ("al jazeera", "al-jazeera", "aljazeera", "الجزيرة"),
     "alarabiya.net": ("al arabiya", "alarabiya", "العربية"),
+    "nationalgeographic.com": ("national geographic", "nationalgeographic", "ناشيونال جيوغرافيك", "ناشونال جيوغرافيك"),
+    "yallakora.com": ("yalla kora", "yallakora", "يلا كورة"),
+    "wam.ae": ("wam", "emirates news agency", "وكالة أنباء الإمارات", "وام"),
+    "spa.gov.sa": ("spa", "saudi press agency", "وكالة الأنباء السعودية"),
+    "cnbc.com": ("cnbc",),
+    "marketwatch.com": ("marketwatch",),
+    "newyorker.com": ("new yorker", "the new yorker"),
     "skynewsarabia.com": ("sky news arabia", "سكاي نيوز عربية", "سكاي نيوز عربي"),
     "aawsat.com": ("asharq al-awsat", "asharq alawsat", "الشرق الأوسط", "الشرق الاوسط"),
     "alquds.co.uk": ("al-quds al-arabi", "al quds al arabi", "القدس العربي"),
@@ -510,6 +513,17 @@ def _display_category(row: dict[str, Any], lang: str) -> str:
     detected = _classify_story(title, summary, current, host)
     if detected != current and host and _source_domain_for_category(detected, source_lang, host):
         return detected
+    if host and not _source_domain_for_category(current, source_lang, host):
+        # If an old row was assigned to a section that no longer permits this publisher,
+        # keep it in a section where the curated policy explicitly allows the publisher.
+        allowed_categories = [
+            name for name, language_map in CATEGORY_SOURCE_DOMAINS.items()
+            if any(_domain_matches(host, domain) for domain in language_map.get(source_lang, []))
+        ]
+        if "world" in allowed_categories:
+            return "world"
+        if allowed_categories:
+            return allowed_categories[0]
     return current
 
 
@@ -1419,6 +1433,29 @@ def _cached_db_article_snapshot() -> list[dict[str, Any]]:
         return [dict(row) for row in _DB_ARTICLES_CACHE]
 
 
+def _archive_source_filter_params(lang: str) -> tuple[list[str], list[str], list[str]]:
+    """Create SQL predicates so disallowed publishers do not crowd out valid recent stories."""
+    if lang not in {"ar", "en"}:
+        return [], [], []
+    domains = sorted({
+        str(domain).casefold().removeprefix("www.")
+        for languages in CATEGORY_SOURCE_DOMAINS.values()
+        for domain in languages.get(lang, [])
+    })
+    host_patterns = [f"%.{domain}" for domain in domains]
+    source_aliases: set[str] = set()
+    for domain in domains:
+        aliases = _SOURCE_NAME_ALIASES.get(
+            domain, (domain.split(".")[0].replace("-", " "),)
+        )
+        source_aliases.update(
+            re.sub(r"\s+", " ", str(alias).casefold()).strip()
+            for alias in aliases if str(alias).strip()
+        )
+    source_name_patterns = [f"%{alias}%" for alias in sorted(source_aliases)]
+    return domains, host_patterns, source_name_patterns
+
+
 def _db_fetch_all() -> list[dict[str, Any]]:
     """Read the persistent archive, retaining the last good snapshot during outages."""
     global _DB_ARTICLES_CACHE, _DB_ARTICLES_CACHE_AT
@@ -1439,6 +1476,8 @@ def _db_fetch_all() -> list[dict[str, Any]]:
         return _cached_db_article_snapshot()
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            ar_domains, ar_host_patterns, ar_name_patterns = _archive_source_filter_params("ar")
+            en_domains, en_host_patterns, en_name_patterns = _archive_source_filter_params("en")
             cur.execute("""
                 SELECT * FROM (
                     (
@@ -1452,6 +1491,11 @@ def _db_fetch_all() -> list[dict[str, Any]]:
                           AND original_language = 'ar'
                           AND LENGTH(TRIM(COALESCE(title_ar, ''))) > 0
                           AND LENGTH(TRIM(COALESCE(summary_ar, ''))) > 0
+                          AND (
+                              LOWER(source_domain) = ANY(%s)
+                              OR LOWER(source_domain) LIKE ANY(%s)
+                              OR (COALESCE(source_domain, '') = '' AND LOWER(source_name) LIKE ANY(%s))
+                          )
                         ORDER BY COALESCE(published_at, fetched_at) DESC, fetched_at DESC
                         LIMIT 120
                     )
@@ -1467,12 +1511,20 @@ def _db_fetch_all() -> list[dict[str, Any]]:
                           AND original_language = 'en'
                           AND LENGTH(TRIM(COALESCE(title_en, ''))) > 0
                           AND LENGTH(TRIM(COALESCE(summary_en, ''))) > 0
+                          AND (
+                              LOWER(source_domain) = ANY(%s)
+                              OR LOWER(source_domain) LIKE ANY(%s)
+                              OR (COALESCE(source_domain, '') = '' AND LOWER(source_name) LIKE ANY(%s))
+                          )
                         ORDER BY COALESCE(published_at, fetched_at) DESC, fetched_at DESC
                         LIMIT 120
                     )
                 ) AS recent_articles
                 ORDER BY COALESCE(published_at, fetched_at) DESC, fetched_at DESC
-            """)
+            """, (
+                ar_domains, ar_host_patterns, ar_name_patterns,
+                en_domains, en_host_patterns, en_name_patterns,
+            ))
             rows = [dict(row) for row in cur.fetchall()]
         with _DB_ARTICLES_CACHE_LOCK:
             _DB_ARTICLES_CACHE = rows
@@ -1516,6 +1568,53 @@ def _db_fetch_article_by_slug(slug: str) -> dict[str, Any] | None:
     finally:
         _release_db_connection(conn)
 
+def _db_fetch_related_articles(
+    category: str, lang: str, exclude_slug: str, limit: int = 48
+) -> list[dict[str, Any]]:
+    """Fetch a small, indexed pool for article recommendations without rebuilding the homepage."""
+    if lang not in {"ar", "en"} or not _ensure_schema():
+        return []
+    conn = _connect_db()
+    if conn is None:
+        return []
+    title_col = "title_ar" if lang == "ar" else "title_en"
+    summary_col = "summary_ar" if lang == "ar" else "summary_en"
+    domains, host_patterns, name_patterns = _archive_source_filter_params(lang)
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(f"""
+                SELECT slug, source_url, category, source_name, source_domain, image_url,
+                       image_source, image_credit, image_credit_url, image_provider_url,
+                       image_license_url, image_checked_at, title_ar, title_en, summary_ar,
+                       summary_en, content_ar, content_en, published_at, fetched_at,
+                       read_minutes, original_language, is_demo
+                FROM world_pulse_articles
+                WHERE is_demo = FALSE
+                  AND original_language = %s
+                  AND slug <> %s
+                  AND COALESCE(source_url, '') <> ''
+                  AND LENGTH(TRIM(COALESCE({title_col}, ''))) > 0
+                  AND LENGTH(TRIM(COALESCE({summary_col}, ''))) > 0
+                  AND (
+                      LOWER(source_domain) = ANY(%s)
+                      OR LOWER(source_domain) LIKE ANY(%s)
+                      OR (COALESCE(source_domain, '') = '' AND LOWER(source_name) LIKE ANY(%s))
+                  )
+                ORDER BY (category = %s) DESC,
+                         COALESCE(published_at, fetched_at) DESC, fetched_at DESC
+                LIMIT %s
+            """, (
+                lang, exclude_slug, domains, host_patterns, name_patterns,
+                category, max(3, min(64, int(limit))),
+            ))
+            return [dict(row) for row in cur.fetchall()]
+    except Exception as exc:
+        logger.warning("Related article lookup failed (%s)", type(exc).__name__)
+        return []
+    finally:
+        _release_db_connection(conn)
+
+
 def _db_search_articles(query: str, limit: int = 60) -> list[dict[str, Any]] | None:
     query = _clean_text(query, 160)
     terms = [term for term in re.findall(r"[\w\u0600-\u06ff]+", query) if len(term) > 1][:8]
@@ -1527,7 +1626,12 @@ def _db_search_articles(query: str, limit: int = 60) -> list[dict[str, Any]] | N
     if conn is None:
         return None
     conditions = []
-    params: list[Any] = []
+    ar_domains, ar_host_patterns, ar_name_patterns = _archive_source_filter_params("ar")
+    en_domains, en_host_patterns, en_name_patterns = _archive_source_filter_params("en")
+    params: list[Any] = [
+        ar_domains, ar_host_patterns, ar_name_patterns,
+        en_domains, en_host_patterns, en_name_patterns,
+    ]
     fields = ("title_ar", "title_en", "summary_ar", "summary_en", "content_ar", "content_en", "source_name", "category")
     for term in terms:
         conditions.append("(" + " OR ".join(f"COALESCE({field}, '') ILIKE %s" for field in fields) + ")")
@@ -1540,8 +1644,19 @@ def _db_search_articles(query: str, limit: int = 60) -> list[dict[str, Any]] | N
                published_at, fetched_at, read_minutes, original_language, is_demo
         FROM world_pulse_articles
         WHERE is_demo = FALSE
-          AND ((original_language = 'ar' AND LENGTH(TRIM(COALESCE(title_ar, ''))) > 0 AND LENGTH(TRIM(COALESCE(summary_ar, ''))) > 0)
-               OR (original_language = 'en' AND LENGTH(TRIM(COALESCE(title_en, ''))) > 0 AND LENGTH(TRIM(COALESCE(summary_en, ''))) > 0))
+          AND (
+              (original_language = 'ar'
+               AND LENGTH(TRIM(COALESCE(title_ar, ''))) > 0
+               AND LENGTH(TRIM(COALESCE(summary_ar, ''))) > 0
+               AND (LOWER(source_domain) = ANY(%s) OR LOWER(source_domain) LIKE ANY(%s)
+                    OR (COALESCE(source_domain, '') = '' AND LOWER(source_name) LIKE ANY(%s))))
+              OR
+              (original_language = 'en'
+               AND LENGTH(TRIM(COALESCE(title_en, ''))) > 0
+               AND LENGTH(TRIM(COALESCE(summary_en, ''))) > 0
+               AND (LOWER(source_domain) = ANY(%s) OR LOWER(source_domain) LIKE ANY(%s)
+                    OR (COALESCE(source_domain, '') = '' AND LOWER(source_name) LIKE ANY(%s))))
+          )
           AND """ + " AND ".join(conditions) + " ORDER BY COALESCE(published_at, fetched_at) DESC, fetched_at DESC LIMIT %s"
     params.append(max(1, min(100, int(limit))))
     try:
@@ -3691,7 +3806,7 @@ def _parse_any_rss(feed_url: str, category: str, lang: str, default_source: str)
                     default="",
                 )
             items.append({
-                "category": category, "source_url": url, "source_name": publisher, "source_domain": publisher_host,
+                "category": category, "source_url": url, "source_name": publisher, "source_domain": matched_domain,
                 "image_url": "", "image_source": "none", "image_credit": "",
                 "image_credit_url": "", "image_provider_url": "", "image_license_url": "", "image_checked_at": None,
                 "original_title": title, "original_summary": _clean_text(summary_raw, 900),
@@ -6224,9 +6339,9 @@ def search():
 @app.get("/article/<slug>")
 def article(slug: str):
     lang = current_language()
-    # On a warm display cache, serve a clicked story without another DB query. On a
-    # cold cache, do an indexed slug lookup first; only build the recent list if needed
-    # for related-story links after the target has been found.
+    # On a warm display cache, serve a clicked story immediately. On a cold cache,
+    # use an indexed slug lookup and a bounded related-story query rather than rebuilding
+    # the entire homepage story pool for a single article request.
     pool: list[dict[str, Any]] | None = None
     now = time.monotonic()
     with _DISPLAY_STORIES_CACHE_LOCK:
@@ -6269,28 +6384,47 @@ def article(slug: str):
                 return redirect(source_url, code=302)
     if selected is None:
         abort(404)
-    if selected.get("source_only"):
-        source_url = str(selected.get("source_url") or "").strip()
-        parsed_source = urlparse(source_url)
-        if parsed_source.scheme.casefold() in {"http", "https"} and parsed_source.hostname:
-            return redirect(source_url, code=302)
-        abort(404)
+    # Keep short/headline-only stories on our own fast detail page; the original publisher
+    # remains linked from the detail view. On a cold cache, query a small indexed related pool
+    # instead of sorting/deduplicating the entire homepage archive on every article click.
     if pool is None:
-        pool = _get_display_stories(lang)
+        related_rows = _db_fetch_related_articles(
+            str(selected.get("category") or "world"), lang, slug, limit=48
+        )
+        related_pool: list[dict[str, Any]] = []
+        for related_row in related_rows:
+            if not _row_allowed_on_language_site(related_row, lang):
+                continue
+            if _looks_like_feed_section_title(
+                related_row.get(f"title_{lang}") or "", related_row.get("source_name", "")
+            ):
+                continue
+            corrected_category = _display_category(related_row, lang)
+            if corrected_category != related_row.get("category"):
+                related_row = dict(related_row)
+                related_row["category"] = corrected_category
+            related_pool.append(_normalise_story(related_row, lang))
+    else:
+        related_pool = pool
     related = [
-        story for story in pool
+        story for story in related_pool
         if story.get("slug") != slug
         and story.get("category") == selected.get("category")
         and not story.get("source_only")
     ][:3]
     if len(related) < 3:
         related_ids = {story.get("slug") for story in related}
-        related.extend([story for story in pool if story.get("slug") not in related_ids and story.get("slug") != slug][:3 - len(related)])
+        related.extend([
+            story for story in related_pool
+            if story.get("slug") not in related_ids
+            and story.get("slug") != slug
+            and not story.get("source_only")
+        ][:3 - len(related)])
     return render_template(
         "index.html",
         page="article",
         stories=[],
-        all_story_count=len(pool),
+        all_story_count=len(pool if pool is not None else related_pool),
         active_category="all",
         breaking_story=None,
         related_stories=related,

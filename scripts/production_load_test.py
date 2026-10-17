@@ -30,10 +30,10 @@ def request(path: str) -> dict:
         elapsed = time.perf_counter() - started
         return {"path": path, "status": status, "seconds": elapsed,
                 "bytes": len(body), "body": body.decode("utf-8", "replace"),
-                "cache_control": headers.get("Cache-Control", "")}
+                "cache_control": headers.get("Cache-Control", ""), "final_url": response.geturl()}
     except Exception as exc:
         return {"path": path, "status": 0, "seconds": time.perf_counter()-started,
-                "bytes": 0, "body": "", "error": type(exc).__name__ + ": " + str(exc)}
+                "bytes": 0, "body": "", "final_url": "", "error": type(exc).__name__ + ": " + str(exc)}
 
 
 def pctl(values: list[float], pct: float) -> float:
@@ -96,7 +96,10 @@ def main() -> int:
         for future in concurrent.futures.as_completed(futures):
             result = future.result()
             samples.append(result)
-            if result["status"] != 200:
+            final_host = urlparse(result.get("final_url", "")).hostname
+            if result["status"] != 200 or (result["path"].startswith("/article/") and final_host != urlparse(BASE_URL).hostname):
+                if result["status"] == 200 and result["path"].startswith("/article/"):
+                    result["error"] = "article route redirected off-site instead of rendering an internal story page"
                 failures.append(result)
     times = [r["seconds"] for r in samples]
     print(json.dumps({
@@ -112,7 +115,8 @@ def main() -> int:
         },
         "bytes_by_path": {p: next((r["bytes"] for r in base_results if r["path"] == p), None) for p in paths},
         "slowest_requests": sorted(
-            [{"path": r["path"], "status": r["status"], "seconds": round(r["seconds"], 3), "bytes": r["bytes"]}
+            [{"path": r["path"], "status": r["status"], "seconds": round(r["seconds"], 3),
+              "bytes": r["bytes"], "final_host": urlparse(r.get("final_url", "")).hostname}
              for r in samples], key=lambda r: r["seconds"], reverse=True
         )[:8],
         "failed_samples": [{"path": r["path"], "status": r["status"], "error": r.get("error", "")}
