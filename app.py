@@ -602,6 +602,17 @@ CREATE INDEX IF NOT EXISTS idx_world_pulse_published
     ON world_pulse_articles (published_at DESC NULLS LAST);
 CREATE INDEX IF NOT EXISTS idx_world_pulse_category
     ON world_pulse_articles (category);
+-- These partial indexes support the bounded most-recent story window without sorting
+-- the entire ever-growing archive for every homepage or article request.
+CREATE INDEX IF NOT EXISTS idx_world_pulse_ar_live_date
+    ON world_pulse_articles ((COALESCE(published_at, fetched_at)) DESC, fetched_at DESC)
+    WHERE is_demo = FALSE AND original_language = 'ar';
+CREATE INDEX IF NOT EXISTS idx_world_pulse_en_live_date
+    ON world_pulse_articles ((COALESCE(published_at, fetched_at)) DESC, fetched_at DESC)
+    WHERE is_demo = FALSE AND original_language = 'en';
+CREATE INDEX IF NOT EXISTS idx_world_pulse_category_live_date
+    ON world_pulse_articles (category, (COALESCE(published_at, fetched_at)) DESC, fetched_at DESC)
+    WHERE is_demo = FALSE;
 CREATE TABLE IF NOT EXISTS world_pulse_controls (
     control_key TEXT PRIMARY KEY,
     enabled BOOLEAN NOT NULL DEFAULT TRUE,
@@ -1057,28 +1068,35 @@ def _db_fetch_all() -> list[dict[str, Any]]:
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute("""
-                WITH eligible AS (
+                (
                     SELECT slug, source_url, category, source_name, source_domain, image_url,
                            image_source, image_credit, image_credit_url, image_provider_url, image_license_url, image_checked_at,
                            title_ar, title_en, summary_ar, summary_en,
                            content_ar, content_en, published_at, fetched_at,
-                           read_minutes, original_language, is_demo,
-                           ROW_NUMBER() OVER (
-                               PARTITION BY original_language
-                               ORDER BY COALESCE(published_at, fetched_at) DESC, fetched_at DESC
-                           ) AS language_rank
+                           read_minutes, original_language, is_demo
                     FROM world_pulse_articles
                     WHERE is_demo = FALSE
-                      AND ((original_language = 'ar' AND LENGTH(TRIM(COALESCE(title_ar, ''))) > 0 AND LENGTH(TRIM(COALESCE(summary_ar, ''))) > 0)
-                           OR (original_language = 'en' AND LENGTH(TRIM(COALESCE(title_en, ''))) > 0 AND LENGTH(TRIM(COALESCE(summary_en, ''))) > 0))
+                      AND original_language = 'ar'
+                      AND LENGTH(TRIM(COALESCE(title_ar, ''))) > 0
+                      AND LENGTH(TRIM(COALESCE(summary_ar, ''))) > 0
+                    ORDER BY COALESCE(published_at, fetched_at) DESC, fetched_at DESC
+                    LIMIT 120
                 )
-                SELECT slug, source_url, category, source_name, source_domain, image_url,
-                       image_source, image_credit, image_credit_url, image_provider_url, image_license_url, image_checked_at,
-                       title_ar, title_en, summary_ar, summary_en,
-                       content_ar, content_en, published_at, fetched_at,
-                       read_minutes, original_language, is_demo
-                FROM eligible
-                WHERE language_rank <= 120
+                UNION ALL
+                (
+                    SELECT slug, source_url, category, source_name, source_domain, image_url,
+                           image_source, image_credit, image_credit_url, image_provider_url, image_license_url, image_checked_at,
+                           title_ar, title_en, summary_ar, summary_en,
+                           content_ar, content_en, published_at, fetched_at,
+                           read_minutes, original_language, is_demo
+                    FROM world_pulse_articles
+                    WHERE is_demo = FALSE
+                      AND original_language = 'en'
+                      AND LENGTH(TRIM(COALESCE(title_en, ''))) > 0
+                      AND LENGTH(TRIM(COALESCE(summary_en, ''))) > 0
+                    ORDER BY COALESCE(published_at, fetched_at) DESC, fetched_at DESC
+                    LIMIT 120
+                )
                 ORDER BY COALESCE(published_at, fetched_at) DESC, fetched_at DESC
             """)
             rows = [dict(row) for row in cur.fetchall()]
@@ -5154,10 +5172,19 @@ def _normalise_story(row: dict[str, Any], lang: str) -> dict[str, Any]:
     if not story.get("slug"):
         story["slug"] = _slug_for_url(story.get("source_url", "world-pulse"))
     native_lang = str(story.get("original_language") or "en").casefold()
-    display_lang = lang if story.get(f"title_{lang}") else native_lang
-    if display_lang not in {"ar", "en"}:
-        display_lang = lang
+    if native_lang not in {"ar", "en"}:
+        native_lang = "ar" if _looks_arabic(story.get("title_ar", "")) else "en"
+    requested_title = str(story.get(f"title_{lang}") or "").strip()
+    requested_summary = str(story.get(f"summary_{lang}") or "").strip()
+    requested_body = str(story.get(f"content_{lang}") or "").strip()
+    # A headline alone is not a complete translation. When translated text is partial,
+    # show the cohesive native-language article rather than mixing languages or hiding details.
+    translation_complete = bool(
+        requested_title and requested_summary and len(requested_body) >= 80
+    )
+    display_lang = lang if native_lang == lang or translation_complete else native_lang
     story["display_language"] = display_lang
+    story["translation_fallback"] = display_lang != lang
     raw_title = story.get(f"title_{display_lang}") or story.get(f"title_{lang}") or ""
     raw_summary = story.get(f"summary_{display_lang}") or story.get(f"summary_{lang}") or ""
     raw_content = story.get(f"content_{display_lang}") or story.get(f"content_{lang}") or ""
@@ -5171,13 +5198,18 @@ def _normalise_story(row: dict[str, Any], lang: str) -> dict[str, Any]:
     story["summary"] = _distinct_executive_summary(raw_title, raw_summary, story["content"], display_lang)
     story["headline_only"] = _is_headline_only_domain(str(story.get("source_domain") or ""))
     if story["headline_only"]:
-        # Keep the publisher headline native, but localise the interface notice.
+        # Restricted publishers are represented by attributed headline links only.
         story["summary"] = (
-            "يعرض نبض العالم العنوان ورابط الناشر فقط لهذا المصدر. افتح المصدر الأصلي لقراءة التفاصيل والسياق وآخر التحديثات."
+            "العنوان من الناشر الأصلي؛ افتح المصدر لمتابعة التقرير والتفاصيل."
             if lang == "ar"
-            else "Headline and source link only. Open the publisher's original page for full details, context, and updates."
+            else "Publisher headline only; open the original source for the full report."
         )
         story["content"] = ""
+    # Avoid generating an internal page that contains only a headline or a thin stub.
+    # Send such stories to the source; keep full editorial briefs on-site when available.
+    story["source_only"] = bool(
+        story["headline_only"] or len(str(story.get("content") or "").strip()) < 80
+    )
     # Use the newsroom's language-specific brand asset only when no rights-cleared
     # photograph is available. The placeholder is branding, never a documentary photo.
     story["image_fallback_url"] = (
@@ -5392,11 +5424,15 @@ def search():
 @app.get("/article/<slug>")
 def article(slug: str):
     lang = current_language()
-    # Reuse the short-lived display pool for current articles, but look up older stories
-    # directly in Supabase so their permanent URLs do not break after they leave the
-    # bounded homepage window.
-    pool = _get_display_stories(lang)
-    selected = next((story for story in pool if story.get("slug") == slug), None)
+    # Reuse the display pool if already warm, but don't build/sort the archive just to
+    # find a clicked article. An indexed slug lookup is cheaper on a cache miss.
+    pool: list[dict[str, Any]] | None = None
+    now = time.monotonic()
+    with _DISPLAY_STORIES_CACHE_LOCK:
+        cached_pool = _DISPLAY_STORIES_CACHE.get(lang)
+        if cached_pool and now - cached_pool[0] < _DISPLAY_STORIES_CACHE_TTL_SECONDS:
+            pool = [dict(row) for row in cached_pool[1]]
+    selected = next((story for story in pool or [] if story.get("slug") == slug), None)
     if selected is None:
         stored = _db_fetch_article_by_slug(slug)
         stored_language = str((stored or {}).get("original_language") or "").casefold()
@@ -5413,7 +5449,16 @@ def article(slug: str):
             selected = _normalise_story(stored, lang)
     if selected is None:
         abort(404)
-    related = [story for story in pool if story.get("slug") != slug and story.get("category") == selected.get("category")][:3]
+    if selected.get("source_only") and selected.get("source_url"):
+        return redirect(selected["source_url"], code=302)
+    if pool is None:
+        pool = _get_display_stories(lang)
+    related = [
+        story for story in pool
+        if story.get("slug") != slug
+        and story.get("category") == selected.get("category")
+        and not story.get("source_only")
+    ][:3]
     if len(related) < 3:
         related_ids = {story.get("slug") for story in related}
         related.extend([story for story in pool if story.get("slug") not in related_ids and story.get("slug") != slug][:3 - len(related)])
