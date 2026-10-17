@@ -4294,7 +4294,20 @@ def _stories_are_near_duplicates(
             pass
     if left_title == right_title:
         return True
-    if min(len(left_title), len(right_title)) < 30:
+    min_length = min(len(left_title), len(right_title))
+    if min_length < 30:
+        return False
+
+    # Avoid expensive fuzzy matching when title length or word content makes a
+    # 0.94 similarity score mathematically/unlikely attainable. This path can run
+    # thousands of times while composing a cold bilingual homepage.
+    max_length = max(len(left_title), len(right_title))
+    if abs(len(left_title) - len(right_title)) > max(4, int(max_length * 0.12)):
+        return False
+    left_tokens = set(left_title.split())
+    right_tokens = set(right_title.split())
+    token_overlap = len(left_tokens & right_tokens) / max(1, min(len(left_tokens), len(right_tokens)))
+    if token_overlap < 0.35:
         return False
     return difflib.SequenceMatcher(None, left_title, right_title).ratio() >= 0.94
 
