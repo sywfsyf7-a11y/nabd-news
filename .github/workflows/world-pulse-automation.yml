@@ -93,7 +93,7 @@ jobs:
 
           for language, filename in (("en", "/tmp/home-en.html"), ("ar", "/tmp/home-ar.html")):
               html = Path(filename).read_text(encoding="utf-8")
-              match = re.search(r'<html\\s+lang=["\\'](en|ar)["\\']', html, re.IGNORECASE)
+              match = re.search(r'<html\s+lang="(en|ar)"', html, re.IGNORECASE)
               actual = match.group(1).lower() if match else "missing"
               print(f"  homepage_{language}_document_language:", actual)
               if actual != language:
