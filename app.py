@@ -115,9 +115,10 @@ MAX_RSS_CANDIDATES = max(32, min(96, MAX_ARTICLES_PER_REFRESH * 4))
 RSS_ENTRIES_PER_FEED = max(24, min(60, int(os.getenv("RSS_ENTRIES_PER_FEED", "24"))))
 IMAGE_SEARCH_TIMEOUT_SECONDS = max(3, min(12, int(os.getenv("IMAGE_SEARCH_TIMEOUT_SECONDS", "5"))))
 IMAGE_DOWNLOAD_TIMEOUT_SECONDS = max(5, min(20, int(os.getenv("IMAGE_DOWNLOAD_TIMEOUT_SECONDS", "10"))))
-MAX_IMAGE_LOOKUPS_PER_REFRESH = max(0, min(32, int(os.getenv("MAX_IMAGE_LOOKUPS_PER_REFRESH", "1"))))
+MAX_IMAGE_LOOKUPS_PER_REFRESH = max(0, min(32, int(os.getenv("MAX_IMAGE_LOOKUPS_PER_REFRESH", "2"))))
 IMAGE_RETRY_AFTER_HOURS = max(1, min(168, int(os.getenv("IMAGE_RETRY_AFTER_HOURS", "1"))))
-IMAGE_CACHE_MAX_AGE_SECONDS = max(3600, int(os.getenv("IMAGE_CACHE_MAX_AGE_HOURS", "24")) * 3600)
+# A durable image remains cached, but its relevance/licence record is rechecked periodically.
+IMAGE_CACHE_MAX_AGE_SECONDS = max(3600, int(os.getenv("IMAGE_CACHE_MAX_AGE_HOURS", "6")) * 3600)
 TRUSTED_REUSABLE_IMAGE_SOURCES = {
     "wikimedia_relevant", "openverse_licensed", "loc_open_access", "nasa_images",
     "artic_open_access", "met_open_access", "cleveland_museum_open_access",
@@ -267,7 +268,9 @@ PRIORITY_SOURCE_DOMAINS = {
     ("gaming", "ar"): ("saudigamer.com", "true-gaming.net", "arabhardware.net"),
     ("world", "ar"): ("aljazeera.net", "almamlakatv.com", "petra.gov.jo"),
     ("politics", "ar"): ("aljazeera.net", "petra.gov.jo", "spa.gov.sa"),
-    ("world", "en"): ("aljazeera.com", "thenationalnews.com", "arabnews.com"),
+    ("world", "en"): ("aljazeera.com", "thenationalnews.com", "arabnews.com", "saudigazette.com.sa"),
+    ("politics", "en"): ("saudigazette.com.sa", "thenationalnews.com", "arabnews.com"),
+    ("economy", "en"): ("saudigazette.com.sa", "arabianbusiness.com", "thenationalnews.com"),
     ("technology", "en"): ("theverge.com", "arstechnica.com", "9to5google.com"),
     ("science", "en"): ("nasa.gov", "noaa.gov", "science.org"),
 }
@@ -380,6 +383,8 @@ HEADLINE_ONLY_DOMAINS = {
     "bbc.com", "bbc.co.uk", "aljazeera.net", "aljazeera.com",
     "reuters.com", "apnews.com", "techcrunch.com", "espn.com",
     "sciencedaily.com", "theguardian.com", "theathletic.com",
+    # This publisher offers RSS discovery metadata, not a blanket republication licence.
+    "saudigazette.com.sa",
 }
 CONTENT_LICENSE_APPROVED_DOMAINS = {
     part.strip().lower().removeprefix("www.")
@@ -490,8 +495,23 @@ def _display_category(row: dict[str, Any], lang: str) -> str:
     return current
 
 
+def _text_matches_language(value: Any, lang: str) -> bool:
+    """Reject archived text whose writing system contradicts its recorded language."""
+    if lang not in {"ar", "en"}:
+        return False
+    letters = [char for char in str(value or "") if char.isalpha()]
+    if len(letters) < 3:
+        return False
+    arabic_count = sum(1 for char in letters if "\u0600" <= char <= "\u06ff")
+    latin_count = sum(1 for char in letters if "a" <= char.casefold() <= "z")
+    arabic_ratio = arabic_count / max(1, len(letters))
+    if lang == "ar":
+        return arabic_count >= 3 and arabic_ratio >= 0.16
+    return latin_count >= 3 and arabic_ratio < 0.16
+
+
 def _row_allowed_on_language_site(row: dict[str, Any], lang: str) -> bool:
-    """Keep the archive bilingual while never leaking untranslated text into an interface."""
+    """Keep the shared archive language-safe, including legacy rows with incorrect labels."""
     if lang not in {"ar", "en"}:
         return False
     source_lang = str(row.get("original_language") or "").casefold()
@@ -502,24 +522,38 @@ def _row_allowed_on_language_site(row: dict[str, Any], lang: str) -> bool:
     host = str(row.get("source_domain") or "").casefold().removeprefix("www.")
     if not host:
         host = _infer_source_domain_from_name(category, source_lang, str(row.get("source_name") or ""))
-    if not host:
-        return False
-    if not _source_domain_for_category(category, source_lang, host):
+    if not host or not _source_domain_for_category(category, source_lang, host):
         return False
     if _domain_needs_license(host) and not _is_headline_only_domain(host):
         return False
 
-    # Keep one shared bilingual archive, but an article from the other source language
-    # may enter this interface only after a complete title/summary/body translation exists.
-    # Headline-only publishers are not rewritten or translated by the editorial model.
+    source_title = str(row.get(f"title_{source_lang}") or row.get("original_title") or "").strip()
+    display_title = str(row.get(f"title_{lang}") or "").strip()
+    display_summary = str(row.get(f"summary_{lang}") or "").strip()
+    display_body = str(row.get(f"content_{lang}") or "").strip()
+    if not _text_matches_language(source_title, source_lang):
+        return False
+    if display_title and not _text_matches_language(display_title, lang):
+        return False
+    if display_summary and not _text_matches_language(display_summary, lang):
+        return False
+    if display_body and not _text_matches_language(display_body, lang):
+        return False
+
     if source_lang != lang:
         if _is_headline_only_domain(host):
             return False
-        translated_title = str(row.get(f"title_{lang}") or "").strip()
-        translated_summary = str(row.get(f"summary_{lang}") or "").strip()
-        translated_body = str(row.get(f"content_{lang}") or "").strip()
-        if not translated_title or not translated_summary or len(translated_body) < 180:
+        if (
+            not display_title
+            or not display_summary
+            or len(display_body) < 180
+            or not _text_matches_language(display_title, lang)
+            or not _text_matches_language(display_summary, lang)
+            or not _text_matches_language(display_body, lang)
+        ):
             return False
+    elif not display_title:
+        return False
     return True
 
 
@@ -1250,7 +1284,6 @@ def _db_fetch_articles_needing_images(limit: int = 6) -> list[dict[str, Any]]:
                     )
                     OR (
                       COALESCE(image_url, '') <> ''
-                      AND image_url NOT LIKE '/media/catalogued/%%'
                       AND image_source NOT IN ('fallback_ar', 'fallback_en', 'language_fallback',
                                                'pexels_api', 'unsplash_api', 'category',
                                                'duplicate_removed', 'none')
@@ -1313,7 +1346,11 @@ def _backfill_missing_article_images(limit: int = 6) -> int:
         return 0
     pending = [_raw_from_stored_article(row) for row in rows]
     for raw, row in zip(pending, rows):
+        # Revalidate stored photos; if no relevant, rights-cleared match is found, use
+        # the labelled editorial illustration rather than a potentially misleading photo.
+        raw["_revalidating_cached_image"] = True
         raw["image_search_title"] = row.get("title_en") or row.get("title_ar") or raw.get("original_title", "")
+        raw["image_search_context"] = row.get("summary_en") or row.get("summary_ar") or raw.get("original_summary", "")
     _enrich_article_images(pending)
     _db_update_article_images(pending)
     for raw in pending:
@@ -2983,7 +3020,7 @@ def _resolve_article_image(raw: dict[str, Any]) -> dict[str, Any]:
             return generated
 
     fallback = raw.get("_fallback_cached_image")
-    if isinstance(fallback, dict):
+    if isinstance(fallback, dict) and not raw.get("_revalidating_cached_image"):
         fallback_source = str(fallback.get("image_source") or "")
         fallback_url = str(fallback.get("image_url") or "")
         if (
@@ -4954,9 +4991,21 @@ def _refresh_news_job() -> None:
                 type(image_exc).__name__,
             )
 
-        # New stories have priority in this refresh. Backfill is intentionally deferred
-        # to the next idle/no-new-story cycle so a second image batch cannot double the
-        # time before the newly published news becomes fully responsive.
+        # Recheck one older image only during the 30-minute discovery pass. This gradually
+        # repairs legacy mismatches without a second image search on every 5-minute tick.
+        if discovery_due and MAX_IMAGE_LOOKUPS_PER_REFRESH > 0:
+            try:
+                revalidated = _backfill_missing_article_images(limit=1)
+                logger.info(
+                    "Scheduled image revalidation after discovery: checked=1 reusable_images=%d",
+                    revalidated,
+                )
+            except Exception as repair_exc:
+                logger.warning(
+                    "Scheduled image revalidation skipped (%s)",
+                    type(repair_exc).__name__,
+                )
+
         _LAST_REFRESH_SUCCESS = time.monotonic()
         _LAST_REFRESH_AT = datetime.now(timezone.utc)
         _LAST_REFRESH_STATE = "success" if saved else "memory_only"
@@ -5226,7 +5275,12 @@ def _normalise_story(row: dict[str, Any], lang: str) -> dict[str, Any]:
     # Only show a translation when its title, executive summary, and substantive body
     # are all present. Otherwise preserve a coherent original-language article.
     translation_complete = bool(
-        requested_title and requested_summary and len(requested_body) >= 80
+        requested_title
+        and requested_summary
+        and len(requested_body) >= 180
+        and _text_matches_language(requested_title, lang)
+        and _text_matches_language(requested_summary, lang)
+        and _text_matches_language(requested_body, lang)
     )
     display_lang = lang if native_lang == lang or translation_complete else native_lang
     story["display_language"] = display_lang
@@ -5246,7 +5300,7 @@ def _normalise_story(row: dict[str, Any], lang: str) -> dict[str, Any]:
     if story["headline_only"]:
         story["summary"] = (
             "العنوان من الناشر الأصلي؛ افتح المصدر لمتابعة التقرير والتفاصيل."
-            if lang == "ar"
+            if display_lang == "ar"
             else "Publisher headline only; open the original source for the full report."
         )
         story["content"] = ""
