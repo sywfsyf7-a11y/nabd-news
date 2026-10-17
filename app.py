@@ -2104,7 +2104,7 @@ def _db_fetch_articles_needing_images(limit: int = 6) -> list[dict[str, Any]]:
                    AND source_url <> ''
                    AND (
                     COALESCE(image_relevance_verified, FALSE) = FALSE
-                    OR (
+                    OR 
                     (
                       (
                         COALESCE(image_url, '') = ''
@@ -2146,7 +2146,7 @@ def _sync_cached_image_metadata(articles: list[dict[str, Any]]) -> None:
         if not key:
             continue
         source = str(item.get("image_source") or "none")
-        allowed = source in TRUSTED_REUSABLE_IMAGE_SOURCES and item.get("image_relevance_verified") is True and bool(item.get("image_url"))
+        allowed = (source in TRUSTED_REUSABLE_IMAGE_SOURCES and item.get("image_relevance_verified") is True and bool(item.get("image_url")) and _image_license_verified(item))
         by_url[key] = {
             "image_url": str(item.get("image_url") or "") if allowed else "",
             "image_source": source if allowed else "none",
