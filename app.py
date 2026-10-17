@@ -5200,17 +5200,26 @@ def _normalise_story(row: dict[str, Any], lang: str) -> dict[str, Any]:
     # Avoid generating an internal page that contains only a headline or a thin stub.
     # Send such stories to the source; keep full editorial briefs on-site when available.
     story["source_only"] = bool(
-        story["headline_only"] or len(str(story.get("content") or "").strip()) < 80
+        story["headline_only"] or len(str(story.get("content") or "").strip()) < 180
     )
     # Use the newsroom's language-specific brand asset only when no rights-cleared
     # photograph is available. The placeholder is branding, never a documentary photo.
-    story["image_fallback_url"] = (
-        "/static/images/fallback-ar.svg" if lang == "ar"
-        else "/static/images/fallback-en.svg"
-    )
+    fallback_category = str(story.get("category") or "world")
+    if fallback_category not in CATEGORY_NAMES:
+        fallback_category = "world"
+    fallback_lang = story.get("display_language") if story.get("display_language") in {"ar", "en"} else lang
+    fallback_params = urlencode({
+        "lang": fallback_lang,
+        "category": fallback_category,
+        "title": story["title"] or CATEGORY_NAMES[fallback_category][fallback_lang],
+        "seed": str(story.get("slug") or story.get("source_url") or story["title"]),
+    })
+    story["image_fallback_url"] = f"/media/editorial.svg?{fallback_params}"
     if not story.get("image_url"):
+        # A varied, category-specific local SVG is safer and more polished than an A/E
+        # placeholder. Its UI label explicitly identifies it as an illustration.
         story["image_url"] = story["image_fallback_url"]
-        story["image_source"] = "fallback_ar" if lang == "ar" else "fallback_en"
+        story["image_source"] = "editorial_generated"
     story["image_license_name"] = _image_license_label(str(story.get("image_license_url") or ""), str(story.get("image_source") or ""))
     story["image_provider_name"] = _image_provider_label(str(story.get("image_source") or ""))
     story["ai_enriched"] = bool(
@@ -5441,8 +5450,12 @@ def article(slug: str):
             selected = _normalise_story(stored, lang)
     if selected is None:
         abort(404)
-    if selected.get("source_only") and selected.get("source_url"):
-        return redirect(selected["source_url"], code=302)
+    if selected.get("source_only"):
+        source_url = str(selected.get("source_url") or "").strip()
+        parsed_source = urlparse(source_url)
+        if parsed_source.scheme.casefold() in {"http", "https"} and parsed_source.hostname:
+            return redirect(source_url, code=302)
+        abort(404)
     if pool is None:
         pool = _get_display_stories(lang)
     related = [
