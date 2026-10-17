@@ -5,7 +5,7 @@ import tempfile
 import time
 from datetime import datetime, timezone, timedelta
 from urllib.parse import parse_qs, urlparse
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import app as world_pulse
 
@@ -1173,7 +1173,7 @@ class BoundedImageProviderSearchTests(unittest.TestCase):
 
 
     def test_stale_catalogued_images_are_eligible_for_periodic_revalidation(self):
-        connection = __import__("unittest").mock.MagicMock()
+        connection = MagicMock()
         cursor = connection.cursor.return_value.__enter__.return_value
         cursor.fetchall.return_value = []
         with patch.object(world_pulse, "_ensure_schema", return_value=True):
@@ -1182,7 +1182,8 @@ class BoundedImageProviderSearchTests(unittest.TestCase):
                     self.assertEqual(world_pulse._db_fetch_articles_needing_images(limit=1), [])
         sql = cursor.execute.call_args.args[0]
         self.assertNotIn("image_url NOT LIKE '/media/catalogued/", sql)
-        self.assertIn("IMAGE_CACHE_MAX_AGE_SECONDS", world_pulse.__dict__)
+        self.assertIn("image_checked_at < NOW() - (%s * INTERVAL '1 second')", sql)
+        self.assertGreaterEqual(world_pulse.IMAGE_CACHE_MAX_AGE_SECONDS, 6 * 3600)
 
     def test_periodic_image_revalidation_does_not_keep_a_stale_photo_when_no_match_exists(self):
         old_image = {
