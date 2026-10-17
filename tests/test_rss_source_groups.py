@@ -100,7 +100,7 @@ class RSSPublisherGroupTests(unittest.TestCase):
         science_en_groups = [group for c, l, group in calls if (c, l) == ("science", "en")]
         direct_feeds = [group for group in science_en_groups if group[0] == world_pulse.DIRECT_RSS_SENTINEL]
         self.assertEqual(len(direct_feeds), 3)
-        self.assertEqual({group[1] for group in direct_feeds}, {"nasa.gov", "noaa.gov"})
+        self.assertEqual({group[1] for group in direct_feeds}, {"nasa.gov", "noaa.gov", "jpl.nasa.gov"})
         for category, lang, priority_domains in (
             ("gaming", "ar", ("saudigamer.com", "true-gaming.net", "arabhardware.net")),
             ("world", "ar", ("aljazeera.net", "almamlakatv.com", "petra.gov.jo")),
