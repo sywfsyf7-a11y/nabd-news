@@ -1608,7 +1608,7 @@ def _looks_like_feed_section_title(value: Any, publisher: Any = "") -> bool:
         return True
     # Arabic publisher landing pages frequently use a longer SEO label than "آخر الأخبار".
     if re.fullmatch(
-        r"(?:آخر|اخر|أحدث|احدث)\s+الأخبار(?:\s+(?:العربية|الدولية|العالمية|والعالمية|والسياسية|والاقتصادية|والرياضية|والتقنية|والثقافية)){1,5}",
+        r"(?:آخر|اخر|أحدث|احدث)\s+الأخبار(?:\s+(?:العربية|الدولية|والدولية|العالمية|والعالمية|والسياسية|والاقتصادية|والرياضية|والتقنية|والثقافية)){1,5}",
         normalized,
     ):
         return True
@@ -1639,7 +1639,7 @@ def _looks_like_feed_section_title(value: Any, publisher: Any = "") -> bool:
     ).strip()
     arabic_landing_normalized = re.sub(r"\s+", " ", arabic_landing_normalized)
     if re.fullmatch(
-        r"(?:آخر|اخر|أحدث|احدث)\s+الأخبار(?:\s+(?:العربية|الدولية|العالمية|والعالمية|والسياسية|والاقتصادية|والرياضية|والتقنية|والثقافية)){1,5}",
+        r"(?:آخر|اخر|أحدث|احدث)\s+الأخبار(?:\s+(?:العربية|الدولية|والدولية|العالمية|والعالمية|والسياسية|والاقتصادية|والرياضية|والتقنية|والثقافية)){1,5}",
         arabic_landing_normalized,
     ):
         return True
