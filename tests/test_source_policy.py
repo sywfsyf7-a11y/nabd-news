@@ -14,7 +14,7 @@ class SourcePolicyTests(unittest.TestCase):
             "",
         )
 
-    def test_each_interface_only_shows_stories_from_its_native_source_language(self):
+    def test_combined_feed_includes_both_native_languages_and_keeps_publisher_policy(self):
         arabic_story = {
             "category": "technology",
             "original_language": "ar",
@@ -27,19 +27,27 @@ class SourcePolicyTests(unittest.TestCase):
             "content_ar": "تفاصيل موثقة للخبر باللغة العربية تتضمن سياقاً إضافياً من المقتطف المتاح دون إضافة معلومات غير مؤكدة.",
             "content_en": "",
         }
+        # Both interfaces show both native source languages in the same category feed.
         self.assertTrue(world_pulse._row_allowed_on_language_site(arabic_story, "ar"))
-        self.assertFalse(world_pulse._row_allowed_on_language_site(arabic_story, "en"))
+        self.assertTrue(world_pulse._row_allowed_on_language_site(arabic_story, "en"))
+        arabic_fallback = world_pulse._normalise_story(dict(arabic_story), "en")
+        self.assertEqual(arabic_fallback["display_language"], "ar")
+        self.assertTrue(arabic_fallback["translation_fallback"])
 
         arabic_story_translated = dict(
             arabic_story,
             title_en="New technology update",
             summary_en="The company reported a specific update to its technology product.",
-            content_en=("The source says the company reported a concrete technology update. "
-                         "The available report gives the basic development and its stated context, "
-                         "without adding unverified dates, figures, claims, or other unsupported background."),
-
+            content_en=(
+                "The source says the company reported a concrete technology update. "
+                "The available report gives the basic development and its stated context, "
+                "without adding unverified dates, figures, claims, or other unsupported background."
+            ),
         )
-        self.assertFalse(world_pulse._row_allowed_on_language_site(arabic_story_translated, "en"))
+        self.assertTrue(world_pulse._row_allowed_on_language_site(arabic_story_translated, "en"))
+        translated = world_pulse._normalise_story(arabic_story_translated, "en")
+        self.assertEqual(translated["display_language"], "en")
+        self.assertFalse(translated["translation_fallback"])
 
         english_story = {
             "category": "technology",
@@ -48,35 +56,49 @@ class SourcePolicyTests(unittest.TestCase):
             "source_name": "The Verge",
             "title_en": "New technology update",
             "summary_en": "The company reported a specific update to its technology product.",
-            "content_en": ("The source says the company reported a concrete technology update. "
-                           "The available report gives the basic development and its stated context, "
-                           "without adding unverified dates, figures, or claims."),
+            "content_en": (
+                "The source says the company reported a concrete technology update. "
+                "The available report gives the basic development and its stated context, "
+                "without adding unverified dates, figures, or claims."
+            ),
             "title_ar": "",
             "summary_ar": "",
             "content_ar": "",
         }
         self.assertTrue(world_pulse._row_allowed_on_language_site(english_story, "en"))
-        self.assertFalse(world_pulse._row_allowed_on_language_site(english_story, "ar"))
+        self.assertTrue(world_pulse._row_allowed_on_language_site(english_story, "ar"))
+        english_fallback = world_pulse._normalise_story(dict(english_story), "ar")
+        self.assertEqual(english_fallback["display_language"], "en")
+        self.assertTrue(english_fallback["translation_fallback"])
 
         english_story_translated = dict(
             english_story,
             title_ar="تحديث تقني جديد",
             summary_ar="أعلنت الشركة عن تحديث محدد لمنتجها التقني.",
-            content_ar=("يفيد المصدر بأن الشركة أعلنت عن تحديث تقني ملموس. وتوضح المادة المتاحة "
-                        "التطور الأساسي والسياق المذكور، من دون إضافة تواريخ أو أرقام أو ادعاءات غير مؤكدة. "
-                        "كما يقتصر هذا العرض على ما ورد في المادة ولا يضيف خلفيات أو تفاصيل غير مسندة للمصدر."),
+            content_ar=(
+                "يفيد المصدر بأن الشركة أعلنت عن تحديث تقني ملموس. وتوضح المادة المتاحة "
+                "التطور الأساسي والسياق المذكور، من دون إضافة تواريخ أو أرقام أو ادعاءات غير مؤكدة. "
+                "كما يقتصر هذا العرض على ما ورد في المادة ولا يضيف خلفيات أو تفاصيل غير مسندة للمصدر."
+            ),
         )
-        self.assertFalse(world_pulse._row_allowed_on_language_site(english_story_translated, "ar"))
+        self.assertTrue(world_pulse._row_allowed_on_language_site(english_story_translated, "ar"))
+        arabic_translation = world_pulse._normalise_story(english_story_translated, "ar")
+        self.assertEqual(arabic_translation["display_language"], "ar")
+        self.assertFalse(arabic_translation["translation_fallback"])
 
-        # Headline-only publishers cannot be rewritten/translated by the editorial model,
-        # even if an old row happens to contain language fields.
+        # Headline-only publishers remain native-language headline/link entries even if a
+        # legacy row contains translation fields. They are not expanded from protected text.
         headline_only = dict(
             english_story_translated,
             category="world",
             source_domain="aljazeera.com",
             title_en="International report",
         )
-        self.assertFalse(world_pulse._row_allowed_on_language_site(headline_only, "ar"))
+        self.assertTrue(world_pulse._row_allowed_on_language_site(headline_only, "ar"))
+        headline_display = world_pulse._normalise_story(headline_only, "ar")
+        self.assertEqual(headline_display["display_language"], "en")
+        self.assertTrue(headline_display["headline_only"])
+        self.assertEqual(headline_display["content"], "")
 
         unapproved = dict(arabic_story, source_domain="unknown.example")
         self.assertFalse(world_pulse._row_allowed_on_language_site(unapproved, "ar"))
