@@ -1171,5 +1171,48 @@ class BoundedImageProviderSearchTests(unittest.TestCase):
         self.assertNotIn("Last updated", template)
         self.assertNotIn("تحديث تلقائي كل", template)
 
+
+    def test_stale_catalogued_images_are_eligible_for_periodic_revalidation(self):
+        connection = __import__("unittest").mock.MagicMock()
+        cursor = connection.cursor.return_value.__enter__.return_value
+        cursor.fetchall.return_value = []
+        with patch.object(world_pulse, "_ensure_schema", return_value=True):
+            with patch.object(world_pulse, "_connect_db", return_value=connection):
+                with patch.object(world_pulse, "_release_db_connection"):
+                    self.assertEqual(world_pulse._db_fetch_articles_needing_images(limit=1), [])
+        sql = cursor.execute.call_args.args[0]
+        self.assertNotIn("image_url NOT LIKE '/media/catalogued/", sql)
+        self.assertIn("IMAGE_CACHE_MAX_AGE_SECONDS", world_pulse.__dict__)
+
+    def test_periodic_image_revalidation_does_not_keep_a_stale_photo_when_no_match_exists(self):
+        old_image = {
+            "image_url": "/media/catalogued/" + ("a" * 40),
+            "image_source": "wikimedia_relevant",
+            "image_credit": "Old creator",
+            "image_credit_url": "https://commons.wikimedia.org/wiki/Old_file",
+            "image_provider_url": "https://commons.wikimedia.org/wiki/Old_file",
+            "image_license_url": "https://creativecommons.org/licenses/by/4.0/",
+            "image_checked_at": datetime.now(timezone.utc) - timedelta(days=2),
+        }
+        raw = {
+            "slug": "old-story",
+            "source_url": "https://example.com/old-story",
+            "category": "world",
+            "source_name": "Example News",
+            "source_domain": "example.com",
+            "original_title": "A distinct verified headline about a new development",
+            "original_summary": "A short factual excerpt from the original publisher.",
+            "original_language": "en",
+            "image_url": "",
+            "image_source": "none",
+            "_fallback_cached_image": old_image,
+            "_revalidating_cached_image": True,
+        }
+        with patch.object(world_pulse, "_search_article_image_with_variants", return_value={}):
+            result = world_pulse._resolve_article_image(raw)
+
+        self.assertEqual(result["image_url"], "")
+        self.assertEqual(result["image_source"], "none")
+
 if __name__ == "__main__":
     unittest.main()
