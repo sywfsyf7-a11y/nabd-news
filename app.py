@@ -5212,14 +5212,14 @@ def _repair_legacy_source_links(limit: int = SOURCE_LINK_REPAIR_BATCH_SIZE) -> i
     if conn is None:
         return 0
     try:
-        with conn.cursor() as cur:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute(
                 "SELECT state_value FROM world_pulse_runtime_state WHERE state_key = %s",
                 (SOURCE_LINK_REPAIR_STATE_KEY,),
             )
             state_row = cur.fetchone()
             try:
-                cursor_id = max(0, int(state_row[0])) if state_row and state_row[0] else 0
+                cursor_id = max(0, int(state_row.get("state_value"))) if state_row and state_row.get("state_value") else 0
             except (TypeError, ValueError):
                 cursor_id = 0
             cur.execute(
