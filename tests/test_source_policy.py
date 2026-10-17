@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 import app as world_pulse
 
@@ -111,6 +112,85 @@ class SourcePolicyTests(unittest.TestCase):
         unapproved = dict(arabic_story, source_domain="unknown.example")
         self.assertFalse(world_pulse._row_allowed_on_language_site(unapproved, "ar"))
         self.assertFalse(world_pulse._row_allowed_on_language_site(unapproved, "en"))
+
+
+    def test_combined_display_pool_never_shows_wrong_language_without_complete_translation(self):
+        arabic_body = (
+            "يوضح المصدر التطور الأساسي والسياق المتاح بشأن الموضوع. وتعرض هذه المادة المعلومات "
+            "المؤكدة من الناشر فقط، ولا تضيف أرقاماً أو تواريخ أو تصريحات أو خلفيات غير موثقة. "
+            "وإذا لم تتوفر تفاصيل إضافية موثوقة، يبقى الملخص مقتصراً على ما أمكن التحقق منه."
+        )
+        english_body = (
+            "The source describes the core development and the available context. This brief keeps "
+            "to information supported by the publisher and adds no unverified figures, dates, quotes, "
+            "or background. Where additional reliable details are unavailable, the summary stays "
+            "limited to what can be verified from the supplied source material."
+        )
+        rows = [
+            {
+                "slug": "ar-translated", "source_url": "https://aitnews.com/story-a",
+                "source_name": "AIT News", "source_domain": "aitnews.com",
+                "category": "technology", "original_language": "ar",
+                "title_ar": "تحديث تقني أعلنت عنه الشركة اليوم",
+                "summary_ar": "يوضح المصدر أبرز تفاصيل التحديث التقني الجديد.",
+                "content_ar": arabic_body,
+                "title_en": "Company announces a new technology update",
+                "summary_en": "The report describes the main details of the new technology update.",
+                "content_en": english_body,
+            },
+            {
+                "slug": "ar-only", "source_url": "https://saudigamer.com/story-b",
+                "source_name": "Saudi Gamer", "source_domain": "saudigamer.com",
+                "category": "gaming", "original_language": "ar",
+                "title_ar": "تفاصيل لعبة جديدة من سعودي جيمر",
+                "summary_ar": "يتناول الخبر إعلاناً جديداً في عالم الألعاب.",
+                "content_ar": arabic_body,
+                "title_en": "", "summary_en": "", "content_en": "",
+            },
+            {
+                "slug": "en-translated", "source_url": "https://www.theverge.com/story-c",
+                "source_name": "The Verge", "source_domain": "theverge.com",
+                "category": "technology", "original_language": "en",
+                "title_en": "Company announces a new technology update",
+                "summary_en": "The report describes the main details of the new technology update.",
+                "content_en": english_body,
+                "title_ar": "تحديث تقني أعلنت عنه الشركة اليوم",
+                "summary_ar": "يوضح المصدر أبرز تفاصيل التحديث التقني الجديد.",
+                "content_ar": arabic_body,
+            },
+            {
+                "slug": "en-only", "source_url": "https://www.ign.com/story-d",
+                "source_name": "IGN", "source_domain": "ign.com",
+                "category": "gaming", "original_language": "en",
+                "title_en": "A new game update is announced",
+                "summary_en": "The publisher shared details of an upcoming game update.",
+                "content_en": english_body,
+                "title_ar": "", "summary_ar": "", "content_ar": "",
+            },
+            {
+                "slug": "bbc-headline", "source_url": "https://www.bbc.com/news/story-e",
+                "source_name": "BBC News", "source_domain": "bbc.com",
+                "category": "world", "original_language": "en",
+                "title_en": "International report from the BBC",
+                "summary_en": "Publisher headline and source link only.",
+                "content_en": "",
+                "title_ar": "تقرير دولي من بي بي سي",
+                "summary_ar": "عنوان ورابط المصدر فقط.",
+                "content_ar": "",
+            },
+        ]
+
+        with patch.object(world_pulse, "_all_live_articles", return_value=rows):
+            with patch.object(world_pulse, "_display_category", side_effect=lambda row, lang: row["category"]):
+                arabic = world_pulse._build_display_stories("ar")
+                english = world_pulse._build_display_stories("en")
+
+        arabic_slugs = {story["slug"] for story in arabic}
+        english_slugs = {story["slug"] for story in english}
+        self.assertEqual(arabic_slugs, {"ar-translated", "ar-only", "en-translated"})
+        self.assertEqual(english_slugs, {"ar-translated", "en-translated", "en-only", "bbc-headline"})
+        self.assertTrue(all(world_pulse._text_matches_language(story["title"], "ar") for story in arabic))
+        self.assertTrue(all(world_pulse._text_matches_language(story["title"], "en") for story in english))
 
 
     def test_requested_editorial_priorities_are_allowlisted_by_section_and_language(self):
