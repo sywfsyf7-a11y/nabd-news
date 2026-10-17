@@ -1456,7 +1456,16 @@ def _remove_article_from_archive_cache(slug: str) -> None:
         elif shared is not None:
             source_rows = shared[0]
         else:
-            source_rows = []
+            # A moderation action can be the first request handled by a fresh worker.
+            # Do not publish an empty "fresh" snapshot unless an archive snapshot actually
+            # existed; the next public request must be allowed to load Supabase normally.
+            with _DISPLAY_STORIES_CACHE_LOCK:
+                _DISPLAY_STORIES_CACHE.clear()
+            with _MEMORY_ARTICLES_LOCK:
+                for key in list(_MEMORY_ARTICLES):
+                    if str(_MEMORY_ARTICLES[key].get("slug") or "") == slug:
+                        _MEMORY_ARTICLES.pop(key, None)
+            return
         visible_rows = [dict(row) for row in source_rows if str(row.get("slug") or "") != slug]
         # Keep a fresh shared snapshot instead of deleting it: sibling workers must not
         # fall back to their stale local copy and accidentally show the hidden story again.
