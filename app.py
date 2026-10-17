@@ -1497,7 +1497,6 @@ def _db_fetch_all() -> list[dict[str, Any]]:
                               OR (COALESCE(source_domain, '') = '' AND LOWER(source_name) LIKE ANY(%s))
                           )
                         ORDER BY COALESCE(published_at, fetched_at) DESC, fetched_at DESC
-                        LIMIT 120
                     )
                     UNION ALL
                     (
@@ -1517,7 +1516,6 @@ def _db_fetch_all() -> list[dict[str, Any]]:
                               OR (COALESCE(source_domain, '') = '' AND LOWER(source_name) LIKE ANY(%s))
                           )
                         ORDER BY COALESCE(published_at, fetched_at) DESC, fetched_at DESC
-                        LIMIT 120
                     )
                 ) AS recent_articles
                 ORDER BY COALESCE(published_at, fetched_at) DESC, fetched_at DESC
