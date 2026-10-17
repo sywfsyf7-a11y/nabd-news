@@ -174,12 +174,6 @@ UI_TEXT = {
         "published": "نُشر",
         "open_source": "متابعة الخبر لدى المصدر",
         "theme_toggle": "تغيير المظهر",
-        "refresh_news": "تحديث الأخبار",
-        "refreshing": "جارٍ التحديث…",
-        "auto_refresh": "تحديث تلقائي كل {minutes} دقيقة",
-        "last_updated": "آخر تحديث",
-        "refresh_cooldown": "تم طلب تحديث مؤخراً؛ انتظر قليلاً ثم حاول مجدداً.",
-        "refresh_error": "تعذّر إكمال التحديث.",
         "article_details": "تفاصيل الخبر",
         "photo_credit": "الصورة",
         "photo_license": "الترخيص",
@@ -211,12 +205,6 @@ UI_TEXT = {
         "published": "Published",
         "open_source": "Continue at the original source",
         "theme_toggle": "Toggle theme",
-        "refresh_news": "Refresh news",
-        "refreshing": "Refreshing…",
-        "auto_refresh": "News refresh automatically every {minutes} minutes",
-        "last_updated": "Last updated",
-        "refresh_cooldown": "A refresh was requested recently. Please wait a moment.",
-        "refresh_error": "The refresh could not be completed.",
         "article_details": "Story details",
         "photo_credit": "Photo",
         "photo_license": "License",
@@ -602,6 +590,21 @@ CREATE INDEX IF NOT EXISTS idx_world_pulse_published
     ON world_pulse_articles (published_at DESC NULLS LAST);
 CREATE INDEX IF NOT EXISTS idx_world_pulse_category
     ON world_pulse_articles (category);
+-- Partial indexes match the homepage eligibility predicates and make the newest
+-- Arabic and English archive slices cheaper as the permanent table grows.
+CREATE INDEX IF NOT EXISTS idx_world_pulse_ar_live_date
+    ON world_pulse_articles ((COALESCE(published_at, fetched_at)) DESC, fetched_at DESC)
+    WHERE is_demo = FALSE AND original_language = 'ar'
+      AND LENGTH(TRIM(COALESCE(title_ar, ''))) > 0
+      AND LENGTH(TRIM(COALESCE(summary_ar, ''))) > 0;
+CREATE INDEX IF NOT EXISTS idx_world_pulse_en_live_date
+    ON world_pulse_articles ((COALESCE(published_at, fetched_at)) DESC, fetched_at DESC)
+    WHERE is_demo = FALSE AND original_language = 'en'
+      AND LENGTH(TRIM(COALESCE(title_en, ''))) > 0
+      AND LENGTH(TRIM(COALESCE(summary_en, ''))) > 0;
+CREATE INDEX IF NOT EXISTS idx_world_pulse_category_live_date
+    ON world_pulse_articles (category, (COALESCE(published_at, fetched_at)) DESC, fetched_at DESC)
+    WHERE is_demo = FALSE;
 CREATE TABLE IF NOT EXISTS world_pulse_controls (
     control_key TEXT PRIMARY KEY,
     enabled BOOLEAN NOT NULL DEFAULT TRUE,
@@ -1057,28 +1060,37 @@ def _db_fetch_all() -> list[dict[str, Any]]:
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute("""
-                WITH eligible AS (
-                    SELECT slug, source_url, category, source_name, source_domain, image_url,
-                           image_source, image_credit, image_credit_url, image_provider_url, image_license_url, image_checked_at,
-                           title_ar, title_en, summary_ar, summary_en,
-                           content_ar, content_en, published_at, fetched_at,
-                           read_minutes, original_language, is_demo,
-                           ROW_NUMBER() OVER (
-                               PARTITION BY original_language
-                               ORDER BY COALESCE(published_at, fetched_at) DESC, fetched_at DESC
-                           ) AS language_rank
-                    FROM world_pulse_articles
-                    WHERE is_demo = FALSE
-                      AND ((original_language = 'ar' AND LENGTH(TRIM(COALESCE(title_ar, ''))) > 0 AND LENGTH(TRIM(COALESCE(summary_ar, ''))) > 0)
-                           OR (original_language = 'en' AND LENGTH(TRIM(COALESCE(title_en, ''))) > 0 AND LENGTH(TRIM(COALESCE(summary_en, ''))) > 0))
-                )
-                SELECT slug, source_url, category, source_name, source_domain, image_url,
-                       image_source, image_credit, image_credit_url, image_provider_url, image_license_url, image_checked_at,
-                       title_ar, title_en, summary_ar, summary_en,
-                       content_ar, content_en, published_at, fetched_at,
-                       read_minutes, original_language, is_demo
-                FROM eligible
-                WHERE language_rank <= 120
+                SELECT * FROM (
+                    (
+                        SELECT slug, source_url, category, source_name, source_domain, image_url,
+                               image_source, image_credit, image_credit_url, image_provider_url, image_license_url, image_checked_at,
+                               title_ar, title_en, summary_ar, summary_en,
+                               content_ar, content_en, published_at, fetched_at,
+                               read_minutes, original_language, is_demo
+                        FROM world_pulse_articles
+                        WHERE is_demo = FALSE
+                          AND original_language = 'ar'
+                          AND LENGTH(TRIM(COALESCE(title_ar, ''))) > 0
+                          AND LENGTH(TRIM(COALESCE(summary_ar, ''))) > 0
+                        ORDER BY COALESCE(published_at, fetched_at) DESC, fetched_at DESC
+                        LIMIT 120
+                    )
+                    UNION ALL
+                    (
+                        SELECT slug, source_url, category, source_name, source_domain, image_url,
+                               image_source, image_credit, image_credit_url, image_provider_url, image_license_url, image_checked_at,
+                               title_ar, title_en, summary_ar, summary_en,
+                               content_ar, content_en, published_at, fetched_at,
+                               read_minutes, original_language, is_demo
+                        FROM world_pulse_articles
+                        WHERE is_demo = FALSE
+                          AND original_language = 'en'
+                          AND LENGTH(TRIM(COALESCE(title_en, ''))) > 0
+                          AND LENGTH(TRIM(COALESCE(summary_en, ''))) > 0
+                        ORDER BY COALESCE(published_at, fetched_at) DESC, fetched_at DESC
+                        LIMIT 120
+                    )
+                ) AS recent_articles
                 ORDER BY COALESCE(published_at, fetched_at) DESC, fetched_at DESC
             """)
             rows = [dict(row) for row in cur.fetchall()]
