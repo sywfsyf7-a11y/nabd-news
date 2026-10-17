@@ -7456,6 +7456,244 @@ def _admin_image_rows() -> list[dict[str, Any]]:
         )
     return results
 
+ADMIN_ARTICLE_PAGE_SIZE = 20
+
+
+def _admin_fetch_article_by_slug(slug: str) -> dict[str, Any] | None:
+    """Fetch one complete archive row for the authenticated administration tools."""
+    slug = _clean_text(slug, 220)
+    if not slug or not _ensure_schema():
+        return None
+    conn = _connect_db()
+    if conn is None:
+        return None
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""
+                SELECT slug, source_url, category, source_name, source_domain, image_url,
+                       image_source, image_credit, image_credit_url, image_provider_url,
+                       image_license_url, image_checked_at, title_ar, title_en, summary_ar,
+                       summary_en, content_ar, content_en, published_at, fetched_at,
+                       read_minutes, original_language, is_demo, is_hidden
+                FROM world_pulse_articles
+                WHERE slug = %s AND is_demo = FALSE
+                LIMIT 1
+            """, (slug,))
+            row = cur.fetchone()
+            return dict(row) if row else None
+    except Exception as exc:
+        logger.warning("Admin article lookup failed (%s)", type(exc).__name__)
+        return None
+    finally:
+        _release_db_connection(conn)
+
+
+def _admin_list_articles(
+    query: str = "",
+    category: str = "all",
+    show_hidden: bool = False,
+    page: int = 1,
+    page_size: int = ADMIN_ARTICLE_PAGE_SIZE,
+) -> tuple[list[dict[str, Any]], int, str]:
+    """Return a small database-backed admin page; never load the full archive into memory."""
+    if not _ensure_schema():
+        return [], 0, "database_unavailable"
+    conn = _connect_db()
+    if conn is None:
+        return [], 0, "database_unavailable"
+    clauses = ["is_demo = FALSE"]
+    params: list[Any] = []
+    if not show_hidden:
+        clauses.append("is_hidden = FALSE")
+    if category in CATEGORY_NAMES:
+        clauses.append("category = %s")
+        params.append(category)
+    needle = _clean_text(query, 120)
+    if needle:
+        # Search is parameterized and the page size is bounded; no dynamic SQL identifiers
+        # come from user input.
+        pattern = "%" + needle.replace("%", "\\%").replace("_", "\\_") + "%"
+        clauses.append("""(
+            slug ILIKE %s OR source_url ILIKE %s OR source_name ILIKE %s
+            OR title_ar ILIKE %s OR title_en ILIKE %s
+        )""")
+        params.extend([pattern] * 5)
+    where_sql = " AND ".join(clauses)
+    limit = max(1, min(ADMIN_ARTICLE_PAGE_SIZE, int(page_size)))
+    offset = (max(1, int(page)) - 1) * limit
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(
+                "SELECT COUNT(*) AS total FROM world_pulse_articles WHERE " + where_sql,
+                params,
+            )
+            total_row = cur.fetchone()
+            total = int((total_row or {}).get("total") or 0)
+            cur.execute("""
+                SELECT slug, source_url, category, source_name, source_domain, image_url,
+                       image_source, image_credit, image_credit_url, image_provider_url,
+                       image_license_url, image_checked_at, title_ar, title_en, summary_ar,
+                       summary_en, content_ar, content_en, published_at, fetched_at,
+                       read_minutes, original_language, is_demo, is_hidden
+                FROM world_pulse_articles
+                WHERE """ + where_sql + """
+                ORDER BY COALESCE(published_at, fetched_at) DESC, fetched_at DESC
+                LIMIT %s OFFSET %s
+            """, [*params, limit, offset])
+            rows = [dict(row) for row in cur.fetchall()]
+        for row in rows:
+            row["headline_only"] = _is_headline_only_domain(str(row.get("source_domain") or ""))
+        return rows, total, ""
+    except Exception as exc:
+        logger.warning("Admin article list failed (%s)", type(exc).__name__)
+        return [], 0, "database_query_failed"
+    finally:
+        _release_db_connection(conn)
+
+
+def _admin_save_article(slug: str, values: dict[str, Any]) -> bool:
+    """Save editorial fields without changing the immutable source URL or article slug."""
+    if not _ensure_schema():
+        return False
+    conn = _connect_db()
+    if conn is None:
+        return False
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE world_pulse_articles
+                SET category = %s, title_ar = %s, title_en = %s,
+                    summary_ar = %s, summary_en = %s, content_ar = %s, content_en = %s,
+                    read_minutes = %s
+                WHERE slug = %s AND is_demo = FALSE
+            """, (
+                values["category"], values["title_ar"], values["title_en"],
+                values["summary_ar"], values["summary_en"], values["content_ar"],
+                values["content_en"], max(1, min(99, int(values.get("read_minutes", 1)))),
+                slug,
+            ))
+            changed = cur.rowcount > 0
+        conn.commit()
+        if changed:
+            _invalidate_db_articles_cache()
+        return changed
+    except Exception as exc:
+        conn.rollback()
+        logger.warning("Admin article save failed (%s)", type(exc).__name__)
+        return False
+    finally:
+        _release_db_connection(conn)
+
+
+def _admin_set_article_hidden(slug: str, hidden: bool) -> bool:
+    """Hide an article from public queries without deleting its permanent archive row."""
+    if not _ensure_schema():
+        return False
+    conn = _connect_db()
+    if conn is None:
+        return False
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE world_pulse_articles
+                SET is_hidden = %s
+                WHERE slug = %s AND is_demo = FALSE
+            """, (bool(hidden), slug))
+            changed = cur.rowcount > 0
+        conn.commit()
+        if changed:
+            _invalidate_db_articles_cache()
+        return changed
+    except Exception as exc:
+        conn.rollback()
+        logger.warning("Admin archive moderation failed (%s)", type(exc).__name__)
+        return False
+    finally:
+        _release_db_connection(conn)
+
+
+def _admin_create_article(values: dict[str, Any]) -> str:
+    """Insert a manually reviewed bilingual story; reject duplicates instead of overwriting."""
+    if not _ensure_schema():
+        return "database_unavailable"
+    conn = _connect_db()
+    if conn is None:
+        return "database_unavailable"
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1 FROM world_pulse_articles WHERE source_url = %s LIMIT 1", (values["source_url"],))
+            if cur.fetchone():
+                return "duplicate_source"
+            cur.execute("""
+                INSERT INTO world_pulse_articles (
+                    slug, source_url, category, source_name, source_domain, image_url,
+                    image_source, image_credit, image_credit_url, image_provider_url,
+                    image_license_url, image_checked_at, title_ar, title_en, summary_ar,
+                    summary_en, content_ar, content_en, published_at, fetched_at,
+                    read_minutes, original_language, is_demo, is_hidden
+                ) VALUES (
+                    %s, %s, %s, %s, %s, '', 'none', '', '', '', '', NULL,
+                    %s, %s, %s, %s, %s, %s, NOW(), NOW(), %s, %s, FALSE, FALSE
+                )
+            """, (
+                values["slug"], values["source_url"], values["category"],
+                values["source_name"], values["source_domain"], values["title_ar"],
+                values["title_en"], values["summary_ar"], values["summary_en"],
+                values["content_ar"], values["content_en"], values["read_minutes"],
+                values["original_language"],
+            ))
+        conn.commit()
+        _invalidate_db_articles_cache()
+        return "created"
+    except Exception as exc:
+        conn.rollback()
+        logger.warning("Admin article creation failed (%s)", type(exc).__name__)
+        return "database_write_failed"
+    finally:
+        _release_db_connection(conn)
+
+
+def _admin_read_archive_audit_report() -> dict[str, Any]:
+    """Read the last read-only audit result stored in Supabase."""
+    empty = {"status": "unavailable", "updated_at": None, "report": None, "error": ""}
+    if not _ensure_schema():
+        return empty
+    conn = _connect_db()
+    if conn is None:
+        return empty
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT state_value, updated_at
+                FROM world_pulse_runtime_state
+                WHERE state_key = %s
+            """, ("content_quality_audit_v2",))
+            row = cur.fetchone()
+        if not row:
+            return {**empty, "status": "not_run"}
+        value, updated_at = str(row[0] or ""), row[1]
+        result: dict[str, Any] = {
+            "status": "not_run", "updated_at": updated_at, "report": None, "error": ""
+        }
+        if value == "running":
+            result["status"] = "running"
+        elif value.startswith("done:"):
+            try:
+                result["report"] = json.loads(value[5:])
+                result["status"] = "complete"
+            except (TypeError, ValueError):
+                result["status"] = "invalid_report"
+        elif value.startswith("failed:"):
+            result["status"] = "failed"
+            result["error"] = value[7:80]
+        return result
+    except Exception as exc:
+        logger.warning("Admin audit report read failed (%s)", type(exc).__name__)
+        return {**empty, "error": type(exc).__name__}
+    finally:
+        _release_db_connection(conn)
+
+
 def _remove_article_image(slug: str) -> bool:
     changed = False
     for row in _MEMORY_ARTICLES.values():
