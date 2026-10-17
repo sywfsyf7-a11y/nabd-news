@@ -91,6 +91,8 @@ MAX_QUEUE_ADDITIONS_PER_DISCOVERY = max(1, min(12, int(os.getenv("MAX_QUEUE_ADDI
 NEWS_AUTO_FETCH = os.getenv("NEWS_AUTO_FETCH", "true").lower() not in {"0", "false", "no"}
 NEWS_SCHEDULER_ENABLED = os.getenv("NEWS_SCHEDULER_ENABLED", "true").lower() not in {"0", "false", "no"}
 NEWS_SCHEDULER_POLL_SECONDS = max(15, min(120, int(os.getenv("NEWS_SCHEDULER_POLL_SECONDS", "30"))))
+NEWS_STARTUP_REFRESH_DELAY_SECONDS = max(0, min(180, int(os.getenv("NEWS_STARTUP_REFRESH_DELAY_SECONDS", "30"))))
+_PROCESS_STARTED_MONOTONIC = time.monotonic()
 RSS_TIMEOUT_SECONDS = max(2, int(os.getenv("RSS_TIMEOUT_SECONDS", "6")))
 RSS_BATCH_TIMEOUT_SECONDS = max(8, min(60, int(os.getenv("RSS_BATCH_TIMEOUT_SECONDS", "35"))))
 IMAGE_ENRICHMENT_BATCH_TIMEOUT_SECONDS = max(5, min(120, int(os.getenv("IMAGE_ENRICHMENT_BATCH_TIMEOUT_SECONDS", "65"))))
@@ -1410,10 +1412,20 @@ def _known_source_controls() -> list[dict[str, Any]]:
 
 def _invalidate_db_articles_cache() -> None:
     global _DB_ARTICLES_CACHE_AT
-    # Keep the last successful database snapshot as a fallback during a temporary
-    # Supabase/pooler outage. Setting its timestamp to zero forces a fresh read.
+    # Keep the last successful in-process snapshot as a fallback during a temporary
+    # Supabase/pooler outage. Remove the shared snapshot only for a real full invalidation.
     with _DB_ARTICLES_CACHE_LOCK:
         _DB_ARTICLES_CACHE_AT = 0.0
+    cache_handle = _archive_file_lock()
+    try:
+        try:
+            os.unlink(_ARCHIVE_SHARED_CACHE_PATH)
+        except FileNotFoundError:
+            pass
+        except OSError as exc:
+            logger.debug("Could not invalidate shared archive cache (%s)", type(exc).__name__)
+    finally:
+        _archive_unlock(cache_handle)
     with _DISPLAY_STORIES_CACHE_LOCK:
         _DISPLAY_STORIES_CACHE.clear()
 
@@ -1978,6 +1990,77 @@ def _db_fetch_articles_needing_images(limit: int = 6) -> list[dict[str, Any]]:
     finally:
         _release_db_connection(conn)
 
+def _sync_cached_image_metadata(articles: list[dict[str, Any]]) -> None:
+    """Update just image fields in warm caches; a photo update must not trigger a full archive scan."""
+    image_fields = (
+        "image_url", "image_source", "image_credit", "image_credit_url",
+        "image_provider_url", "image_license_url", "image_checked_at",
+    )
+    by_url: dict[str, dict[str, Any]] = {}
+    for item in articles:
+        key = _canonical_story_url(item.get("source_url"))
+        if not key:
+            continue
+        source = str(item.get("image_source") or "none")
+        allowed = source in TRUSTED_REUSABLE_IMAGE_SOURCES
+        by_url[key] = {
+            "image_url": str(item.get("image_url") or "") if allowed else "",
+            "image_source": source if allowed else "none",
+            "image_credit": str(item.get("image_credit") or "") if allowed else "",
+            "image_credit_url": str(item.get("image_credit_url") or "") if allowed else "",
+            "image_provider_url": str(item.get("image_provider_url") or "") if allowed else "",
+            "image_license_url": str(item.get("image_license_url") or "") if allowed else "",
+            "image_checked_at": item.get("image_checked_at") or datetime.now(timezone.utc),
+        }
+    if not by_url:
+        return
+
+    with _DB_ARTICLES_CACHE_LOCK:
+        if _DB_ARTICLES_CACHE is not None:
+            for row in _DB_ARTICLES_CACHE:
+                update = by_url.get(_canonical_story_url(row.get("source_url")))
+                if update:
+                    row.update(update)
+
+    with _DISPLAY_STORIES_CACHE_LOCK:
+        for lang, (built_at, stories) in list(_DISPLAY_STORIES_CACHE.items()):
+            for story in stories:
+                update = by_url.get(_canonical_story_url(story.get("source_url")))
+                if not update:
+                    continue
+                if update["image_url"] and update["image_source"] in TRUSTED_REUSABLE_IMAGE_SOURCES:
+                    story.update(update)
+                else:
+                    story.update({
+                        "image_url": story.get("image_fallback_url") or (
+                            "/static/images/fallback-ar.svg" if lang == "ar"
+                            else "/static/images/fallback-en.svg"
+                        ),
+                        "image_source": "fallback_ar" if lang == "ar" else "fallback_en",
+                        "image_credit": "", "image_credit_url": "",
+                        "image_provider_url": "", "image_license_url": "",
+                    })
+                story["image_license_name"] = _image_license_label(
+                    str(story.get("image_license_url") or ""), str(story.get("image_source") or "")
+                )
+                story["image_provider_name"] = _image_provider_label(str(story.get("image_source") or ""))
+
+    # Keep the inter-process archive snapshot in sync as well. This writes only cache
+    # metadata and never touches or deletes the permanent image/catalogue records.
+    cache_handle = _archive_file_lock()
+    try:
+        shared = _read_shared_archive_cache(max_age_seconds=_ARCHIVE_SHARED_CACHE_MAX_STALE_SECONDS)
+        if shared is not None:
+            rows = shared[0]
+            for row in rows:
+                update = by_url.get(_canonical_story_url(row.get("source_url")))
+                if update:
+                    row.update(update)
+            _write_shared_archive_cache(rows)
+    finally:
+        _archive_unlock(cache_handle)
+
+
 def _db_update_article_images(articles: list[dict[str, Any]]) -> int:
     eligible = [item for item in articles if item.get("source_url")]
     if not eligible or not _ensure_schema():
@@ -2007,7 +2090,7 @@ def _db_update_article_images(articles: list[dict[str, Any]]) -> int:
                 ))
                 updated += cur.rowcount
         conn.commit()
-        _invalidate_db_articles_cache()
+        _sync_cached_image_metadata(eligible)
         return updated
     except Exception as exc:
         conn.rollback()
@@ -2166,7 +2249,10 @@ def _db_upsert_many(articles: list[dict[str, Any]]) -> bool:
             for article in articles:
                 cur.execute(sql, article)
         conn.commit()
-        _invalidate_db_articles_cache()
+        # Update the shared warm snapshot rather than forcing the next page view to
+        # reconnect to PostgreSQL and rebuild the complete article pool.
+        if not _merge_article_rows_into_archive_cache(articles):
+            _invalidate_db_articles_cache()
         return True
     except Exception:
         conn.rollback()
@@ -6091,6 +6177,13 @@ def _maybe_start_refresh() -> None:
     if not NEWS_AUTO_FETCH:
         return
     now = time.monotonic()
+    # Do not launch a full RSS discovery fan-out at the exact moment the first visitor
+    # arrives after a deployment; let the first page reads warm the shared archive cache.
+    if (
+        not _LAST_REFRESH_SUCCESS
+        and now - _PROCESS_STARTED_MONOTONIC < NEWS_STARTUP_REFRESH_DELAY_SECONDS
+    ):
+        return
     with _STATE_LOCK:
         if _REFRESHING:
             return
