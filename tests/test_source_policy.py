@@ -1274,7 +1274,7 @@ class NewImageProviderPersistenceTests(unittest.TestCase):
         )
         self.assertFalse(world_pulse._row_allowed_on_language_site(mismatched_summary, "ar"))
 
-    def test_cross_language_translation_never_overrides_native_source_policy(self):
+    def test_complete_translation_is_usable_in_combined_feed_but_bad_translation_falls_back(self):
         row = {
             "category": "technology",
             "original_language": "en",
@@ -1295,12 +1295,16 @@ class NewImageProviderPersistenceTests(unittest.TestCase):
                 "أسماء أو تواريخ أو أرقام أو أسباب لم ترد في المادة الأصلية."
             ),
         }
-        self.assertFalse(world_pulse._row_allowed_on_language_site(row, "ar"))
-        self.assertFalse(
-            world_pulse._row_allowed_on_language_site(
-                dict(row, content_ar=row["content_en"]), "ar"
-            )
-        )
+        self.assertTrue(world_pulse._row_allowed_on_language_site(row, "ar"))
+        translated = world_pulse._normalise_story(row, "ar")
+        self.assertEqual(translated["display_language"], "ar")
+        self.assertFalse(translated["translation_fallback"])
+
+        malformed = dict(row, content_ar=row["content_en"])
+        self.assertTrue(world_pulse._row_allowed_on_language_site(malformed, "ar"))
+        fallback = world_pulse._normalise_story(malformed, "ar")
+        self.assertEqual(fallback["display_language"], "en")
+        self.assertTrue(fallback["translation_fallback"])
 
 if __name__ == "__main__":
     unittest.main()
