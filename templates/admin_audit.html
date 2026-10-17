@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>تدقيق الأرشيف — نبض العالم</title>
+  <style>
+    :root{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;color:#172033;background:#f3f6fb;font-synthesis:none}*{box-sizing:border-box}
+    body{margin:0;padding:24px}main{max-width:1200px;margin:auto}h1{margin:0;font-size:clamp(1.5rem,3vw,2.2rem)}h2{margin:0 0 12px;font-size:1.15rem}
+    p{line-height:1.8}a{color:#b42332;text-underline-offset:3px}.muted{color:#64748b;font-size:.88rem;line-height:1.8}
+    .top{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:18px}.nav,.actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+    .button,button{display:inline-block;border:0;border-radius:10px;padding:10px 14px;background:#d73545;color:#fff;font-weight:750;text-decoration:none;cursor:pointer;font:inherit;font-weight:700}.secondary{background:#e6ebf2!important;color:#243047!important}.dark{background:#253047!important;color:#fff!important}
+    .card{background:#fff;border:1px solid #e1e7f0;border-radius:18px;padding:20px;margin:14px 0;box-shadow:0 8px 30px #15254408;min-width:0}
+    .grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.stat{background:#f7f9fc;border:1px solid #e7edf4;border-radius:13px;padding:14px}.stat strong{display:block;font-size:1.45rem}.stat span{display:block;color:#64748b;font-size:.82rem;margin-top:4px}
+    .notice{padding:12px 14px;border-radius:12px;background:#e9f8ef;color:#166534;border:1px solid #bbebcc;margin:16px 0;line-height:1.8}.warning{background:#fff5e6;color:#92400e;border-color:#fed7aa}.bad{background:#fff0f0;color:#a61b29;border-color:#fecaca}
+    table{width:100%;border-collapse:collapse}th,td{padding:11px 8px;border-bottom:1px solid #e8edf4;vertical-align:top;text-align:right}th{font-size:.82rem;color:#475569}td{font-size:.9rem;overflow-wrap:anywhere}
+    .tag{display:inline-block;padding:4px 9px;border-radius:100px;background:#eef2f7;color:#344054;font-size:.8rem;font-weight:750}.tag.good{background:#e9f8ef;color:#166534}.samples{display:flex;gap:8px;flex-wrap:wrap}.samples a{border:1px solid #e2e8f0;border-radius:8px;padding:5px 8px;font-size:.8rem}
+    code{background:#f1f5f9;border-radius:5px;padding:2px 5px;direction:ltr;unicode-bidi:plaintext}@media(max-width:760px){body{padding:12px}.grid{grid-template-columns:1fr 1fr}.card{padding:14px}table{display:block;overflow-x:auto}}
+  </style>
+</head>
+<body><main>
+  <header class="top">
+    <div><h1>تدقيق الأرشيف وحقوق الصور</h1><p class="muted">فحص للقراءة فقط عبر الأرشيف المحفوظ في Supabase، مع أمثلة للمشكلات. لا يغيّر المقالات تلقائيًا ولا يحذف الصور أو الأخبار.</p></div>
+    <div class="nav">
+      <a class="button dark" href="{{ url_for('admin_monitor') }}">لوحة المراقبة</a>
+      <a class="button secondary" href="{{ url_for('admin_articles') }}">إدارة الأخبار</a>
+      <a class="button secondary" href="{{ url_for('admin_sources') }}">المصادر والصور</a>
+      <form method="post" action="{{ url_for('admin_logout') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="secondary" type="submit">تسجيل الخروج</button></form>
+    </div>
+  </header>
+  {% if notice %}<div class="notice" role="status">{{ notice }}</div>{% endif %}
+  {% if report_state.status == 'unavailable' %}<div class="notice bad" role="alert">تعذر قراءة حالة التدقيق من Supabase. افحص الاتصال في لوحة المراقبة قبل إعادة المحاولة.</div>
+  {% elif report_state.status == 'running' %}<div class="notice warning" role="status">التدقيق يعمل في الخلفية. لا تبدأ مهمة أخرى؛ حدّث الصفحة بعد قليل.</div>
+  {% elif report_state.status == 'failed' %}<div class="notice bad" role="alert">فشلت آخر عملية تدقيق ({{ report_state.error or 'لم يتوفر رمز إضافي' }}). افحص سجلات الخادم قبل إعادة المحاولة.</div>{% endif %}
+  <section class="card">
+    <h2>آخر عملية تدقيق</h2>
+    <div class="grid">
+      <div class="stat"><strong>{{ 'مكتمل' if report_state.status == 'complete' else ('قيد التشغيل' if report_state.status == 'running' else ('فشل' if report_state.status == 'failed' else 'لم يُشغّل')) }}</strong><span>حالة التدقيق</span></div>
+      <div class="stat"><strong>{{ report_state.updated_at or '—' }}</strong><span>آخر وقت محفوظ</span></div>
+      <div class="stat"><strong>{{ report_state.report.total_articles if report_state.report else '—' }}</strong><span>سجلات المقالات التي فُحصت</span></div>
+    </div>
+    <p class="muted">لتخفيف الضغط على قاعدة البيانات، يسمح النظام بتشغيل تدقيق شامل مرة كل 30 دقيقة. الفحص يتدفق على أجزاء ولا يحمل كامل نصوص الأرشيف إلى الذاكرة في وقت واحد.</p>
+    <form method="post"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="action" value="run_audit"><button type="submit" {% if report_state.status == 'running' %}disabled{% endif %}>تشغيل التدقيق الآن</button></form>
+  </section>
+  {% if report_state.report %}
+    {% set r = report_state.report %}
+    <section class="card">
+      <h2>ملخص الأرشيف والصور</h2>
+      <div class="grid">
+        <div class="stat"><strong>{{ r.total_articles or 0 }}</strong><span>إجمالي سجلات المقالات</span></div>
+        <div class="stat"><strong>{{ r.demo_records or 0 }}</strong><span>سجلات تجريبية</span></div>
+        <div class="stat"><strong>{{ r.issue_counts|length }}</strong><span>أنواع المشكلات المكتشفة</span></div>
+        <div class="stat"><strong>{{ r.catalogued_images.total_images or 0 }}</strong><span>صور مؤرشفة في Supabase</span></div>
+        <div class="stat"><strong>{{ (r.catalogued_images.total_bytes or 0) // 1048576 }} MB</strong><span>حجم ملفات الصور المؤرشفة تقريبًا</span></div>
+        <div class="stat"><strong>{{ r.catalogued_images.unreferenced_cached_images or 0 }}</strong><span>صور مخزنة بلا مقالة تشير إليها</span></div>
+      </div>
+      <h2 style="margin-top:20px">التوزيع حسب لغة المصدر</h2>
+      <div class="samples">{% for key, value in (r.language_counts or {}).items() %}<span class="tag">{{ key }}: {{ value }}</span>{% else %}<span class="muted">لا توجد بيانات.</span>{% endfor %}</div>
+      <h2 style="margin-top:16px">التوزيع حسب القسم</h2>
+      <div class="samples">{% for key, value in (r.category_counts or {}).items() %}<span class="tag">{{ key }}: {{ value }}</span>{% else %}<span class="muted">لا توجد بيانات.</span>{% endfor %}</div>
+    </section>
+    <section class="card">
+      <h2>المشكلات التي تحتاج مراجعة</h2>
+      {% if r.issue_counts %}
+      <table><thead><tr><th>نوع المشكلة</th><th>عدد السجلات</th><th>عينات لإصلاحها</th></tr></thead><tbody>
+      {% for issue, count in (r.issue_counts or {}).items()|sort(attribute='0') %}
+        <tr><td><code>{{ issue }}</code></td><td>{{ count }}</td><td><div class="samples">{% for slug in (r.issue_samples or {}).get(issue, []) %}<a href="{{ url_for('admin_articles', edit=slug, show_hidden='1') }}">{{ slug }}</a>{% endfor %}</div></td></tr>
+      {% endfor %}
+      </tbody></table>
+      {% else %}<span class="tag good">لم تُكتشف مشكلات ضمن قواعد التدقيق الحالية.</span>{% endif %}
+      <p class="muted">هذه نتيجة آلية إرشادية وليست قرارًا قانونيًا ولا ضمانًا لقبول AdSense. راجع النصوص وبيانات الترخيص وسياق الصورة يدويًا قبل النشر.</p>
+    </section>
+  {% endif %}
+  <p class="muted">سجلات نشر Render والبناء تبقى في لوحة Render؛ هذه الصفحة تدقق أرشيف Supabase وبيانات الصور. لا تعرض مفاتيح API أو بيانات الاتصال.</p>
+</main></body></html>
