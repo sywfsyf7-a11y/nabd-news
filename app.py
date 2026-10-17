@@ -1557,6 +1557,53 @@ def _db_fetch_article_by_slug(slug: str) -> dict[str, Any] | None:
     finally:
         _release_db_connection(conn)
 
+def _db_fetch_related_articles(
+    category: str, lang: str, exclude_slug: str, limit: int = 48
+) -> list[dict[str, Any]]:
+    """Fetch a small, indexed pool for article recommendations without rebuilding the homepage."""
+    if lang not in {"ar", "en"} or not _ensure_schema():
+        return []
+    conn = _connect_db()
+    if conn is None:
+        return []
+    title_col = "title_ar" if lang == "ar" else "title_en"
+    summary_col = "summary_ar" if lang == "ar" else "summary_en"
+    domains, host_patterns, name_patterns = _archive_source_filter_params(lang)
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(f"""
+                SELECT slug, source_url, category, source_name, source_domain, image_url,
+                       image_source, image_credit, image_credit_url, image_provider_url,
+                       image_license_url, image_checked_at, title_ar, title_en, summary_ar,
+                       summary_en, content_ar, content_en, published_at, fetched_at,
+                       read_minutes, original_language, is_demo
+                FROM world_pulse_articles
+                WHERE is_demo = FALSE
+                  AND original_language = %s
+                  AND slug <> %s
+                  AND COALESCE(source_url, '') <> ''
+                  AND LENGTH(TRIM(COALESCE({title_col}, ''))) > 0
+                  AND LENGTH(TRIM(COALESCE({summary_col}, ''))) > 0
+                  AND (
+                      LOWER(source_domain) = ANY(%s)
+                      OR LOWER(source_domain) LIKE ANY(%s)
+                      OR (COALESCE(source_domain, '') = '' AND LOWER(source_name) LIKE ANY(%s))
+                  )
+                ORDER BY (category = %s) DESC,
+                         COALESCE(published_at, fetched_at) DESC, fetched_at DESC
+                LIMIT %s
+            """, (
+                lang, exclude_slug, domains, host_patterns, name_patterns,
+                category, max(3, min(64, int(limit))),
+            ))
+            return [dict(row) for row in cur.fetchall()]
+    except Exception as exc:
+        logger.warning("Related article lookup failed (%s)", type(exc).__name__)
+        return []
+    finally:
+        _release_db_connection(conn)
+
+
 def _db_search_articles(query: str, limit: int = 60) -> list[dict[str, Any]] | None:
     query = _clean_text(query, 160)
     terms = [term for term in re.findall(r"[\w\u0600-\u06ff]+", query) if len(term) > 1][:8]
@@ -6310,23 +6357,42 @@ def article(slug: str):
                 return redirect(source_url, code=302)
     if selected is None:
         abort(404)
-    if selected.get("source_only"):
-        source_url = str(selected.get("source_url") or "").strip()
-        parsed_source = urlparse(source_url)
-        if parsed_source.scheme.casefold() in {"http", "https"} and parsed_source.hostname:
-            return redirect(source_url, code=302)
-        abort(404)
+    # Keep short/headline-only stories on our own fast detail page; the original publisher
+    # remains linked from the detail view. On a cold cache, query a small indexed related pool
+    # instead of sorting/deduplicating the entire homepage archive on every article click.
     if pool is None:
-        pool = _get_display_stories(lang)
+        related_rows = _db_fetch_related_articles(
+            str(selected.get("category") or "world"), lang, slug, limit=48
+        )
+        related_pool: list[dict[str, Any]] = []
+        for related_row in related_rows:
+            if not _row_allowed_on_language_site(related_row, lang):
+                continue
+            if _looks_like_feed_section_title(
+                related_row.get(f"title_{lang}") or "", related_row.get("source_name", "")
+            ):
+                continue
+            corrected_category = _display_category(related_row, lang)
+            if corrected_category != related_row.get("category"):
+                related_row = dict(related_row)
+                related_row["category"] = corrected_category
+            related_pool.append(_normalise_story(related_row, lang))
+    else:
+        related_pool = pool
     related = [
-        story for story in pool
+        story for story in related_pool
         if story.get("slug") != slug
         and story.get("category") == selected.get("category")
         and not story.get("source_only")
     ][:3]
     if len(related) < 3:
         related_ids = {story.get("slug") for story in related}
-        related.extend([story for story in pool if story.get("slug") not in related_ids and story.get("slug") != slug][:3 - len(related)])
+        related.extend([
+            story for story in related_pool
+            if story.get("slug") not in related_ids
+            and story.get("slug") != slug
+            and not story.get("source_only")
+        ][:3 - len(related)])
     return render_template(
         "index.html",
         page="article",
