@@ -4489,6 +4489,22 @@ def _news_queue_discovery_due(state: dict[str, Any], now: datetime | None = None
     return (current - discovered_at).total_seconds() >= NEWS_DISCOVERY_REFRESH_MINUTES * 60
 
 
+def _clean_pending_news_queue(
+    queue_items: list[dict[str, Any]],
+    known_keys: set[str],
+) -> list[dict[str, Any]]:
+    """Remove invalid/already-published duplicates without trimming pending queue items."""
+    cleaned: list[dict[str, Any]] = []
+    seen = set(known_keys)
+    for item in queue_items:
+        key = _canonical_story_url(item.get("source_url"))
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        cleaned.append(item)
+    return cleaned
+
+
 def _refresh_news_job() -> None:
     global _REFRESHING, _LAST_REFRESH_SUCCESS, _LAST_REFRESH_AT, _LAST_REFRESH_STATE, _LAST_REFRESH_ERROR
     refresh_lock_file = None
@@ -4576,15 +4592,7 @@ def _refresh_news_job() -> None:
         known_urls = {str(row.get("source_url", "")) for row in database_rows if row.get("source_url")}
         known_urls.update(str(row.get("source_url", "")) for row in _MEMORY_ARTICLES.values() if row.get("source_url"))
         known_keys = {_canonical_story_url(url) for url in known_urls if url}
-        cleaned_queue: list[dict[str, Any]] = []
-        queued_seen: set[str] = set(known_keys)
-        for item in queue_items:
-            key = _canonical_story_url(item.get("source_url"))
-            if not key or key in queued_seen:
-                continue
-            queued_seen.add(key)
-            cleaned_queue.append(item)
-        cleaned_queue = cleaned_queue[:MAX_PENDING_NEWS_CANDIDATES]
+        cleaned_queue = _clean_pending_news_queue(queue_items, known_keys)
         if len(cleaned_queue) != len(queue_items):
             queue_items = cleaned_queue
             queue_state["items"] = queue_items
