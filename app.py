@@ -7776,6 +7776,279 @@ def admin_logout():
     session.clear()
     return redirect(url_for("admin_login"))
 
+@app.get("/admin")
+def admin_index():
+    """Single safe entry point for the private admin area."""
+    guard = _require_admin()
+    if guard is not None:
+        return guard
+    return redirect(url_for("admin_monitor"))
+
+
+@app.route("/admin/articles", methods=["GET", "POST"])
+def admin_articles():
+    guard = _require_admin()
+    if guard is not None:
+        return guard
+
+    notice = str(session.pop("wp_admin_notice", "") or "")
+    query = _clean_text(request.values.get("q") or "", 120)
+    category_filter = str(request.values.get("category") or "all")
+    if category_filter not in CATEGORY_NAMES and category_filter != "all":
+        category_filter = "all"
+    show_hidden = str(request.values.get("show_hidden") or "").casefold() in {"1", "true", "yes", "on"}
+    try:
+        page_number = max(1, int(request.values.get("page") or "1"))
+    except (TypeError, ValueError):
+        page_number = 1
+
+    if request.method == "POST":
+        if not _admin_csrf_valid():
+            abort(400)
+        action = str(request.form.get("action") or "")
+        slug = _clean_text(request.form.get("slug") or "", 220)
+
+        if action == "hide_article" or action == "restore_article":
+            if not slug:
+                abort(400)
+            hidden = action == "hide_article"
+            notice = (
+                "تم إخفاء الخبر من الموقع مع الاحتفاظ به في الأرشيف؛ يمكنك استعادته لاحقًا."
+                if hidden else
+                "تمت استعادة الخبر إلى العرض العام."
+            ) if _admin_set_article_hidden(slug, hidden) else "تعذر حفظ التغيير في قاعدة البيانات."
+            session["wp_admin_notice"] = notice
+            return redirect(url_for(
+                "admin_articles", q=query, category=category_filter,
+                show_hidden="1" if hidden else ("1" if show_hidden else "0"), page=page_number,
+            ))
+
+        if action == "retry_article_image":
+            selected = _admin_fetch_article_by_slug(slug)
+            if not selected:
+                abort(404)
+            global _REFRESHING
+            with _STATE_LOCK:
+                if _REFRESHING:
+                    notice = "هناك مهمة تحديث تعمل حاليًا. انتظر انتهاءها ثم أعد المحاولة."
+                else:
+                    _REFRESHING = True
+                    thread = threading.Thread(
+                        target=_refresh_existing_article_images_job,
+                        kwargs={"limit": 1, "slug": slug},
+                        name="world-pulse-admin-single-image-refresh",
+                        daemon=True,
+                    )
+                    thread.start()
+                    notice = "بدأت إعادة البحث عن صورة مرتبطة بعنوان الخبر. لن تُقبل صورة بلا مصدر وترخيص قابلين للتحقق."
+            session["wp_admin_notice"] = notice
+            return redirect(url_for(
+                "admin_articles", q=query, category=category_filter,
+                show_hidden="1" if show_hidden else "0", page=page_number,
+            ))
+
+        if action == "save_article":
+            if not slug:
+                abort(400)
+            existing = _admin_fetch_article_by_slug(slug)
+            if not existing:
+                abort(404)
+            new_category = str(request.form.get("category") or "")
+            if new_category not in CATEGORY_NAMES:
+                notice = "اختر قسمًا صحيحًا."
+            else:
+                source_domain = str(existing.get("source_domain") or "").casefold().removeprefix("www.")
+                if not source_domain:
+                    source_domain = (urlparse(str(existing.get("source_url") or "")).hostname or "").casefold().removeprefix("www.")
+                source_lang = str(existing.get("original_language") or "").casefold()
+                if not _source_domain_for_category(new_category, source_lang, source_domain):
+                    notice = "لا يمكن نقل الخبر إلى هذا القسم: المصدر غير معتمد لهذا القسم ولغة المصدر."
+                elif existing.get("is_hidden") and not show_hidden:
+                    notice = "الخبر مخفي. افتح قائمة الأخبار المخفية لإدارته."
+                elif _is_headline_only_domain(source_domain):
+                    native_title_key = "title_ar" if source_lang == "ar" else "title_en"
+                    native_title = _clean_text(request.form.get(native_title_key) or "", 350)
+                    if not native_title:
+                        notice = "أدخل عنوان المصدر الأصلي."
+                    else:
+                        safe_values = {
+                            "category": new_category,
+                            "title_ar": native_title if source_lang == "ar" else str(existing.get("title_ar") or ""),
+                            "title_en": native_title if source_lang == "en" else str(existing.get("title_en") or ""),
+                            "summary_ar": "يعرض نبض العالم العنوان ورابط الناشر فقط لهذا المصدر. افتح المصدر الأصلي لقراءة التفاصيل والتحديثات.",
+                            "summary_en": "Headline and source link only. Open the publisher's original page for full details, context, and updates.",
+                            "content_ar": "", "content_en": "", "read_minutes": 1,
+                        }
+                        notice = "تم حفظ العنوان والقسم. بقيت المادة في وضع العنوان والرابط فقط وفق سياسة المصدر." if _admin_save_article(slug, safe_values) else "تعذر حفظ التعديلات."
+                else:
+                    values = {
+                        "category": new_category,
+                        "title_ar": _clean_text(request.form.get("title_ar") or "", 350),
+                        "title_en": _clean_text(request.form.get("title_en") or "", 350),
+                        "summary_ar": _clean_text(request.form.get("summary_ar") or "", 1400),
+                        "summary_en": _clean_text(request.form.get("summary_en") or "", 1400),
+                        "content_ar": _clean_text(request.form.get("content_ar") or "", 8000),
+                        "content_en": _clean_text(request.form.get("content_en") or "", 8000),
+                    }
+                    missing = [label for label, key in (
+                        ("العنوان العربي", "title_ar"), ("العنوان الإنجليزي", "title_en"),
+                        ("الملخص العربي", "summary_ar"), ("الملخص الإنجليزي", "summary_en"),
+                    ) if not values[key]]
+                    if missing:
+                        notice = "أكمل حقول العنوان والملخص في اللغتين."
+                    elif _summary_repeats_title(values["title_ar"], values["summary_ar"]) or _summary_repeats_title(values["title_en"], values["summary_en"]):
+                        notice = "يجب أن يضيف الملخص معلومة مستقلة عن العنوان، لا أن يكرر صياغته."
+                    elif len(values["content_ar"]) < 180 or len(values["content_en"]) < 180:
+                        notice = "التفاصيل في كل لغة قصيرة جدًا. أضف سياقًا أصليًا موثقًا (180 حرفًا على الأقل) أو راجع المصدر قبل الحفظ."
+                    else:
+                        values["read_minutes"] = max(1, min(99, (max(len(values["content_ar"]), len(values["content_en"])) + 899) // 900))
+                        notice = "تم حفظ التعديلات التحريرية." if _admin_save_article(slug, values) else "تعذر حفظ التعديلات في قاعدة البيانات."
+            session["wp_admin_notice"] = notice
+            return redirect(url_for(
+                "admin_articles", edit=slug, q=query, category=category_filter,
+                show_hidden="1" if show_hidden else "0", page=page_number,
+            ))
+
+        if action == "create_article":
+            source_url = _clean_text(request.form.get("source_url") or "", 500)
+            source_name = _clean_text(request.form.get("source_name") or "", 140)
+            new_category = str(request.form.get("category") or "")
+            source_lang = str(request.form.get("original_language") or "").casefold()
+            parsed_url = urlparse(source_url)
+            source_domain = (parsed_url.hostname or "").casefold().removeprefix("www.")
+            if parsed_url.scheme.casefold() != "https" or not source_domain:
+                notice = "استخدم رابط HTTPS مباشرًا للناشر الأصلي."
+            elif not source_name:
+                notice = "أدخل اسم الناشر الأصلي."
+            elif new_category not in CATEGORY_NAMES or source_lang not in {"ar", "en"}:
+                notice = "اختر قسمًا ولغة مصدر صحيحين."
+            elif not _source_domain_for_category(new_category, source_lang, source_domain):
+                notice = "هذا الناشر غير معتمد لهذا القسم ولغة المصدر. راجع سياسة المصادر أولًا."
+            elif _publisher_requires_license(source_name, (source_url,)) and not _is_headline_only_domain(source_domain):
+                notice = "هذا المصدر يتطلب ترخيصًا أو إذنًا مناسبًا قبل حفظ محتوى تحريري منه."
+            else:
+                native_title = _clean_text(request.form.get("title_ar" if source_lang == "ar" else "title_en") or "", 350)
+                if _is_headline_only_domain(source_domain):
+                    if not native_title:
+                        notice = "أدخل عنوان المصدر فقط لهذا الناشر."
+                    else:
+                        title_ar = native_title if source_lang == "ar" else ""
+                        title_en = native_title if source_lang == "en" else ""
+                        values = {
+                            "slug": _slug_for_url(source_url), "source_url": source_url,
+                            "category": new_category, "source_name": source_name,
+                            "source_domain": source_domain, "title_ar": title_ar, "title_en": title_en,
+                            "summary_ar": "يعرض نبض العالم العنوان ورابط الناشر فقط لهذا المصدر. افتح المصدر الأصلي لقراءة التفاصيل والتحديثات.",
+                            "summary_en": "Headline and source link only. Open the publisher's original page for full details, context, and updates.",
+                            "content_ar": "", "content_en": "", "read_minutes": 1,
+                            "original_language": source_lang,
+                        }
+                        status = _admin_create_article(values)
+                        notice = "أُضيف العنوان مع رابط المصدر فقط." if status == "created" else ("الرابط محفوظ من قبل؛ افتح الخبر الموجود بدل إنشاء نسخة مكررة." if status == "duplicate_source" else "تعذر حفظ الخبر في قاعدة البيانات.")
+                else:
+                    values = {
+                        "slug": _slug_for_url(source_url), "source_url": source_url,
+                        "category": new_category, "source_name": source_name,
+                        "source_domain": source_domain,
+                        "title_ar": _clean_text(request.form.get("title_ar") or "", 350),
+                        "title_en": _clean_text(request.form.get("title_en") or "", 350),
+                        "summary_ar": _clean_text(request.form.get("summary_ar") or "", 1400),
+                        "summary_en": _clean_text(request.form.get("summary_en") or "", 1400),
+                        "content_ar": _clean_text(request.form.get("content_ar") or "", 8000),
+                        "content_en": _clean_text(request.form.get("content_en") or "", 8000),
+                        "read_minutes": 1, "original_language": source_lang,
+                    }
+                    if not all(values[key] for key in ("title_ar", "title_en", "summary_ar", "summary_en")):
+                        notice = "أكمل العناوين والملخصات بالعربية والإنجليزية."
+                    elif _summary_repeats_title(values["title_ar"], values["summary_ar"]) or _summary_repeats_title(values["title_en"], values["summary_en"]):
+                        notice = "اكتب ملخصًا مستقلًا لكل عنوان."
+                    elif len(values["content_ar"]) < 180 or len(values["content_en"]) < 180:
+                        notice = "أضف تفاصيل أصلية موثقة لا تقل عن 180 حرفًا في كل لغة. لا تنسخ نص المقال كاملًا."
+                    else:
+                        values["read_minutes"] = max(1, min(99, (max(len(values["content_ar"]), len(values["content_en"])) + 899) // 900))
+                        status = _admin_create_article(values)
+                        notice = "تمت إضافة الخبر إلى الأرشيف." if status == "created" else ("هذا الرابط محفوظ مسبقًا؛ لم ننشئ نسخة مكررة." if status == "duplicate_source" else "تعذر إضافة الخبر إلى قاعدة البيانات.")
+            session["wp_admin_notice"] = notice
+            return redirect(url_for(
+                "admin_articles", q=query, category=category_filter,
+                show_hidden="1" if show_hidden else "0", page=page_number,
+            ))
+
+        abort(400)
+
+    rows, total, db_error = _admin_list_articles(query, category_filter, show_hidden, page_number)
+    total_pages = max(1, (total + ADMIN_ARTICLE_PAGE_SIZE - 1) // ADMIN_ARTICLE_PAGE_SIZE)
+    if page_number > total_pages:
+        page_number = total_pages
+        rows, total, db_error = _admin_list_articles(query, category_filter, show_hidden, page_number)
+    edit_slug = _clean_text(request.args.get("edit") or "", 220)
+    edit_article = _admin_fetch_article_by_slug(edit_slug) if edit_slug else None
+    if edit_slug and edit_article is None and not db_error:
+        notice = notice or "لم يُعثر على الخبر في الأرشيف."
+    if edit_article:
+        edit_article["headline_only"] = _is_headline_only_domain(str(edit_article.get("source_domain") or ""))
+    return render_template(
+        "admin_articles.html",
+        rows=rows,
+        total=total,
+        query=query,
+        active_category=category_filter,
+        category_names=CATEGORY_NAMES,
+        category_keys=list(CATEGORY_NAMES.keys()),
+        show_hidden=show_hidden,
+        page=page_number,
+        total_pages=total_pages,
+        edit_article=edit_article,
+        notice=notice,
+        db_error=db_error,
+        csrf_token=session.get("wp_admin_csrf", ""),
+    )
+
+
+@app.route("/admin/audit", methods=["GET", "POST"])
+def admin_audit():
+    guard = _require_admin()
+    if guard is not None:
+        return guard
+    notice = str(session.pop("wp_admin_notice", "") or "")
+    if request.method == "POST":
+        if not _admin_csrf_valid():
+            abort(400)
+        if str(request.form.get("action") or "") != "run_audit":
+            abort(400)
+        current = _admin_read_archive_audit_report()
+        if current.get("status") == "running":
+            notice = "التدقيق يعمل بالفعل في الخلفية."
+        elif current.get("status") == "complete" and isinstance(current.get("updated_at"), datetime):
+            updated = current["updated_at"]
+            if updated.tzinfo is None:
+                updated = updated.replace(tzinfo=timezone.utc)
+            if (datetime.now(timezone.utc) - updated.astimezone(timezone.utc)).total_seconds() < 30 * 60:
+                notice = "اكتمل تدقيق حديث بالفعل. لتخفيف الضغط على Supabase، يمكن إعادة التدقيق مرة كل 30 دقيقة."
+            else:
+                threading.Thread(
+                    target=_run_content_quality_audit_once, kwargs={"force": True},
+                    name="world-pulse-admin-archive-audit", daemon=True,
+                ).start()
+                notice = "بدأ تدقيق الأرشيف والصور في الخلفية. حدّث الصفحة بعد قليل لرؤية التقرير."
+        else:
+            threading.Thread(
+                target=_run_content_quality_audit_once, kwargs={"force": True},
+                name="world-pulse-admin-archive-audit", daemon=True,
+            ).start()
+            notice = "بدأ تدقيق الأرشيف والصور في الخلفية. حدّث الصفحة بعد قليل لرؤية التقرير."
+        session["wp_admin_notice"] = notice
+        return redirect(url_for("admin_audit"))
+
+    report = _admin_read_archive_audit_report()
+    return render_template(
+        "admin_audit.html",
+        csrf_token=session.get("wp_admin_csrf", ""),
+        report_state=report,
+        notice=notice,
+    )
+
+
 @app.route("/admin/monitor", methods=["GET", "POST"])
 def admin_monitor():
     guard = _require_admin()
