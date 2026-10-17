@@ -894,6 +894,296 @@ def _ensure_schema() -> bool:
         finally:
             _release_db_connection(conn)
 
+def _content_quality_audit_issues(
+    row: dict[str, Any],
+    catalogued_image_ids: set[str] | None = None,
+    *,
+    now: datetime | None = None,
+) -> list[str]:
+    """Classify archive quality/rights problems without modifying stored articles."""
+    issues: list[str] = []
+    catalogued_image_ids = catalogued_image_ids or set()
+    now = now or datetime.now(timezone.utc)
+    slug = str(row.get("slug") or "")
+    source_url = str(row.get("source_url") or "").strip()
+    source_language = str(row.get("original_language") or "").casefold()
+    category = str(row.get("category") or "")
+    source_domain = str(row.get("source_domain") or "").casefold().strip().removeprefix("www.")
+    source_name = str(row.get("source_name") or "")
+    image_url = str(row.get("image_url") or "").strip()
+    image_source = str(row.get("image_source") or "").strip()
+    is_demo = bool(row.get("is_demo"))
+
+    if is_demo:
+        return ["demo_record"]
+    if source_language not in {"ar", "en"}:
+        issues.append("invalid_original_language")
+    if category not in CATEGORY_NAMES:
+        issues.append("invalid_category")
+
+    try:
+        parsed_source = urlparse(source_url) if source_url else None
+    except (TypeError, ValueError):
+        parsed_source = None
+    source_host = (parsed_source.hostname or "").casefold().removeprefix("www.") if parsed_source else ""
+    if not source_url or not source_host or parsed_source.scheme.casefold() not in {"http", "https"}:
+        issues.append("invalid_or_missing_source_url")
+    if not source_domain:
+        issues.append("missing_source_domain")
+    elif source_host and not _domain_matches(source_host, source_domain):
+        issues.append("source_domain_mismatch")
+
+    if source_language in {"ar", "en"}:
+        native_title = str(row.get(f"title_{source_language}") or "").strip()
+        native_summary = str(row.get(f"summary_{source_language}") or "").strip()
+        native_body = str(row.get(f"content_{source_language}") or "").strip()
+        if not native_title:
+            issues.append("missing_native_title")
+        elif not _text_matches_language(native_title, source_language):
+            issues.append("native_title_language_mismatch")
+        elif _looks_like_feed_section_title(native_title, source_name):
+            issues.append("publisher_section_title")
+        if not native_summary:
+            issues.append("missing_native_summary")
+        elif not _text_matches_language(native_summary, source_language):
+            issues.append("native_summary_language_mismatch")
+        elif _summary_repeats_title(native_title, native_summary):
+            issues.append("summary_repeats_headline")
+        if not _is_headline_only_domain(source_domain):
+            if len(native_body) < 180:
+                issues.append("native_body_under_180_characters")
+            elif native_summary and _editorial_text_key(native_body) == _editorial_text_key(native_summary):
+                issues.append("summary_repeats_full_body")
+        other_language = "ar" if source_language == "en" else "en"
+        other_title = str(row.get(f"title_{other_language}") or "").strip()
+        other_summary = str(row.get(f"summary_{other_language}") or "").strip()
+        other_body = str(row.get(f"content_{other_language}") or "").strip()
+        if not (
+            other_title
+            and other_summary
+            and len(other_body) >= 180
+            and _text_matches_language(other_title, other_language)
+            and _text_matches_language(other_summary, other_language)
+            and _text_matches_language(other_body, other_language)
+        ):
+            issues.append(f"incomplete_{other_language}_translation")
+
+        allowlisted_category = category
+        if category in CATEGORY_NAMES and source_host:
+            corrected = _display_category(row, source_language)
+            if corrected in CATEGORY_NAMES:
+                allowlisted_category = corrected
+        if source_host and not _source_domain_for_category(allowlisted_category, source_language, source_host):
+            issues.append("source_not_allowlisted_for_category_language")
+
+    published_at = row.get("published_at")
+    if isinstance(published_at, str):
+        try:
+            published_at = datetime.fromisoformat(published_at.replace("Z", "+00:00"))
+        except ValueError:
+            published_at = None
+    if isinstance(published_at, datetime):
+        if published_at.tzinfo is None:
+            published_at = published_at.replace(tzinfo=timezone.utc)
+        if published_at > now + timedelta(days=3):
+            issues.append("published_at_far_in_future")
+
+    if not image_url:
+        issues.append("missing_article_image")
+    elif image_url in {"/static/A.jpg", "/static/E.jpg"}:
+        issues.append("legacy_A_E_fallback_image")
+    elif image_source in TRUSTED_REUSABLE_IMAGE_SOURCES:
+        if not _image_license_verified(row):
+            issues.append("reusable_image_missing_item_level_license")
+        if not str(row.get("image_credit") or "").strip():
+            issues.append("reusable_image_missing_creator_credit")
+        cached = re.fullmatch(r"/media/catalogued/([a-f0-9]{40})", image_url)
+        if cached and cached.group(1) not in catalogued_image_ids:
+            issues.append("catalogued_image_bytes_missing")
+        if image_url.startswith("https://"):
+            # A valid remote URL is still a durability risk: the permanent Supabase
+            # image route is preferred so a provider-side URL change cannot break the archive.
+            issues.append("trusted_image_not_cached_in_supabase")
+        checked_at = row.get("image_checked_at")
+        if isinstance(checked_at, str):
+            try:
+                checked_at = datetime.fromisoformat(checked_at.replace("Z", "+00:00"))
+            except ValueError:
+                checked_at = None
+        if isinstance(checked_at, datetime):
+            if checked_at.tzinfo is None:
+                checked_at = checked_at.replace(tzinfo=timezone.utc)
+            image_age_seconds = (now - checked_at).total_seconds()
+        else:
+            image_age_seconds = IMAGE_CACHE_MAX_AGE_SECONDS + 1
+        if image_age_seconds > IMAGE_CACHE_MAX_AGE_SECONDS:
+            issues.append("image_metadata_stale_or_unchecked")
+        if image_source == "openverse_licensed":
+            license_url = str(row.get("image_license_url") or "").strip()
+            try:
+                license_path = urlparse(license_url).path.casefold()
+            except ValueError:
+                license_path = ""
+            license_code = (
+                "by-sa" if "/licenses/by-sa/" in license_path else
+                "by" if "/licenses/by/" in license_path else
+                "cc0" if "/publicdomain/zero/" in license_path else
+                "pdm" if "/publicdomain/mark/" in license_path else ""
+            )
+            if not _openverse_license_url_ok(license_code, license_url):
+                issues.append("openverse_license_url_not_verifiable")
+    elif image_url.startswith(("https://", "http://", "/media/catalogued/")):
+        issues.append("image_url_without_trusted_provider")
+    return issues
+
+
+def _run_content_quality_audit_once() -> None:
+    """Run an explicitly enabled, one-time read-only archive/image audit and persist its report."""
+    if os.getenv("NEWS_CONTENT_AUDIT_ONCE", "false").strip().casefold() not in {"1", "true", "yes", "on"}:
+        return
+    if not _ensure_schema():
+        logger.warning("Content audit skipped because the database schema is not ready")
+        return
+    conn = _connect_db()
+    if conn is None:
+        logger.warning("Content audit skipped because the database connection is unavailable")
+        return
+
+    state_key = "content_quality_audit_v1"
+    report: dict[str, Any] = {
+        "started_at": datetime.now(timezone.utc).isoformat(),
+        "total_articles": 0,
+        "demo_records": 0,
+        "language_counts": {},
+        "category_counts": {},
+        "issue_counts": {},
+        "issue_samples": {},
+        "catalogued_images": {},
+    }
+
+    def record_issue(issue: str, slug: str) -> None:
+        report["issue_counts"][issue] = int(report["issue_counts"].get(issue, 0)) + 1
+        samples = report["issue_samples"].setdefault(issue, [])
+        if slug and len(samples) < 12 and slug not in samples:
+            samples.append(slug)
+
+    claimed = False
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO world_pulse_runtime_state (state_key, state_value, updated_at)
+                VALUES (%s, 'running', NOW())
+                ON CONFLICT (state_key) DO UPDATE
+                SET state_value = 'running', updated_at = NOW()
+                WHERE world_pulse_runtime_state.state_value NOT LIKE 'done:%%'
+                  AND (
+                      world_pulse_runtime_state.state_value <> 'running'
+                      OR world_pulse_runtime_state.updated_at < NOW() - INTERVAL '30 minutes'
+                  )
+                RETURNING state_key
+            """, (state_key,))
+            claimed = cur.fetchone() is not None
+        conn.commit()
+        if not claimed:
+            return
+
+        with conn.cursor() as cur:
+            cur.execute("SELECT image_id FROM world_pulse_catalogued_images")
+            catalogued_ids = {str(item[0]) for item in cur.fetchall()}
+            cur.execute("""
+                SELECT
+                    COUNT(*) AS total_images,
+                    COALESCE(SUM(octet_length(image_data)), 0) AS total_bytes,
+                    COUNT(*) FILTER (WHERE octet_length(image_data) > 2097152) AS over_2_mib,
+                    COUNT(*) FILTER (WHERE mime_type NOT IN ('image/jpeg', 'image/png', 'image/webp')) AS unexpected_mime_types
+                FROM world_pulse_catalogued_images
+            """)
+            image_stats_row = cur.fetchone()
+            image_stats = {
+                "total_images": int(image_stats_row[0] or 0),
+                "total_bytes": int(image_stats_row[1] or 0),
+                "over_2_mib": int(image_stats_row[2] or 0),
+                "unexpected_mime_types": int(image_stats_row[3] or 0),
+            }
+            cur.execute("""
+                SELECT COUNT(*)
+                FROM world_pulse_catalogued_images i
+                LEFT JOIN world_pulse_articles a
+                  ON a.image_url = '/media/catalogued/' || i.image_id
+                WHERE a.id IS NULL
+            """)
+            image_stats["unreferenced_cached_images"] = int(cur.fetchone()[0])
+            report["catalogued_images"] = {key: int(value or 0) for key, value in image_stats.items()}
+
+        # Named/server-side cursor streams every row in bounded chunks instead of loading
+        # the permanent archive or its full article bodies into RAM in one operation.
+        cursor = conn.cursor(name="world_pulse_content_quality_audit", cursor_factory=RealDictCursor)
+        cursor.itersize = 200
+        cursor.execute("""
+            SELECT id, slug, source_url, category, source_name, source_domain, image_url,
+                   image_source, image_credit, image_credit_url, image_provider_url,
+                   image_license_url, image_checked_at, title_ar, title_en, summary_ar,
+                   summary_en, content_ar, content_en, published_at, fetched_at,
+                   original_language, is_demo
+            FROM world_pulse_articles
+            ORDER BY id
+        """)
+        try:
+            while True:
+                rows = cursor.fetchmany(200)
+                if not rows:
+                    break
+                for row in rows:
+                    report["total_articles"] += 1
+                    lang = str(row.get("original_language") or "unknown").casefold()
+                    category = str(row.get("category") or "unknown")
+                    report["language_counts"][lang] = int(report["language_counts"].get(lang, 0)) + 1
+                    report["category_counts"][category] = int(report["category_counts"].get(category, 0)) + 1
+                    for issue in _content_quality_audit_issues(dict(row), catalogued_ids):
+                        if issue == "demo_record":
+                            report["demo_records"] += 1
+                        else:
+                            record_issue(issue, str(row.get("slug") or ""))
+        finally:
+            cursor.close()
+
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE world_pulse_runtime_state
+                SET state_value = %s, updated_at = NOW()
+                WHERE state_key = %s
+            """, ("done:" + json.dumps(report, ensure_ascii=False, separators=(",", ":")), state_key))
+        conn.commit()
+        logger.info(
+            "Comprehensive archive audit finished: articles=%d demos=%d languages=%s categories=%s catalogued_images=%s",
+            report["total_articles"], report["demo_records"],
+            json.dumps(report["language_counts"], ensure_ascii=False, sort_keys=True),
+            json.dumps(report["category_counts"], ensure_ascii=False, sort_keys=True),
+            json.dumps(report["catalogued_images"], ensure_ascii=False, sort_keys=True),
+        )
+        for issue, count in sorted(report["issue_counts"].items(), key=lambda item: (-item[1], item[0])):
+            logger.warning(
+                "Archive audit issue: type=%s count=%d sample_slugs=%s",
+                issue, count, ",".join(report["issue_samples"].get(issue, [])),
+            )
+    except Exception as exc:
+        try:
+            conn.rollback()
+            with conn.cursor() as cur:
+                cur.execute("""
+                    UPDATE world_pulse_runtime_state
+                    SET state_value = %s, updated_at = NOW()
+                    WHERE state_key = %s AND state_value = 'running'
+                """, ("failed:" + type(exc).__name__, state_key))
+            conn.commit()
+        except Exception:
+            conn.rollback()
+        logger.warning("Comprehensive archive audit failed (%s)", type(exc).__name__)
+    finally:
+        _release_db_connection(conn)
+
+
+
 def _known_control_cache_keys() -> set[str]:
     keys = {
         f"news:{category}:{lang}:{domain}"
@@ -4882,6 +5172,7 @@ def _refresh_news_job() -> None:
             _LAST_REFRESH_ERROR = "Database unavailable; stories were not published. The scheduler will retry."
             logger.error("News refresh aborted before RSS ingestion: database/schema unavailable")
             return
+        _run_content_quality_audit_once()
         database_rows = _db_fetch_all()
         queue_state = _load_persisted_news_queue()
         if queue_state is None:
@@ -6175,7 +6466,13 @@ def generated_image(image_id: str):
 
 @app.get("/healthz")
 def healthz():
-    return {"status": "ok"}, 200
+    # Expose the deployed commit so production checks can wait for this exact release
+    # instead of accidentally testing the previous live instance during a rollout.
+    payload = {"status": "ok"}
+    commit = (os.getenv("RENDER_GIT_COMMIT") or "").strip()
+    if commit:
+        payload["commit"] = commit
+    return payload, 200
 
 def _admin_password() -> str:
     # ADMIN_PANEL_PASSWORD is the documented name; ADMIN_PASSWORD remains a backwards-compatible alias.
