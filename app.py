@@ -557,17 +557,13 @@ def _text_matches_language(value: Any, lang: str) -> bool:
 
 
 def _row_allowed_on_language_site(row: dict[str, Any], lang: str) -> bool:
-    """Allow both native source languages in the same feed while enforcing publisher and text policy."""
+    """Validate the story's native language, publisher allowlist, and source text integrity."""
     if lang not in {"ar", "en"}:
         return False
     source_lang = str(row.get("original_language") or "").casefold()
     if source_lang not in {"ar", "en"}:
         return False
 
-    # The interface language controls navigation and labels, not which source-language
-    # edition may contribute a story. Validate publisher eligibility against the story's
-    # native language, then let _normalise_story display a complete translation or safely
-    # fall back to the verified native-language title and content.
     category = str(row.get("category") or "world")
     host = str(row.get("source_domain") or "").casefold().removeprefix("www.")
     if not host:
@@ -582,14 +578,53 @@ def _row_allowed_on_language_site(row: dict[str, Any], lang: str) -> bool:
     source_body = str(row.get(f"content_{source_lang}") or "").strip()
     if not _text_matches_language(source_title, source_lang):
         return False
-    # Stored native-language fields must agree with the original-language label. Optional
-    # translations are validated by _normalise_story; an incomplete/malformed translation
-    # causes a native-language fallback rather than making the whole story disappear.
     if source_summary and not _text_matches_language(source_summary, source_lang):
         return False
     if source_body and not _text_matches_language(source_body, source_lang):
         return False
     return True
+
+
+def _has_complete_display_translation(row: dict[str, Any], lang: str) -> bool:
+    """True only when a non-restricted story can actually render in the requested UI language."""
+    if lang not in {"ar", "en"}:
+        return False
+    source_lang = str(row.get("original_language") or "").casefold()
+    if source_lang not in {"ar", "en"}:
+        return False
+    if source_lang == lang:
+        return True
+
+    host = str(row.get("source_domain") or "").casefold().removeprefix("www.")
+    source_name = str(row.get("source_name") or "")
+    source_url = str(row.get("source_url") or "")
+    # BBC/Al Jazeera and any other restricted headline-only publisher must stay in its
+    # source language. Translation cannot be used to republish text that the site is not
+    # licensed to adapt.
+    if (
+        _is_headline_only_domain(host)
+        or _publisher_requires_license(source_name, (source_url,))
+    ):
+        return False
+
+    title = str(row.get(f"title_{lang}") or "").strip()
+    summary = str(row.get(f"summary_{lang}") or "").strip()
+    body = str(row.get(f"content_{lang}") or "").strip()
+    return bool(
+        title
+        and summary
+        and len(body) >= 180
+        and _text_matches_language(title, lang)
+        and _text_matches_language(summary, lang)
+        and _text_matches_language(body, lang)
+    )
+
+
+def _story_allowed_in_display_language(row: dict[str, Any], lang: str) -> bool:
+    """Keep the combined newsroom feed, but never show an untranslated card in the wrong UI language."""
+    if not _row_allowed_on_language_site(row, lang):
+        return False
+    return _has_complete_display_translation(row, lang)
 
 
 LICENSE_REQUIRED_SOURCE_NAMES = (
@@ -6812,7 +6847,7 @@ def _build_display_stories(lang: str) -> list[dict[str, Any]]:
         if corrected_category != original.get("category"):
             row = dict(original)
             row["category"] = corrected_category
-        if row.get("category") not in CATEGORY_NAMES or not _row_allowed_on_language_site(row, lang):
+        if row.get("category") not in CATEGORY_NAMES or not _story_allowed_in_display_language(row, lang):
             continue
         live.append(row)
     live.sort(
@@ -6903,7 +6938,7 @@ def _find_article(slug: str, lang: str) -> dict[str, Any] | None:
         if row.get("is_demo"):
             continue
         source_lang = str(row.get("original_language") or "").casefold()
-        if row.get("slug") == slug and row.get("source_url") and (row.get(f"title_{lang}") or row.get(f"title_{source_lang}")) and _row_allowed_on_language_site(row, lang):
+        if row.get("slug") == slug and row.get("source_url") and row.get(f"title_{lang}") and _story_allowed_in_display_language(row, lang):
             return _normalise_story(row, lang)
     return None
 
@@ -7008,7 +7043,7 @@ def search():
                 _normalise_story(row, lang)
                 for row in db_rows
                 if (row.get(f"title_{lang}") or row.get(f"title_{str(row.get('original_language') or '').casefold()}"))
-                and _row_allowed_on_language_site(row, lang)
+                and _story_allowed_in_display_language(row, lang)
             ]
             # Search only the shared persistent archive. Process-local memory differs
             # between Gunicorn workers and must not add phantom results to one visitor's search.
@@ -7046,7 +7081,7 @@ def article(slug: str):
                 stored.get(f"title_{stored_language}") or stored.get(f"title_{lang}") or "",
                 stored.get("source_name", ""),
             )
-            and _row_allowed_on_language_site(stored, lang)
+            and _story_allowed_in_display_language(stored, lang)
         ):
             corrected_category = _display_category(stored, lang)
             if corrected_category != stored.get("category"):
@@ -7054,9 +7089,14 @@ def article(slug: str):
                 stored["category"] = corrected_category
             selected = _normalise_story(stored, lang)
         elif stored and _safe_saved_article_permalink(stored):
-            # An old saved link remains readable after a source is removed from the
-            # current discovery allowlist. Rendering still passes the stored row through
-            # the restrictive publisher-rights and native-language checks in normalization.
+            # Preserve valid archive bookmarks without rendering text in the wrong language.
+            # When an old bookmark lacks a complete approved translation, send the reader to
+            # its saved original publisher instead of rendering a mixed-language detail page.
+            if (
+                stored_language != lang
+                and not _has_complete_display_translation(stored, lang)
+            ):
+                return redirect(str(stored.get("source_url") or "/"), code=302)
             corrected_category = _display_category(stored, lang)
             if corrected_category != stored.get("category"):
                 stored = dict(stored)
@@ -7088,7 +7128,7 @@ def article(slug: str):
         )
         related_pool: list[dict[str, Any]] = []
         for related_row in related_rows:
-            if not _row_allowed_on_language_site(related_row, lang):
+            if not _story_allowed_in_display_language(related_row, lang):
                 continue
             if _looks_like_feed_section_title(
                 related_row.get(f"title_{lang}") or "", related_row.get("source_name", "")
