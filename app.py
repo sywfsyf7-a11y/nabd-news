@@ -2015,7 +2015,7 @@ def _search_cleveland_museum_image(title: str, lang: str = "en", category: str =
     if not query:
         return {}
     try:
-        params = urlencode({"q": query, "has_image": "1", "cc0": "1", "limit": "20"})
+        params = urlencode({"q": query, "has_image": "1", "limit": "20"}) + "&cc0"
         req = Request(
             "https://openaccess-api.clevelandart.org/api/artworks/?" + params,
             headers={"Accept": "application/json", "User-Agent": "WorldPulseNews/2.3 (Cleveland Museum public-domain image discovery)"},
