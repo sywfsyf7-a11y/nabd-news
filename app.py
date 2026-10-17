@@ -4342,21 +4342,20 @@ def _refresh_news_job() -> None:
                 for item in queue_items if item.get("source_url")
             }
             additions: list[dict[str, Any]] = []
+            available_slots = max(0, MAX_PENDING_NEWS_CANDIDATES - len(queue_items))
+            addition_limit = min(MAX_QUEUE_ADDITIONS_PER_DISCOVERY, available_slots)
             for candidate in rss_candidates:
+                if len(additions) >= addition_limit:
+                    break
                 key = _canonical_story_url(candidate.get("source_url"))
                 if not key or key in known_keys or key in queued_keys:
                     continue
                 queued_keys.add(key)
                 additions.append(candidate)
-                if len(additions) >= MAX_QUEUE_ADDITIONS_PER_DISCOVERY:
-                    break
 
-            # Keep intake close to publishing capacity: six new stories per 30 minutes
-            # matches one publication every five minutes. Do not evict older unsent queue
-            # entries just because one RSS scan found a burst of headlines.
+            # Keep the queue FIFO. Never trim or reorder pending metadata: archived articles
+            # are never deleted, and a temporarily overloaded queue must not starve old items.
             queue_items.extend(additions)
-            queue_items.sort(key=_memory_article_timestamp, reverse=True)
-            queue_items = queue_items[:MAX_PENDING_NEWS_CANDIDATES]
             queue_state["discovered_at"] = datetime.now(timezone.utc).isoformat()
             queue_state["items"] = queue_items
             if not _save_persisted_news_queue(queue_state):
