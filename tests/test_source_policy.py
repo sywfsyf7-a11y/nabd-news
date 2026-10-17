@@ -1077,5 +1077,63 @@ class ExpandedSourceAndImageCatalogueTests(unittest.TestCase):
             self.assertEqual(world_pulse._search_wellcome_open_access_image("medical history", category="world"), {})
             network.assert_not_called()
 
+
+class NewImageProviderPersistenceTests(unittest.TestCase):
+    def test_cleveland_and_wellcome_images_can_be_cached_only_from_their_official_hosts(self):
+        import io
+        from unittest.mock import MagicMock, patch
+        from PIL import Image
+
+        image_buffer = io.BytesIO()
+        Image.new("RGB", (800, 500), "#526b81").save(image_buffer, format="PNG")
+        image_bytes = image_buffer.getvalue()
+
+        fixtures = (
+            {
+                "image_url": "https://openaccess-cdn.clevelandart.org/123/123_web.jpg",
+                "image_source": "cleveland_museum_open_access",
+                "image_license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+            },
+            {
+                "image_url": "https://iiif.wellcomecollection.org/image/test/full/800,/0/default.jpg",
+                "image_source": "wellcome_open_access",
+                "image_license_url": "https://creativecommons.org/licenses/by/4.0/",
+            },
+        )
+        for candidate in fixtures:
+            with self.subTest(provider=candidate["image_source"]):
+                fake_connection = MagicMock()
+                response = MagicMock()
+                response.__enter__.return_value.read.return_value = image_bytes
+                result = dict(candidate, image_credit="Creator", image_credit_url="https://example.org/item",
+                              image_provider_url="https://example.org/item")
+
+                with patch.object(world_pulse, "_image_license_verified", return_value=True):
+                    with patch.object(world_pulse, "_catalogued_image_exists", return_value=False):
+                        with patch.object(world_pulse, "_ensure_schema", return_value=True):
+                            with patch.object(world_pulse, "_connect_db", return_value=fake_connection):
+                                with patch.object(world_pulse, "_release_db_connection"):
+                                    with patch.object(world_pulse, "urlopen", return_value=response):
+                                        cached = world_pulse._cache_reusable_image(result)
+
+                self.assertTrue(cached["image_url"].startswith("/media/catalogued/"))
+                self.assertEqual(cached["image_source"], candidate["image_source"])
+                fake_connection.commit.assert_called_once()
+                sql, _params = fake_connection.cursor.return_value.__enter__.return_value.execute.call_args.args
+                self.assertIn("INSERT INTO world_pulse_catalogued_images", sql)
+
+    def test_new_image_catalogue_sources_are_in_the_trusted_allowlist(self):
+        self.assertIn("cleveland_museum_open_access", world_pulse.TRUSTED_REUSABLE_IMAGE_SOURCES)
+        self.assertIn("wellcome_open_access", world_pulse.TRUSTED_REUSABLE_IMAGE_SOURCES)
+        self.assertEqual(
+            world_pulse._image_provider_label("cleveland_museum_open_access"),
+            "Cleveland Museum of Art (CC0 artwork)",
+        )
+        self.assertEqual(
+            world_pulse._image_provider_label("wellcome_open_access"),
+            "Wellcome Collection (CC0 / CC BY image)",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
