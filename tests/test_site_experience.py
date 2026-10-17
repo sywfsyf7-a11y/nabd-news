@@ -509,6 +509,15 @@ class SiteExperienceTests(unittest.TestCase):
         self.assertTrue(world_pulse._looks_like_feed_section_title("Latest Nintendo Life News", "Nintendo Life"))
         self.assertTrue(world_pulse._looks_like_feed_section_title("مستجدات التكنولوجيا", ""))
         self.assertTrue(world_pulse._looks_like_feed_section_title("New York - The Guardian", "The Guardian"))
+        self.assertTrue(world_pulse._looks_like_feed_section_title(
+            "Breaking News, World News and Video from Al Jazeera - Al Jazeera", "Al Jazeera"
+        ))
+        self.assertTrue(world_pulse._looks_like_feed_section_title(
+            "آخر الأخبار العربية والدولية - الجزيرة نت", "الجزيرة نت"
+        ))
+        self.assertFalse(world_pulse._looks_like_feed_section_title(
+            "World News and Video: Negotiators begin new ceasefire talks in Cairo", "Al Jazeera"
+        ))
         self.assertFalse(
             world_pulse._looks_like_feed_section_title(
                 "Nintendo announces a new console and release window", "Nintendo Life"
@@ -528,6 +537,11 @@ class SiteExperienceTests(unittest.TestCase):
           <item>
             <title>Latest Nintendo Life News</title>
             <link>https://www.nintendolife.com/news</link>
+            <source url="https://www.nintendolife.com/">Nintendo Life</source>
+          </item>
+          <item>
+            <title>Breaking News, World News and Video from Nintendo Life - Nintendo Life</title>
+            <link>https://www.nintendolife.com/</link>
             <source url="https://www.nintendolife.com/">Nintendo Life</source>
           </item>
           <item>
@@ -574,6 +588,16 @@ class SiteExperienceTests(unittest.TestCase):
                 "title_en": "Latest Nintendo Life News",
                 "is_demo": False,
             },
+            {
+                "slug": "old-publisher-home-title",
+                "source_url": "https://www.aljazeera.com/",
+                "source_domain": "aljazeera.com",
+                "source_name": "Al Jazeera",
+                "category": "world",
+                "original_language": "en",
+                "title_en": "Breaking News, World News and Video from Al Jazeera - Al Jazeera",
+                "is_demo": False,
+            },
         ]
         with patch.object(world_pulse, "_all_live_articles", return_value=rows):
             with patch.object(world_pulse, "_display_category", side_effect=lambda row, lang: row["category"]):
@@ -583,7 +607,29 @@ class SiteExperienceTests(unittest.TestCase):
                             stories = world_pulse._build_display_stories("en")
 
         self.assertEqual([story["slug"] for story in stories], ["real-story"])
-        self.assertEqual(len(rows), 2, "legacy archive rows must be hidden, not deleted")
+        self.assertEqual(len(rows), 3, "legacy archive rows must be hidden, not deleted")
+
+    def test_direct_article_route_hides_legacy_publisher_seo_titles(self):
+        row = {
+            "slug": "legacy-seo-title",
+            "source_url": "https://www.aljazeera.com/",
+            "source_domain": "aljazeera.com",
+            "source_name": "Al Jazeera",
+            "category": "world",
+            "original_language": "en",
+            "title_en": "Breaking News, World News and Video from Al Jazeera - Al Jazeera",
+            "summary_en": "A publisher landing-page label mistakenly stored as a headline.",
+            "content_en": "",
+            "is_demo": False,
+        }
+        with patch.object(world_pulse, "current_language", return_value="en"):
+            with patch.object(world_pulse, "_DISPLAY_STORIES_CACHE", {}):
+                with patch.object(world_pulse, "_db_fetch_article_by_slug", return_value=row):
+                    with patch.object(world_pulse, "_row_allowed_on_language_site", return_value=True):
+                        response = world_pulse.app.test_client().get(
+                            "/article/legacy-seo-title?lang=en"
+                        )
+        self.assertEqual(response.status_code, 404)
 
     def test_google_news_rss_query_is_limited_to_recent_stories(self):
         with patch.object(world_pulse, "_control_enabled", return_value=True):
