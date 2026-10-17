@@ -114,6 +114,12 @@ RSS_CANDIDATES_PER_CATEGORY = max(3, min(8, int(os.getenv("RSS_CANDIDATES_PER_CA
 MAX_RSS_CANDIDATES = max(32, min(96, MAX_ARTICLES_PER_REFRESH * 4))
 RSS_ENTRIES_PER_FEED = max(24, min(60, int(os.getenv("RSS_ENTRIES_PER_FEED", "24"))))
 IMAGE_SEARCH_TIMEOUT_SECONDS = max(3, min(12, int(os.getenv("IMAGE_SEARCH_TIMEOUT_SECONDS", "5"))))
+# Give each provider a bounded parsing/relevance-scoring window after its HTTP timeout.
+# The previous group deadline was only one second above the socket timeout, so it
+# discarded valid catalogue responses that needed a little extra time to decode/rank.
+IMAGE_PROVIDER_GROUP_TIMEOUT_SECONDS = min(
+    15, max(IMAGE_SEARCH_TIMEOUT_SECONDS + 2, IMAGE_SEARCH_TIMEOUT_SECONDS * 2)
+)
 IMAGE_DOWNLOAD_TIMEOUT_SECONDS = max(5, min(20, int(os.getenv("IMAGE_DOWNLOAD_TIMEOUT_SECONDS", "10"))))
 MAX_IMAGE_LOOKUPS_PER_REFRESH = max(0, min(32, int(os.getenv("MAX_IMAGE_LOOKUPS_PER_REFRESH", "2"))))
 IMAGE_RETRY_AFTER_HOURS = max(1, min(168, int(os.getenv("IMAGE_RETRY_AFTER_HOURS", "1"))))
@@ -2810,9 +2816,10 @@ def _search_image_provider_group(
     futures = {executor.submit(finder): key for key, finder in active}
     results: dict[str, dict[str, str]] = {}
     try:
-        # Each adapter has a per-request timeout. A small group deadline bounds slow
-        # catalogues without forcing every provider to run in serial for each story.
-        for future in as_completed(futures, timeout=IMAGE_SEARCH_TIMEOUT_SECONDS + 1):
+        # The HTTP timeout does not include all JSON decoding, metadata parsing, and
+        # relevance scoring. Keep a little bounded headroom so a valid result is not
+        # discarded merely because local response processing outlasted the socket timeout.
+        for future in as_completed(futures, timeout=IMAGE_PROVIDER_GROUP_TIMEOUT_SECONDS):
             key = futures[future]
             try:
                 result = future.result()
