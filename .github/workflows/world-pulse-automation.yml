@@ -2,9 +2,9 @@ name: World Pulse automation checks
 
 on:
   schedule:
-    # Wake the free Render service twice an hour; the app's guarded scheduler
-    # performs the refresh and serializes work across Gunicorn workers.
-    - cron: "7,37 * * * *"
+    # Wake the free Render service every 15 minutes; the app's guarded scheduler
+    # performs publishing/discovery work and serializes it across Gunicorn workers.
+    - cron: "7,22,37,52 * * * *"
   push:
     paths:
       - "app.py"
