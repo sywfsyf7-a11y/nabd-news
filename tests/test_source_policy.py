@@ -91,7 +91,7 @@ class SourcePolicyTests(unittest.TestCase):
         headline_only = dict(
             english_story_translated,
             category="world",
-            source_domain="aljazeera.com",
+            source_domain="bbc.com",
             title_en="International report",
         )
         self.assertTrue(world_pulse._row_allowed_on_language_site(headline_only, "ar"))
