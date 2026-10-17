@@ -14,7 +14,7 @@ class SourcePolicyTests(unittest.TestCase):
             "",
         )
 
-    def test_combined_archive_requires_a_complete_translation_for_the_other_interface(self):
+    def test_each_interface_only_shows_stories_from_its_native_source_language(self):
         arabic_story = {
             "category": "technology",
             "original_language": "ar",
@@ -39,7 +39,7 @@ class SourcePolicyTests(unittest.TestCase):
                          "without adding unverified dates, figures, claims, or other unsupported background."),
 
         )
-        self.assertTrue(world_pulse._row_allowed_on_language_site(arabic_story_translated, "en"))
+        self.assertFalse(world_pulse._row_allowed_on_language_site(arabic_story_translated, "en"))
 
         english_story = {
             "category": "technology",
@@ -66,7 +66,7 @@ class SourcePolicyTests(unittest.TestCase):
                         "التطور الأساسي والسياق المذكور، من دون إضافة تواريخ أو أرقام أو ادعاءات غير مؤكدة. "
                         "كما يقتصر هذا العرض على ما ورد في المادة ولا يضيف خلفيات أو تفاصيل غير مسندة للمصدر."),
         )
-        self.assertTrue(world_pulse._row_allowed_on_language_site(english_story_translated, "ar"))
+        self.assertFalse(world_pulse._row_allowed_on_language_site(english_story_translated, "ar"))
 
         # Headline-only publishers cannot be rewritten/translated by the editorial model,
         # even if an old row happens to contain language fields.
@@ -81,6 +81,22 @@ class SourcePolicyTests(unittest.TestCase):
         unapproved = dict(arabic_story, source_domain="unknown.example")
         self.assertFalse(world_pulse._row_allowed_on_language_site(unapproved, "ar"))
         self.assertFalse(world_pulse._row_allowed_on_language_site(unapproved, "en"))
+
+
+    def test_requested_editorial_priorities_are_allowlisted_by_section_and_language(self):
+        for (category, lang), domains in world_pulse.PRIORITY_SOURCE_DOMAINS.items():
+            for domain in domains:
+                self.assertEqual(
+                    world_pulse._source_domain_for_category(category, lang, domain),
+                    domain,
+                    (category, lang, domain),
+                )
+        self.assertIn("aljazeera.net", world_pulse.PRIORITY_SOURCE_DOMAINS[("politics", "ar")])
+        self.assertIn("reuters.com", world_pulse.PRIORITY_SOURCE_DOMAINS[("politics", "en")])
+        self.assertIn("aitnews.com", world_pulse.PRIORITY_SOURCE_DOMAINS[("technology", "ar")])
+        self.assertIn("theverge.com", world_pulse.PRIORITY_SOURCE_DOMAINS[("technology", "en")])
+        self.assertIn("saudigamer.com", world_pulse.PRIORITY_SOURCE_DOMAINS[("gaming", "ar")])
+        self.assertIn("ign.com", world_pulse.PRIORITY_SOURCE_DOMAINS[("gaming", "en")])
 
     def test_saudi_gamer_is_in_the_arabic_gaming_source_catalog(self):
         self.assertEqual(
@@ -437,7 +453,8 @@ class SourcePolicyTests(unittest.TestCase):
         self.assertIn("not a line-by-line paraphrase and not a synonym swap", prompt)
         self.assertIn("rather than padding a thin on-site page", prompt)
         self.assertIn("headline and RSS excerpt", prompt)
-        self.assertIn("no more than 120 words", prompt)
+        self.assertIn("usually 140–220 words", prompt)
+        self.assertIn("never pad it with generic background", prompt)
 
     def test_library_of_congress_image_search_accepts_only_item_level_open_rights(self):
         import io
@@ -1228,7 +1245,7 @@ class NewImageProviderPersistenceTests(unittest.TestCase):
         )
         self.assertFalse(world_pulse._row_allowed_on_language_site(mismatched_summary, "ar"))
 
-    def test_complete_translation_must_match_the_display_language_script(self):
+    def test_cross_language_translation_never_overrides_native_source_policy(self):
         row = {
             "category": "technology",
             "original_language": "en",
@@ -1249,7 +1266,7 @@ class NewImageProviderPersistenceTests(unittest.TestCase):
                 "أسماء أو تواريخ أو أرقام أو أسباب لم ترد في المادة الأصلية."
             ),
         }
-        self.assertTrue(world_pulse._row_allowed_on_language_site(row, "ar"))
+        self.assertFalse(world_pulse._row_allowed_on_language_site(row, "ar"))
         self.assertFalse(
             world_pulse._row_allowed_on_language_site(
                 dict(row, content_ar=row["content_en"]), "ar"

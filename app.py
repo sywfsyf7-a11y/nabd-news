@@ -238,7 +238,7 @@ CATEGORY_QUERIES = {
 CATEGORY_SOURCE_DOMAINS = {
     "politics": {
         "ar": ["aljazeera.net","bbc.com","alarabiya.net","skynewsarabia.com","aawsat.com","alquds.co.uk","alghad.com","almamlakatv.com","roya.tv","arabic.rt.com","cnn.com","france24.com","dw.com","euronews.com","aa.com.tr","alhurra.com","independentarabia.com","wam.ae","petra.gov.jo","spa.gov.sa","sabq.org","okaz.com.sa"],
-        "en": ["bbc.com","bbc.co.uk","aljazeera.com","cnn.com","reuters.com","apnews.com","politico.com","thehill.com","axios.com","voanews.com","rferl.org","dw.com","france24.com","euronews.com","abc.net.au","cbc.ca","npr.org","theconversation.com","almonitor.com","foreignpolicy.com","defensenews.com","opendemocracy.net","chinadaily.com.cn","thenationalnews.com","khaleejtimes.com","gulfnews.com","arabnews.com","saudigazette.com.sa","thearabweekly.com","globalvoices.org"],
+        "en": ["bbc.com","bbc.co.uk","aljazeera.com","cnn.com","reuters.com","apnews.com","politico.com","thehill.com","axios.com","voanews.com","rferl.org","dw.com","france24.com","euronews.com","abc.net.au","cbc.ca","npr.org","theconversation.com","almonitor.com","foreignpolicy.com","defensenews.com","opendemocracy.net","chinadaily.com.cn","thenationalnews.com","khaleejtimes.com","gulfnews.com","arabnews.com","saudigazette.com.sa","thearabweekly.com","globalvoices.org","theguardian.com"],
     },
     "economy": {
         "ar": ["asharqbusiness.com","cnbcarabia.com","mubasher.info","alarabiya.net","argaam.com","aleqt.com","zawya.com","almalnews.com","amwalalghad.com","almamlakatv.com","alghad.com","albayan.ae","alittihad.ae","wam.ae","petra.gov.jo","spa.gov.sa","sabq.org","okaz.com.sa"],
@@ -254,7 +254,7 @@ CATEGORY_SOURCE_DOMAINS = {
     },
     "sports": {
         "ar": ["filgoal.com","kooora.com","beinsports.com","yallakora.com","goal.com","arriyadiyah.com","alriyadh.com","sports360.com","365scores.com","fifa.com","olympics.com","almamlakatv.com","alghad.com","cnn.com","spa.gov.sa","sabq.org"],
-        "en": ["bbc.com","espn.com","skysports.com","formula1.com","fifa.com","olympics.com","goal.com","sportingnews.com","bleacherreport.com","talksport.com","motorsport.com","nba.com","nfl.com","mlb.com","apnews.com","reuters.com","cbssports.com","foxsports.com","sports.yahoo.com","the-race.com"],
+        "en": ["bbc.com","espn.com","skysports.com","formula1.com","fifa.com","olympics.com","goal.com","sportingnews.com","bleacherreport.com","talksport.com","motorsport.com","nba.com","nfl.com","mlb.com","apnews.com","reuters.com","cbssports.com","foxsports.com","sports.yahoo.com","the-race.com","theathletic.com"],
     },
     "science": {
         "ar": ["ngalarabiya.com","aljazeera.net","alarabiya.net","dw.com","france24.com","euronews.com","cnn.com","aa.com.tr","alhurra.com","petra.gov.jo","wam.ae","almamlakatv.com","arabic.rt.com","spa.gov.sa"],
@@ -262,7 +262,7 @@ CATEGORY_SOURCE_DOMAINS = {
     },
     "culture": {
         "ar": ["alqafilah.com","thifaf.com","aljazeera.net","alaraby.co.uk","alarab.co.uk","alarabiya.net","albayan.ae","alittihad.ae","masrawy.com","almasryalyoum.com","youm7.com","cairo24.com","alkhaleej.ae","cnn.com","france24.com","dw.com","spa.gov.sa","okaz.com.sa"],
-        "en": ["lithub.com","artsy.net","theguardian.com","smithsonianmag.com","artnews.com","hyperallergic.com","pitchfork.com","variety.com","hollywoodreporter.com","npr.org","theconversation.com","bfi.org.uk","literaryreview.co.uk","cnn.com","apnews.com","euronews.com","moma.org","nationalgallery.org.uk"],
+        "en": ["lithub.com","artsy.net","theguardian.com","smithsonianmag.com","artnews.com","hyperallergic.com","pitchfork.com","variety.com","hollywoodreporter.com","npr.org","theconversation.com","bfi.org.uk","literaryreview.co.uk","cnn.com","apnews.com","euronews.com","moma.org","nationalgallery.org.uk","newyorker.com"],
     },
     "world": {
         "ar": ["aljazeera.net","bbc.com","dw.com","france24.com","euronews.com","alarabiya.net","skynewsarabia.com","alghad.com","almamlakatv.com","roya.tv","arabic.rt.com","alhurra.com","cnn.com","aa.com.tr","wam.ae","petra.gov.jo","independentarabia.com","alqabas.com","alain.com","spa.gov.sa","sabq.org","okaz.com.sa"],
@@ -273,14 +273,24 @@ CATEGORY_SOURCE_DOMAINS = {
 # Ensure requested and regionally useful publishers are checked each discovery rather than
 # only when their rotating domain group happens to be selected. Rights gates still apply.
 PRIORITY_SOURCE_DOMAINS = {
-    ("gaming", "ar"): ("saudigamer.com", "true-gaming.net", "arabhardware.net"),
-    ("world", "ar"): ("aljazeera.net", "almamlakatv.com", "petra.gov.jo"),
-    ("politics", "ar"): ("aljazeera.net", "petra.gov.jo", "spa.gov.sa"),
-    ("world", "en"): ("aljazeera.com", "thenationalnews.com", "arabnews.com", "saudigazette.com.sa"),
-    ("politics", "en"): ("saudigazette.com.sa", "thenationalnews.com", "arabnews.com"),
-    ("economy", "en"): ("saudigazette.com.sa", "arabianbusiness.com", "thenationalnews.com"),
-    ("technology", "en"): ("theverge.com", "arstechnica.com", "9to5google.com"),
-    ("science", "en"): ("nasa.gov", "jpl.nasa.gov", "noaa.gov", "science.org"),
+    # User-requested editorial priorities: each group is still filtered through the
+    # category/language allowlist and the publisher's content-rights gate.
+    ("politics", "ar"): ("aljazeera.net", "alarabiya.net", "skynewsarabia.com", "aawsat.com", "alquds.co.uk"),
+    ("politics", "en"): ("bbc.com", "reuters.com", "apnews.com", "politico.com", "theguardian.com"),
+    ("economy", "ar"): ("asharqbusiness.com", "cnbcarabia.com", "mubasher.info", "argaam.com"),
+    ("economy", "en"): ("bloomberg.com", "ft.com", "wsj.com", "marketwatch.com", "cnbc.com"),
+    ("technology", "ar"): ("aitnews.com", "tech-wd.com", "arabhardware.net"),
+    ("technology", "en"): ("theverge.com", "techcrunch.com", "wired.com", "arstechnica.com"),
+    ("gaming", "ar"): ("saudigamer.com", "arabhardware.net", "arabgamenews.com"),
+    ("gaming", "en"): ("ign.com", "gamespot.com", "polygon.com", "eurogamer.net", "kotaku.com"),
+    ("sports", "ar"): ("filgoal.com", "kooora.com", "beinsports.com", "yallakora.com"),
+    ("sports", "en"): ("bbc.com", "espn.com", "skysports.com", "theathletic.com"),
+    ("science", "ar"): ("ngalarabiya.com", "aljazeera.net"),
+    ("science", "en"): ("nasa.gov", "space.com", "livescience.com", "scientificamerican.com", "nature.com"),
+    ("culture", "ar"): ("alqafilah.com", "thifaf.com", "aljazeera.net", "alaraby.co.uk"),
+    ("culture", "en"): ("lithub.com", "artsy.net", "theguardian.com", "newyorker.com"),
+    ("world", "ar"): ("aljazeera.net", "bbc.com", "france24.com", "dw.com"),
+    ("world", "en"): ("bbc.com", "euronews.com", "apnews.com", "cnn.com"),
 }
 
 # Direct official institutional RSS feeds complement Google News discovery. They run only on
@@ -524,6 +534,11 @@ def _row_allowed_on_language_site(row: dict[str, Any], lang: str) -> bool:
         return False
     source_lang = str(row.get("original_language") or "").casefold()
     if source_lang not in {"ar", "en"}:
+        return False
+    # A language edition only publishes stories originally reported in that language.
+    # A translation is useful metadata, but it must not move an English-source article
+    # into the Arabic source feed (or an Arabic-source article into the English feed).
+    if source_lang != lang:
         return False
 
     category = str(row.get("category") or "world")
@@ -1647,8 +1662,11 @@ def _backfill_missing_article_images(limit: int = 6) -> int:
         # Revalidate stored photos; if no relevant, rights-cleared match is found, use
         # the labelled editorial illustration rather than a potentially misleading photo.
         raw["_revalidating_cached_image"] = True
-        raw["image_search_title"] = row.get("title_en") or row.get("title_ar") or raw.get("original_title", "")
-        raw["image_search_context"] = row.get("summary_en") or row.get("summary_ar") or raw.get("original_summary", "")
+        image_language = str(row.get("original_language") or "en").casefold()
+        if image_language not in {"ar", "en"}:
+            image_language = "en"
+        raw["image_search_title"] = row.get(f"title_{image_language}") or raw.get("original_title", "")
+        raw["image_search_context"] = row.get(f"summary_{image_language}") or raw.get("original_summary", "")
     _enrich_article_images(pending)
     _db_update_article_images(pending)
     for raw in pending:
@@ -4379,7 +4397,7 @@ Strict editorial rules:
 - Write an independent editorial synthesis, not a line-by-line paraphrase and not a synonym swap. Add value through clear selection, explanation of the reported change, and organization of supported facts—not by adding unsupported outside context.
 - Do not reproduce a publisher's article, distinctive long phrases, quotes, or its original paragraph structure. No fabricated quotes, citations, or claims of independent verification.
 - If the source is restricted to headline-and-link-only mode, do not summarize its body or invent supporting details. If the available excerpt is too thin for a useful brief, keep the item as a source link rather than padding a thin on-site page.
-- For a normal-mode source with enough evidence, write a concise body of 1–3 short paragraphs and no more than 120 words in each language. A shorter source must produce a shorter brief, not filler.
+- For a normal-mode source with enough evidence, write a substantive original report of 2–4 short paragraphs, usually 140–220 words in each language. Organize the supported facts in a clear order and explain what changed, who is involved, and what the source says happens next only when those points are actually present in the excerpt. If the source does not support a report of that length, write a shorter accurate brief and never pad it with generic background or invented context.
 - Write concise Arabic and English headlines, ideally no more than 70 characters in Arabic and 90 in English. Keep the title as a headline, not a sentence-length summary.
 - The executive summary must be distinct from the title, specific to the story, and limited to 1–2 sentences. Never copy the headline into the summary or merely restate it with minor wording changes.
 - The details section must add distinct, source-supported facts beyond the headline and summary where the excerpt permits. If only one verifiable fact is available, make that limitation clear instead of artificially expanding the article. The original publisher URL must remain visible as the source.
@@ -5145,6 +5163,213 @@ def _clean_pending_news_queue(
     return cleaned
 
 
+SOURCE_LINK_REPAIR_BATCH_SIZE = max(0, min(24, int(os.getenv("SOURCE_LINK_REPAIR_BATCH_SIZE", "12"))))
+SOURCE_LINK_REPAIR_STATE_KEY = "source_link_repair_cursor_v1"
+
+
+def _resolve_google_news_article_url(
+    source_url: str, expected_domain: str, category: str, lang: str
+) -> str:
+    """Resolve a Google News discovery redirect only when it lands on the expected allowlisted publisher."""
+    source_url = str(source_url or "").strip()
+    expected_domain = str(expected_domain or "").casefold().removeprefix("www.")
+    try:
+        parsed = urlparse(source_url)
+        host = (parsed.hostname or "").casefold().removeprefix("www.")
+    except (TypeError, ValueError):
+        return ""
+    if parsed.scheme.casefold() not in {"http", "https"} or not host:
+        return ""
+    if not _domain_matches(host, "news.google.com"):
+        matched = _source_domain_for_category(category, lang, host)
+        # The URL host itself is allowlisted; use that canonical host even when a
+        # publisher's RSS source.href uses a sibling regional domain.
+        return source_url if matched else ""
+    if not expected_domain or not _source_domain_for_category(category, lang, expected_domain):
+        return ""
+    try:
+        req = Request(
+            source_url,
+            headers={"User-Agent": "WorldPulseNews/2.5 (+source-link verification)", "Accept": "text/html"},
+        )
+        with urlopen(req, timeout=min(3, max(2, RSS_TIMEOUT_SECONDS))) as response:
+            final_url = str(response.geturl() or "").strip()
+        final = urlparse(final_url)
+        final_host = (final.hostname or "").casefold().removeprefix("www.")
+        matched = _source_domain_for_category(category, lang, final_host)
+        if (
+            final.scheme.casefold() in {"http", "https"}
+            and matched
+            and _domain_matches(final_host, expected_domain)
+            and not _domain_matches(final_host, "news.google.com")
+        ):
+            return final_url
+    except Exception as exc:
+        logger.debug("Google News source-link resolution failed (%s)", type(exc).__name__)
+    return ""
+
+
+def _repair_legacy_source_links(limit: int = SOURCE_LINK_REPAIR_BATCH_SIZE) -> int:
+    """Repair source-domain metadata and Google News redirects in a bounded archive batch."""
+    if limit <= 0 or not _ensure_schema():
+        return 0
+    conn = _connect_db()
+    if conn is None:
+        return 0
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(
+                "SELECT state_value FROM world_pulse_runtime_state WHERE state_key = %s",
+                (SOURCE_LINK_REPAIR_STATE_KEY,),
+            )
+            state_row = cur.fetchone()
+            try:
+                cursor_id = max(0, int(state_row.get("state_value"))) if state_row and state_row.get("state_value") else 0
+            except (TypeError, ValueError):
+                cursor_id = 0
+            cur.execute(
+                """
+                SELECT id, slug, source_url, source_domain, source_name, category, original_language
+                FROM world_pulse_articles
+                WHERE id > %s
+                ORDER BY id ASC
+                LIMIT %s
+                """,
+                (cursor_id, max(1, min(24, int(limit)))),
+            )
+            rows = [dict(row) for row in cur.fetchall()]
+        conn.commit()
+    except Exception as exc:
+        conn.rollback()
+        logger.warning("Archive source-link scan failed (%s)", type(exc).__name__)
+        return 0
+    finally:
+        _release_db_connection(conn)
+
+    if not rows:
+        conn = _connect_db()
+        if conn is not None:
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        INSERT INTO world_pulse_runtime_state (state_key, state_value, updated_at)
+                        VALUES (%s, '0', NOW())
+                        ON CONFLICT (state_key) DO UPDATE
+                        SET state_value = '0', updated_at = NOW()
+                        """,
+                        (SOURCE_LINK_REPAIR_STATE_KEY,),
+                    )
+                conn.commit()
+            except Exception:
+                conn.rollback()
+            finally:
+                _release_db_connection(conn)
+        return 0
+
+    def inspect_row(row: dict[str, Any]) -> tuple[int, str, str] | None:
+        source_url = str(row.get("source_url") or "").strip()
+        category = str(row.get("category") or "world")
+        lang = str(row.get("original_language") or "").casefold()
+        if lang not in {"ar", "en"}:
+            return None
+        try:
+            parsed = urlparse(source_url)
+            host = (parsed.hostname or "").casefold().removeprefix("www.")
+        except (TypeError, ValueError):
+            return None
+        stored_domain = str(row.get("source_domain") or "").casefold().removeprefix("www.")
+        expected = stored_domain or _infer_source_domain_from_name(
+            category, lang, str(row.get("source_name") or "")
+        )
+        if _domain_matches(host, "news.google.com"):
+            resolved = _resolve_google_news_article_url(source_url, expected, category, lang)
+            if resolved:
+                final_host = (urlparse(resolved).hostname or "").casefold().removeprefix("www.")
+                matched = _source_domain_for_category(category, lang, final_host)
+                if matched:
+                    return int(row["id"]), resolved, matched
+        else:
+            matched = _source_domain_for_category(category, lang, host)
+            if matched and stored_domain != matched:
+                return int(row["id"]), source_url, matched
+        return None
+
+    repaired: list[tuple[int, str, str]] = []
+    with ThreadPoolExecutor(max_workers=min(4, len(rows))) as repair_pool:
+        for result in repair_pool.map(inspect_row, rows):
+            if result:
+                repaired.append(result)
+
+    if not repaired:
+        # Advance the scan even when this batch contains only clean records.
+        conn = _connect_db()
+        if conn is not None:
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        INSERT INTO world_pulse_runtime_state (state_key, state_value, updated_at)
+                        VALUES (%s, %s, NOW())
+                        ON CONFLICT (state_key) DO UPDATE
+                        SET state_value = EXCLUDED.state_value, updated_at = NOW()
+                        """,
+                        (SOURCE_LINK_REPAIR_STATE_KEY, str(int(rows[-1]["id"]))),
+                    )
+                conn.commit()
+            except Exception:
+                conn.rollback()
+            finally:
+                _release_db_connection(conn)
+        return 0
+
+    conn = _connect_db()
+    if conn is None:
+        return 0
+    updated = 0
+    try:
+        with conn.cursor() as cur:
+            for article_id, resolved_url, matched_domain in repaired:
+                cur.execute(
+                    """
+                    UPDATE world_pulse_articles AS article
+                    SET source_url = %s, source_domain = %s
+                    WHERE article.id = %s
+                      AND NOT EXISTS (
+                        SELECT 1 FROM world_pulse_articles AS other
+                        WHERE other.source_url = %s AND other.id <> article.id
+                      )
+                    """,
+                    (resolved_url, matched_domain, article_id, resolved_url),
+                )
+                updated += max(0, cur.rowcount)
+            cur.execute(
+                """
+                INSERT INTO world_pulse_runtime_state (state_key, state_value, updated_at)
+                VALUES (%s, %s, NOW())
+                ON CONFLICT (state_key) DO UPDATE
+                SET state_value = EXCLUDED.state_value, updated_at = NOW()
+                """,
+                (SOURCE_LINK_REPAIR_STATE_KEY, str(int(rows[-1]["id"]))),
+            )
+        conn.commit()
+    except Exception as exc:
+        conn.rollback()
+        logger.warning("Archive source-link repair update failed (%s)", type(exc).__name__)
+        return 0
+    finally:
+        _release_db_connection(conn)
+
+    if updated:
+        global _DB_ARTICLES_CACHE_AT
+        with _DB_ARTICLES_CACHE_LOCK:
+            _DB_ARTICLES_CACHE_AT = 0.0
+        with _DISPLAY_STORIES_CACHE_LOCK:
+            _DISPLAY_STORIES_CACHE.clear()
+        logger.info("Archive source-link repair batch: scanned=%d repaired=%d", len(rows), updated)
+    return updated
+
+
 def _refresh_news_job() -> None:
     global _REFRESHING, _LAST_REFRESH_SUCCESS, _LAST_REFRESH_AT, _LAST_REFRESH_STATE, _LAST_REFRESH_ERROR
     refresh_lock_file = None
@@ -5173,6 +5398,7 @@ def _refresh_news_job() -> None:
             logger.error("News refresh aborted before RSS ingestion: database/schema unavailable")
             return
         _run_content_quality_audit_once()
+        _repair_legacy_source_links()
         database_rows = _db_fetch_all()
         queue_state = _load_persisted_news_queue()
         if queue_state is None:
@@ -5208,6 +5434,24 @@ def _refresh_news_job() -> None:
             for candidate in rss_candidates:
                 if len(additions) >= addition_limit:
                     break
+                candidate_key = _canonical_story_url(candidate.get("source_url"))
+                if not candidate_key or candidate_key in known_keys or candidate_key in queued_keys:
+                    continue
+                candidate = dict(candidate)
+                resolved_url = _resolve_google_news_article_url(
+                    str(candidate.get("source_url") or ""),
+                    str(candidate.get("source_domain") or ""),
+                    str(candidate.get("category") or "world"),
+                    str(candidate.get("original_language") or "en"),
+                )
+                if resolved_url:
+                    candidate["source_url"] = resolved_url
+                    candidate["source_domain"] = _source_domain_for_category(
+                        str(candidate.get("category") or "world"),
+                        str(candidate.get("original_language") or "en"),
+                        (urlparse(resolved_url).hostname or "").casefold(),
+                    )
+                    candidate.pop("slug", None)
                 key = _canonical_story_url(candidate.get("source_url"))
                 if not key or key in known_keys or key in queued_keys:
                     continue
@@ -5303,8 +5547,11 @@ def _refresh_news_job() -> None:
                 raw["image_search_context"] = raw.get("original_summary", "")
                 raw_to_publish.append((index, raw))
                 continue
-            raw["image_search_title"] = enriched.get("title_en") or raw.get("original_title", "")
-            raw["image_search_context"] = enriched.get("summary_en") or raw.get("original_summary", "")
+            image_language = str(raw.get("original_language") or "en").casefold()
+            if image_language not in {"ar", "en"}:
+                image_language = "en"
+            raw["image_search_title"] = enriched.get(f"title_{image_language}") or raw.get("original_title", "")
+            raw["image_search_context"] = enriched.get(f"summary_{image_language}") or raw.get("original_summary", "")
             raw_to_publish.append((index, raw))
 
         source_language_fallbacks = sum(
@@ -5398,12 +5645,14 @@ def _refresh_news_job() -> None:
         # Revalidate a small bounded batch of older archive images during discovery.
         # This accelerates migration away from old placeholders without running an image
         # search on every five-minute publication tick.
-        if discovery_due and MAX_IMAGE_LOOKUPS_PER_REFRESH > 0:
+        if MAX_IMAGE_LOOKUPS_PER_REFRESH > 0:
+            # Repair the archive every publishing tick, not only during discovery. The
+            # batch is bounded by the same provider lookup budget and never deletes rows.
             revalidation_limit = min(IMAGE_REVALIDATION_BATCH_SIZE, MAX_IMAGE_LOOKUPS_PER_REFRESH)
             try:
                 revalidated = _backfill_missing_article_images(limit=revalidation_limit)
                 logger.info(
-                    "Scheduled image revalidation after discovery: batch_limit=%d reusable_images=%d",
+                    "Scheduled image revalidation after publishing tick: batch_limit=%d reusable_images=%d",
                     revalidation_limit, revalidated,
                 )
             except Exception as repair_exc:

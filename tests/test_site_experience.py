@@ -41,6 +41,9 @@ class SiteExperienceTests(unittest.TestCase):
         self.assertNotIn("/api/refresh", template)
         self.assertIn("filename='css/site.css'", template)
         self.assertNotIn("cdn.tailwindcss.com", template)
+        self.assertNotIn('<img src="{{ story.image_fallback_url }}"', template)
+        self.assertNotIn('<img src="{{ article.image_fallback_url }}"', template)
+        self.assertEqual(template.count("data-fallback-src="), 3)
         self.assertIn("الأخبار تتجدد باستمرار", world_pulse.UI_TEXT["ar"]["live"])
         self.assertIn("Continuously updated", world_pulse.UI_TEXT["en"]["live"])
         tailwind_config_path = os.path.join(os.path.dirname(world_pulse.__file__), "tailwind.config.js")
@@ -1395,6 +1398,37 @@ class BoundedImageProviderSearchTests(unittest.TestCase):
         self.assertNotIn("image_url NOT LIKE '/media/catalogued/", sql)
         self.assertIn("image_checked_at < NOW() - (%s * INTERVAL '1 second')", sql)
         self.assertGreaterEqual(world_pulse.IMAGE_CACHE_MAX_AGE_SECONDS, 6 * 3600)
+
+    def test_arabic_archive_image_revalidation_uses_native_arabic_title_and_summary(self):
+        row = {
+            "slug": "arabic-story",
+            "source_url": "https://aitnews.com/2026/10/17/example",
+            "category": "technology",
+            "source_name": "AIT News",
+            "source_domain": "aitnews.com",
+            "original_language": "ar",
+            "title_ar": "عنوان عربي عن إطلاق هاتف جديد",
+            "summary_ar": "تفاصيل عربية عن الهاتف ومواصفاته المعلنة.",
+            "content_ar": "تفاصيل إضافية موثقة من المصدر.",
+            "title_en": "New phone announced",
+            "summary_en": "An English summary about the announced phone.",
+            "content_en": "Additional source-supported details.",
+            "image_url": "",
+            "image_source": "none",
+            "image_checked_at": None,
+        }
+        captured = []
+
+        def capture(items, **_kwargs):
+            captured.extend(dict(item) for item in items)
+
+        with patch.object(world_pulse, "_db_fetch_articles_needing_images", return_value=[row]):
+            with patch.object(world_pulse, "_enrich_article_images", side_effect=capture):
+                with patch.object(world_pulse, "_db_update_article_images", return_value=1):
+                    world_pulse._backfill_missing_article_images(limit=1)
+
+        self.assertEqual(captured[0]["image_search_title"], row["title_ar"])
+        self.assertEqual(captured[0]["image_search_context"], row["summary_ar"])
 
     def test_periodic_image_revalidation_does_not_keep_a_stale_photo_when_no_match_exists(self):
         old_image = {

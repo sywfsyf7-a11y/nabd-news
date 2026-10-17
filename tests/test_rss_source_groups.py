@@ -91,7 +91,13 @@ class RSSPublisherGroupTests(unittest.TestCase):
         }
         self.assertEqual(result, [])
         self.assertEqual({(category, lang) for category, lang, _ in calls}, expected_pairs)
-        self.assertTrue(all(1 <= len(group) <= 4 for _, _, group in calls))
+        for category, lang, group in calls:
+            if group[0] == world_pulse.DIRECT_RSS_SENTINEL:
+                self.assertEqual(len(group), 4)
+            elif group in world_pulse.PRIORITY_SOURCE_DOMAINS.values():
+                self.assertLessEqual(len(group), 5)
+            else:
+                self.assertTrue(1 <= len(group) <= 4, (category, lang, group))
         # Each category/language pair gets two rotating groups and sometimes a priority
         # group. Science-English also queries three official feeds in this same bounded pool.
         for pair in expected_pairs - {("science", "en")}:
@@ -102,8 +108,8 @@ class RSSPublisherGroupTests(unittest.TestCase):
         self.assertEqual(len(direct_feeds), 3)
         self.assertEqual({group[1] for group in direct_feeds}, {"nasa.gov", "noaa.gov", "jpl.nasa.gov"})
         for category, lang, priority_domains in (
-            ("gaming", "ar", ("saudigamer.com", "true-gaming.net", "arabhardware.net")),
-            ("world", "ar", ("aljazeera.net", "almamlakatv.com", "petra.gov.jo")),
+            ("gaming", "ar", ("saudigamer.com", "arabhardware.net", "arabgamenews.com")),
+            ("world", "ar", ("aljazeera.net", "bbc.com", "france24.com", "dw.com")),
         ):
             pair_groups = [group for c, l, group in calls if (c, l) == (category, lang)]
             self.assertIn(priority_domains, pair_groups)
@@ -445,6 +451,36 @@ class GeminiRequestBudgetTests(unittest.TestCase):
         self.assertEqual(set(result), set(range(18)))
         client_options = fake_genai.Client.call_args.kwargs["http_options"]
         self.assertEqual(client_options.retry_options.attempts, 1)
+
+
+    def test_google_news_redirect_is_resolved_only_to_expected_allowlisted_publisher(self):
+        response = MagicMock()
+        response.__enter__.return_value = response
+        response.__exit__.return_value = False
+        response.geturl.return_value = "https://www.theverge.com/2026/10/17/example-story"
+        with patch.object(world_pulse, "urlopen", return_value=response):
+            resolved = world_pulse._resolve_google_news_article_url(
+                "https://news.google.com/rss/articles/example-token",
+                "theverge.com", "technology", "en",
+            )
+        self.assertEqual(resolved, "https://www.theverge.com/2026/10/17/example-story")
+
+        response.geturl.return_value = "https://example.invalid/copied-story"
+        with patch.object(world_pulse, "urlopen", return_value=response):
+            rejected = world_pulse._resolve_google_news_article_url(
+                "https://news.google.com/rss/articles/example-token",
+                "theverge.com", "technology", "en",
+            )
+        self.assertEqual(rejected, "")
+
+    def test_direct_allowlisted_article_url_does_not_make_a_network_request(self):
+        url = "https://www.theverge.com/2026/10/17/example-story"
+        with patch.object(world_pulse, "urlopen") as network:
+            self.assertEqual(
+                world_pulse._resolve_google_news_article_url(url, "theverge.com", "technology", "en"),
+                url,
+            )
+            network.assert_not_called()
 
 
 class DatabaseURLTests(unittest.TestCase):

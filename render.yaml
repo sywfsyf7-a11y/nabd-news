@@ -53,6 +53,8 @@ services:
       - key: MAX_ARTICLES_PER_CATEGORY
         value: "3"
       - key: MAX_IMAGE_LOOKUPS_PER_REFRESH
-        value: "2"
+        value: "3"
       - key: IMAGE_REVALIDATION_BATCH_SIZE
-        value: "2"
+        value: "3"
+      - key: SOURCE_LINK_REPAIR_BATCH_SIZE
+        value: "12"
