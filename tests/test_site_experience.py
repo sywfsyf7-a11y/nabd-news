@@ -948,5 +948,40 @@ class SiteExperienceTests(unittest.TestCase):
         self.assertEqual(raw["image_source"], "openverse_licensed")
 
 
+
+class PersistentPendingQueueTests(unittest.TestCase):
+    def test_cleanup_deduplicates_without_dropping_oldest_or_newest_pending_items(self):
+        items = [
+            {
+                "source_url": f"https://example.com/pending/{index}",
+                "category": "world",
+                "original_language": "en",
+                "sequence": index,
+            }
+            for index in range(65)
+        ]
+        items.extend([
+            dict(items[10]),
+            {
+                "source_url": "https://example.com/already-published",
+                "category": "world",
+                "original_language": "en",
+            },
+        ])
+
+        cleaned = world_pulse._clean_pending_news_queue(
+            items,
+            {"example.com/already-published"},
+        )
+
+        self.assertEqual(len(cleaned), 65)
+        self.assertEqual(cleaned[0]["sequence"], 0)
+        self.assertEqual(cleaned[-1]["sequence"], 64)
+        self.assertEqual(
+            [item["sequence"] for item in cleaned],
+            list(range(65)),
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
