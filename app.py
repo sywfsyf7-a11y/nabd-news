@@ -122,6 +122,8 @@ IMAGE_PROVIDER_GROUP_TIMEOUT_SECONDS = min(
 )
 IMAGE_DOWNLOAD_TIMEOUT_SECONDS = max(5, min(20, int(os.getenv("IMAGE_DOWNLOAD_TIMEOUT_SECONDS", "10"))))
 MAX_IMAGE_LOOKUPS_PER_REFRESH = max(0, min(32, int(os.getenv("MAX_IMAGE_LOOKUPS_PER_REFRESH", "2"))))
+# Gradually repair older archived stories without running large, long-lived image batches.
+IMAGE_REVALIDATION_BATCH_SIZE = max(1, min(4, int(os.getenv("IMAGE_REVALIDATION_BATCH_SIZE", "2"))))
 IMAGE_RETRY_AFTER_HOURS = max(1, min(168, int(os.getenv("IMAGE_RETRY_AFTER_HOURS", "1"))))
 # A durable image remains cached, but its relevance/licence record is rechecked periodically.
 IMAGE_CACHE_MAX_AGE_SECONDS = max(3600, int(os.getenv("IMAGE_CACHE_MAX_AGE_HOURS", "6")) * 3600)
@@ -5013,14 +5015,16 @@ def _refresh_news_job() -> None:
                 type(image_exc).__name__,
             )
 
-        # Recheck one older image only during the 30-minute discovery pass. This gradually
-        # repairs legacy mismatches without a second image search on every 5-minute tick.
+        # Revalidate a small bounded batch of older archive images during discovery.
+        # This accelerates migration away from old placeholders without running an image
+        # search on every five-minute publication tick.
         if discovery_due and MAX_IMAGE_LOOKUPS_PER_REFRESH > 0:
+            revalidation_limit = min(IMAGE_REVALIDATION_BATCH_SIZE, MAX_IMAGE_LOOKUPS_PER_REFRESH)
             try:
-                revalidated = _backfill_missing_article_images(limit=1)
+                revalidated = _backfill_missing_article_images(limit=revalidation_limit)
                 logger.info(
-                    "Scheduled image revalidation after discovery: checked=1 reusable_images=%d",
-                    revalidated,
+                    "Scheduled image revalidation after discovery: batch_limit=%d reusable_images=%d",
+                    revalidation_limit, revalidated,
                 )
             except Exception as repair_exc:
                 logger.warning(
