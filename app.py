@@ -5520,7 +5520,7 @@ def _refresh_news_job() -> None:
             len(queue_items), discovery_due,
         )
         if not raw_articles:
-            backfilled = _backfill_missing_article_images(limit=MAX_IMAGE_LOOKUPS_PER_REFRESH) if MAX_IMAGE_LOOKUPS_PER_REFRESH > 0 else 0
+            backfilled = _backfill_missing_article_images(limit=min(IMAGE_REVALIDATION_BATCH_SIZE, MAX_IMAGE_LOOKUPS_PER_REFRESH)) if MAX_IMAGE_LOOKUPS_PER_REFRESH > 0 else 0
             _LAST_REFRESH_SUCCESS = time.monotonic()
             _LAST_REFRESH_AT = datetime.now(timezone.utc)
             _LAST_REFRESH_STATE = "success"
@@ -5572,7 +5572,7 @@ def _refresh_news_job() -> None:
 
         if not raw_to_publish:
             logger.info("News refresh found no unseen publishable URLs among %d candidates", len(raw_articles))
-            backfilled = _backfill_missing_article_images(limit=min(12, MAX_IMAGE_LOOKUPS_PER_REFRESH)) if schema_available and MAX_IMAGE_LOOKUPS_PER_REFRESH > 0 else 0
+            backfilled = _backfill_missing_article_images(limit=min(IMAGE_REVALIDATION_BATCH_SIZE, MAX_IMAGE_LOOKUPS_PER_REFRESH)) if schema_available and MAX_IMAGE_LOOKUPS_PER_REFRESH > 0 else 0
             _LAST_REFRESH_SUCCESS = time.monotonic()
             _LAST_REFRESH_AT = datetime.now(timezone.utc)
             _LAST_REFRESH_STATE = "success"
@@ -5645,12 +5645,10 @@ def _refresh_news_job() -> None:
                 type(image_exc).__name__,
             )
 
-        # Revalidate a small bounded batch of older archive images during discovery.
-        # This accelerates migration away from old placeholders without running an image
-        # search on every five-minute publication tick.
-        if MAX_IMAGE_LOOKUPS_PER_REFRESH > 0:
-            # Repair the archive every publishing tick, not only during discovery. The
-            # batch is bounded by the same provider lookup budget and never deletes rows.
+        # Revalidate older archive images only during the less frequent discovery cycle.
+        # Fresh-story images take priority on five-minute publishing ticks; keeping archive
+        # repair off ordinary ticks prevents provider lookups from competing with page requests.
+        if discovery_due and MAX_IMAGE_LOOKUPS_PER_REFRESH > 0:
             revalidation_limit = min(IMAGE_REVALIDATION_BATCH_SIZE, MAX_IMAGE_LOOKUPS_PER_REFRESH)
             try:
                 revalidated = _backfill_missing_article_images(limit=revalidation_limit)
