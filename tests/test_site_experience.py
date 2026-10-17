@@ -330,10 +330,10 @@ class SiteExperienceTests(unittest.TestCase):
         )
         row = {
             "slug": "story-summary-details",
-            "source_url": "https://www.reuters.com/example-story",
+            "source_url": "https://www.cnn.com/example-story",
             "category": "economy",
-            "source_name": "Reuters",
-            "source_domain": "reuters.com",
+            "source_name": "CNN",
+            "source_domain": "cnn.com",
             "original_language": "en",
             "title_en": headline,
             "title_ar": "",
