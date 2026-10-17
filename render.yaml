@@ -24,6 +24,10 @@ services:
         value: "5"
       - key: NEWS_DISCOVERY_REFRESH_MINUTES
         value: "15"
+      - key: DB_ARTICLE_CACHE_TTL_SECONDS
+        value: "60"
+      - key: DISPLAY_STORIES_CACHE_TTL_SECONDS
+        value: "120"
       - key: MAX_PENDING_NEWS_CANDIDATES
         value: "60"
       - key: MAX_QUEUE_ADDITIONS_PER_DISCOVERY
