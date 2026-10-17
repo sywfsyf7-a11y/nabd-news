@@ -1659,5 +1659,161 @@ class BoundedImageProviderSearchTests(unittest.TestCase):
         self.assertIn("never pad it with generic background or invented context", prompt)
 
 
+
+    def test_shared_archive_snapshot_serves_a_warm_worker_without_database_query(self):
+        row = {
+            "slug": "shared-archive-story",
+            "source_url": "https://www.theverge.com/shared-archive-story",
+            "source_domain": "theverge.com",
+            "source_name": "The Verge",
+            "category": "technology",
+            "original_language": "en",
+            "title_en": "A stored technology headline",
+            "summary_en": "A stored summary that makes the story eligible for the current feed.",
+            "content_en": "Saved detail text.",
+            "published_at": datetime(2026, 10, 17, tzinfo=timezone.utc),
+            "fetched_at": datetime(2026, 10, 17, tzinfo=timezone.utc),
+            "is_demo": False,
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            cache_path = os.path.join(temp_dir, "archive.json")
+            with patch.object(world_pulse, "_ARCHIVE_SHARED_CACHE_PATH", cache_path):
+                with patch.object(world_pulse, "_DB_ARTICLE_CACHE_TTL_SECONDS", 60):
+                    with patch.object(world_pulse, "_DB_ARTICLES_CACHE", None):
+                        with patch.object(world_pulse, "_DB_ARTICLES_CACHE_AT", 0.0):
+                            with patch.object(world_pulse, "_DISPLAY_STORIES_CACHE", {}):
+                                world_pulse._write_shared_archive_cache([row])
+                                with patch.object(
+                                    world_pulse, "_query_persistent_archive_rows",
+                                    side_effect=AssertionError("warm shared cache must prevent a database query"),
+                                ) as query:
+                                    result = world_pulse._db_fetch_all()
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["slug"], "shared-archive-story")
+        self.assertIsInstance(result[0]["published_at"], datetime)
+        query.assert_not_called()
+
+    def test_archive_cache_merge_preserves_a_licensed_photo_and_adds_the_new_story(self):
+        older = {
+            "slug": "existing-ait-story",
+            "source_url": "https://aitnews.com/existing-story",
+            "source_domain": "aitnews.com",
+            "source_name": "AIT News",
+            "category": "technology",
+            "original_language": "ar",
+            "title_ar": "عنوان سابق",
+            "summary_ar": "ملخص سابق يفي بشرط العرض",
+            "content_ar": "تفاصيل الخبر السابق.",
+            "title_en": "",
+            "summary_en": "",
+            "content_en": "",
+            "image_url": "https://images.example.test/licensed.jpg",
+            "image_source": "wikimedia_relevant",
+            "image_credit": "Creator name",
+            "image_credit_url": "https://commons.wikimedia.org/wiki/File:licensed.jpg",
+            "image_provider_url": "https://commons.wikimedia.org/wiki/File:licensed.jpg",
+            "image_license_url": "https://creativecommons.org/licenses/by/4.0/",
+            "image_checked_at": datetime(2026, 10, 17, tzinfo=timezone.utc),
+            "published_at": datetime(2026, 10, 16, tzinfo=timezone.utc),
+            "fetched_at": datetime(2026, 10, 16, tzinfo=timezone.utc),
+            "is_demo": False,
+        }
+        updated_existing = {
+            **older,
+            "title_ar": "عنوان محرر جديد",
+            "summary_ar": "ملخص مستقل جديد من مصدر مسموح.",
+            "content_ar": "تفاصيل إضافية مسموح بها.",
+            "image_url": "",
+            "image_source": "none",
+            "image_credit": "",
+            "image_credit_url": "",
+            "image_provider_url": "",
+            "image_license_url": "",
+            "fetched_at": datetime(2026, 10, 17, tzinfo=timezone.utc),
+        }
+        new_story = {
+            **older,
+            "slug": "new-ait-story",
+            "source_url": "https://aitnews.com/new-story",
+            "title_ar": "خبر تقني جديد",
+            "summary_ar": "ملخص جديد لخبر تقني.",
+            "content_ar": "تفاصيل الخبر التقني الجديد.",
+            "image_url": "",
+            "image_source": "none",
+            "image_credit": "",
+            "image_credit_url": "",
+            "image_provider_url": "",
+            "image_license_url": "",
+            "published_at": datetime(2026, 10, 17, tzinfo=timezone.utc),
+            "fetched_at": datetime(2026, 10, 17, tzinfo=timezone.utc),
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with patch.object(world_pulse, "_ARCHIVE_SHARED_CACHE_PATH", os.path.join(temp_dir, "archive.json")):
+                with patch.object(world_pulse, "_ARCHIVE_SHARED_CACHE_MAX_STALE_SECONDS", 300):
+                    with patch.object(world_pulse, "_DB_ARTICLES_CACHE", [older]):
+                        with patch.object(world_pulse, "_DB_ARTICLES_CACHE_AT", time.monotonic()):
+                            self.assertTrue(world_pulse._merge_article_rows_into_archive_cache([updated_existing, new_story]))
+                            cached = [dict(row) for row in world_pulse._DB_ARTICLES_CACHE]
+                            shared = world_pulse._read_shared_archive_cache(max_age_seconds=60)
+
+        by_url = {row["source_url"]: row for row in cached}
+        saved_old = by_url[older["source_url"]]
+        self.assertEqual(saved_old["title_ar"], "عنوان محرر جديد")
+        self.assertEqual(saved_old["image_url"], older["image_url"])
+        self.assertEqual(saved_old["image_source"], "wikimedia_relevant")
+        self.assertIn(new_story["source_url"], by_url)
+        self.assertIsNotNone(shared)
+        self.assertEqual(len(world_pulse._DISPLAY_STORIES_CACHE), 0)
+
+    def test_image_metadata_sync_keeps_the_archive_cache_warm(self):
+        source_url = "https://aitnews.com/image-sync-story"
+        stored = {
+            "slug": "image-sync-story",
+            "source_url": source_url,
+            "source_domain": "aitnews.com",
+            "source_name": "AIT News",
+            "category": "technology",
+            "original_language": "ar",
+            "title_ar": "خبر تقني",
+            "summary_ar": "ملخص قصير",
+            "image_url": "",
+            "image_source": "none",
+            "image_credit": "",
+            "image_credit_url": "",
+            "image_provider_url": "",
+            "image_license_url": "",
+            "image_checked_at": None,
+            "is_demo": False,
+        }
+        candidate = {
+            **stored,
+            "image_url": "https://images.example.test/new.jpg",
+            "image_source": "wikimedia_relevant",
+            "image_credit": "Creator",
+            "image_credit_url": "https://commons.wikimedia.org/wiki/File:new.jpg",
+            "image_provider_url": "https://commons.wikimedia.org/wiki/File:new.jpg",
+            "image_license_url": "https://creativecommons.org/licenses/by/4.0/",
+            "image_checked_at": datetime.now(timezone.utc),
+        }
+        cache_time = time.monotonic() - 1.0
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with patch.object(world_pulse, "_ARCHIVE_SHARED_CACHE_PATH", os.path.join(temp_dir, "archive.json")):
+                with patch.object(world_pulse, "_DB_ARTICLES_CACHE", [dict(stored)]):
+                    with patch.object(world_pulse, "_DB_ARTICLES_CACHE_AT", cache_time):
+                        with patch.object(
+                            world_pulse, "_DISPLAY_STORIES_CACHE",
+                            {"ar": (time.monotonic(), [{**stored, "title": "خبر تقني", "image_fallback_url": "/static/images/fallback-ar.svg"}])},
+                        ):
+                            world_pulse._sync_cached_image_metadata([candidate])
+                            self.assertEqual(world_pulse._DB_ARTICLES_CACHE_AT, cache_time)
+                            self.assertEqual(world_pulse._DB_ARTICLES_CACHE[0]["image_url"], candidate["image_url"])
+                            self.assertEqual(world_pulse._DISPLAY_STORIES_CACHE["ar"][1][0]["image_url"], candidate["image_url"])
+                            self.assertEqual(
+                                world_pulse._DISPLAY_STORIES_CACHE["ar"][1][0]["image_credit"],
+                                "Creator",
+                            )
+
+
 if __name__ == "__main__":
     unittest.main()
