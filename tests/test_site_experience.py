@@ -3,6 +3,7 @@ import unittest
 import os
 import tempfile
 import time
+from collections import OrderedDict
 from datetime import datetime, timezone, timedelta
 from urllib.parse import parse_qs, urlparse
 from unittest.mock import MagicMock, patch
@@ -1925,6 +1926,64 @@ class ProductionAuditRegressionTests(unittest.TestCase):
         self.assertTrue(story["headline_only"])
         self.assertEqual(story["content"], "")
         self.assertTrue(story["source_only"])
+
+
+
+
+class CataloguedImageMemoryCacheTests(unittest.TestCase):
+    def _fake_connection(self, image_bytes):
+        connection = MagicMock()
+        cursor = connection.cursor.return_value.__enter__.return_value
+        cursor.fetchone.return_value = (image_bytes, "image/jpeg")
+        return connection
+
+    def test_repeat_image_request_uses_bounded_memory_cache(self):
+        image_id = "a" * 40
+        image_bytes = b"licensed-image-bytes"
+        connection = self._fake_connection(image_bytes)
+        with patch.object(world_pulse, "_CATALOGUED_IMAGE_MEMORY_CACHE", OrderedDict()):
+            with patch.object(world_pulse, "_CATALOGUED_IMAGE_MEMORY_CACHE_BYTES", 0):
+                with patch.object(world_pulse, "_CATALOGUED_IMAGE_MEMORY_CACHE_MAX_BYTES", 1024):
+                    with patch.object(world_pulse, "_ensure_schema", return_value=True):
+                        with patch.object(world_pulse, "_connect_db", return_value=connection) as connect:
+                            with patch.object(world_pulse, "_release_db_connection"):
+                                first = world_pulse._read_catalogued_image(image_id)
+                                second = world_pulse._read_catalogued_image(image_id)
+
+        self.assertEqual(first, (image_bytes, "image/jpeg"))
+        self.assertEqual(second, first)
+        connect.assert_called_once()
+
+    def test_image_memory_cache_evicts_oldest_entry_when_byte_limit_is_reached(self):
+        first_id, second_id = "1" * 40, "2" * 40
+        first_bytes, second_bytes = b"123456", b"abcdef"
+        first_connection = self._fake_connection(first_bytes)
+        second_connection = self._fake_connection(second_bytes)
+        refetched_first = self._fake_connection(first_bytes)
+        with patch.object(world_pulse, "_CATALOGUED_IMAGE_MEMORY_CACHE", OrderedDict()):
+            with patch.object(world_pulse, "_CATALOGUED_IMAGE_MEMORY_CACHE_BYTES", 0):
+                with patch.object(world_pulse, "_CATALOGUED_IMAGE_MEMORY_CACHE_MAX_BYTES", 10):
+                    with patch.object(world_pulse, "_ensure_schema", return_value=True):
+                        with patch.object(
+                            world_pulse, "_connect_db",
+                            side_effect=[first_connection, second_connection, refetched_first],
+                        ) as connect:
+                            with patch.object(world_pulse, "_release_db_connection"):
+                                self.assertEqual(
+                                    world_pulse._read_catalogued_image(first_id),
+                                    (first_bytes, "image/jpeg"),
+                                )
+                                self.assertEqual(
+                                    world_pulse._read_catalogued_image(second_id),
+                                    (second_bytes, "image/jpeg"),
+                                )
+                                self.assertEqual(
+                                    world_pulse._read_catalogued_image(first_id),
+                                    (first_bytes, "image/jpeg"),
+                                )
+
+        self.assertEqual(connect.call_count, 3)
+        self.assertLessEqual(world_pulse._CATALOGUED_IMAGE_MEMORY_CACHE_BYTES, 10)
 
 
 if __name__ == "__main__":
