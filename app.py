@@ -2355,6 +2355,12 @@ def _cache_reusable_image(result: dict[str, Any]) -> dict[str, Any]:
     elif source == "met_open_access":
         if not _domain_matches(source_parsed.hostname, "metmuseum.org"):
             return result
+    elif source == "cleveland_museum_open_access":
+        if not _domain_matches(source_parsed.hostname, "openaccess-cdn.clevelandart.org"):
+            return result
+    elif source == "wellcome_open_access":
+        if not _domain_matches(source_parsed.hostname, "iiif.wellcomecollection.org"):
+            return result
     elif source == "nasa_images":
         if not _domain_matches(source_parsed.hostname, "nasa.gov"):
             return result
