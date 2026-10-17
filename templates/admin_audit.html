@@ -63,7 +63,7 @@
       <h2>المشكلات التي تحتاج مراجعة</h2>
       {% if r.issue_counts %}
       <table><thead><tr><th>نوع المشكلة</th><th>عدد السجلات</th><th>عينات لإصلاحها</th></tr></thead><tbody>
-      {% for issue, count in (r.issue_counts or {}).items()|sort(attribute='0') %}
+      {% for issue, count in (r.issue_counts or {}).items() %}
         <tr><td><code>{{ issue }}</code></td><td>{{ count }}</td><td><div class="samples">{% for slug in (r.issue_samples or {}).get(issue, []) %}<a href="{{ url_for('admin_articles', edit=slug, show_hidden='1') }}">{{ slug }}</a>{% endfor %}</div></td></tr>
       {% endfor %}
       </tbody></table>
