@@ -14,7 +14,7 @@ class SourcePolicyTests(unittest.TestCase):
             "",
         )
 
-    def test_combined_archive_requires_a_complete_translation_for_the_other_interface(self):
+    def test_combined_feed_keeps_original_language_when_translation_is_missing(self):
         arabic_story = {
             "category": "technology",
             "original_language": "ar",
@@ -28,7 +28,7 @@ class SourcePolicyTests(unittest.TestCase):
             "content_en": "",
         }
         self.assertTrue(world_pulse._row_allowed_on_language_site(arabic_story, "ar"))
-        self.assertFalse(world_pulse._row_allowed_on_language_site(arabic_story, "en"))
+        self.assertTrue(world_pulse._row_allowed_on_language_site(arabic_story, "en"))
 
         arabic_story_translated = dict(
             arabic_story,
@@ -56,7 +56,7 @@ class SourcePolicyTests(unittest.TestCase):
             "content_ar": "",
         }
         self.assertTrue(world_pulse._row_allowed_on_language_site(english_story, "en"))
-        self.assertFalse(world_pulse._row_allowed_on_language_site(english_story, "ar"))
+        self.assertTrue(world_pulse._row_allowed_on_language_site(english_story, "ar"))
 
         english_story_translated = dict(
             english_story,
@@ -76,7 +76,7 @@ class SourcePolicyTests(unittest.TestCase):
             source_domain="aljazeera.com",
             title_en="International report",
         )
-        self.assertFalse(world_pulse._row_allowed_on_language_site(headline_only, "ar"))
+        self.assertTrue(world_pulse._row_allowed_on_language_site(headline_only, "ar"))
 
         unapproved = dict(arabic_story, source_domain="unknown.example")
         self.assertFalse(world_pulse._row_allowed_on_language_site(unapproved, "ar"))
