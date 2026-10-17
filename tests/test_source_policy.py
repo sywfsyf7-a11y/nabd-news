@@ -1096,13 +1096,12 @@ class ExpandedSourceAndImageCatalogueTests(unittest.TestCase):
         ):
             self.assertTrue(world_pulse._is_headline_only_domain(domain), domain)
 
-    def test_editorial_pipeline_publishes_one_fresh_story_and_repairs_archive_per_tick(self):
+    def test_editorial_pipeline_processes_one_story_per_tick_and_discovers_every_15_minutes(self):
         self.assertEqual(world_pulse.NEWS_REFRESH_MINUTES, 5)
         self.assertEqual(world_pulse.NEWS_DISCOVERY_REFRESH_MINUTES, 15)
-        # Two items share one bounded Gemini batch: one new queued story plus one
-        # older archive repair. The new-story queue still advances by one per tick.
-        self.assertEqual(world_pulse.MAX_ARTICLES_PER_REFRESH, 2)
-        self.assertEqual(max(1, world_pulse.MAX_ARTICLES_PER_REFRESH - 1), 1)
+        # One article is processed per tick; the second permitted model call is a
+        # fallback attempt for that same story, not a second editorial article.
+        self.assertEqual(world_pulse.MAX_ARTICLES_PER_REFRESH, 1)
         self.assertLessEqual(world_pulse.MAX_GEMINI_API_CALLS_PER_REFRESH, 2)
         self.assertEqual(world_pulse.MAX_IMAGE_LOOKUPS_PER_REFRESH, 4)
 
