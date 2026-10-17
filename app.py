@@ -1531,10 +1531,17 @@ def _merge_article_rows_into_archive_cache(articles: list[dict[str, Any]]) -> bo
     cache_handle = _archive_file_lock()
     merged_rows: list[dict[str, Any]] | None = None
     try:
+        local_now = time.monotonic()
         with _DB_ARTICLES_CACHE_LOCK:
             local_rows = [dict(row) for row in _DB_ARTICLES_CACHE] if _DB_ARTICLES_CACHE is not None else None
+            local_age = max(0.0, local_now - _DB_ARTICLES_CACHE_AT) if _DB_ARTICLES_CACHE is not None else float("inf")
         shared = _read_shared_archive_cache(max_age_seconds=_ARCHIVE_SHARED_CACHE_MAX_STALE_SECONDS)
-        existing_rows = local_rows if local_rows is not None else (shared[0] if shared else None)
+        # Pick the newest known snapshot; the other Gunicorn worker may have just
+        # merged a published story after this worker's local cache was created.
+        if shared is not None and shared[1] < local_age:
+            existing_rows = shared[0]
+        else:
+            existing_rows = local_rows if local_rows is not None else (shared[0] if shared else None)
         if existing_rows is None:
             return False
 
@@ -4864,7 +4871,22 @@ def _repair_existing_articles_from_rss(
                     memory_row[f"summary_{item['lang']}"] = item["new_summary"]
                 if item["content_needs_repair"]:
                     memory_row[f"content_{item['lang']}"] = item["new_content"]
-        _invalidate_db_articles_cache()
+        cache_updates: list[dict[str, Any]] = []
+        for item in repairs:
+            lang = item["lang"]
+            cache_row: dict[str, Any] = {
+                "source_url": item["source_url"],
+                "original_language": lang,
+            }
+            if item["summary_needs_repair"]:
+                cache_row[f"summary_{lang}"] = item["new_summary"]
+            if item["content_needs_repair"]:
+                cache_row[f"content_{lang}"] = item["new_content"]
+            cache_updates.append(cache_row)
+        # Preserve the warm archive snapshot after a small excerpt repair instead of
+        # forcing all page requests through another database read and dedupe pass.
+        if not cache_updates or not _merge_article_rows_into_archive_cache(cache_updates):
+            _invalidate_db_articles_cache()
     return updated
 
 def _build_editorial_prompt(payload: list[dict[str, Any]]) -> str:
