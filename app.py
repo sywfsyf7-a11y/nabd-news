@@ -2534,7 +2534,7 @@ def _search_image_provider_group(
     if not active:
         return {}
 
-    executor = ThreadPoolExecutor(max_workers=min(4, len(active)))
+    executor = ThreadPoolExecutor(max_workers=min(5, len(active)))
     futures = {executor.submit(finder): key for key, finder in active}
     results: dict[str, dict[str, str]] = {}
     try:
