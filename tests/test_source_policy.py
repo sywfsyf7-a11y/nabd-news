@@ -312,15 +312,16 @@ class SourcePolicyTests(unittest.TestCase):
         self.assertEqual(call["response_format"]["aspect_ratio"], "16:9")
         self.assertEqual(call["response_format"]["image_size"], "1K")
 
-    def test_reusable_images_are_tried_before_gemini_generation(self):
-        fallback = {
-            "image_url": "https://images.pexels.com/test.jpeg",
-            "image_source": "pexels_api",
+    def test_reusable_licensed_images_are_tried_before_any_optional_generator(self):
+        match = {
+            "image_url": "https://images.example.test/technology.jpg",
+            "image_source": "openverse_licensed",
             "image_credit": "Photographer",
-            "image_credit_url": "https://www.pexels.com/",
-            "image_provider_url": "https://www.pexels.com/photo/test/",
-            "image_license_url": "https://www.pexels.com/license/",
+            "image_credit_url": "https://openverse.example.test/item",
+            "image_provider_url": "https://openverse.example.test/item",
+            "image_license_url": "https://creativecommons.org/licenses/by/4.0/",
             "image_checked_at": None,
+            "_image_relevance_score": 0.82,
         }
         article = {
             "original_title": "Generic technology story",
@@ -331,12 +332,12 @@ class SourcePolicyTests(unittest.TestCase):
         }
         from unittest.mock import patch
         with patch.object(world_pulse, "_generate_gemini_article_image", return_value={}) as generator:
-            with patch.object(world_pulse, "_search_any_reusable_image", return_value=fallback) as reusable:
+            with patch.object(world_pulse, "_search_any_reusable_image", return_value=match) as reusable:
                 result = world_pulse._resolve_article_image(article)
         generator.assert_not_called()
         reusable.assert_called_once_with("Generic technology story", "en", "technology")
-        self.assertEqual(result["image_source"], "pexels_api")
-        self.assertEqual(result["image_url"], fallback["image_url"])
+        self.assertEqual(result["image_source"], "openverse_licensed")
+        self.assertEqual(result["image_url"], match["image_url"])
 
     def test_gemini_illustration_is_used_only_after_reusable_image_search_fails(self):
         generated = {
