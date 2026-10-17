@@ -1634,6 +1634,15 @@ def _looks_like_feed_section_title(value: Any, publisher: Any = "") -> bool:
     # merely because it begins with "World News" or mentions the publisher.
     landing_title = title[:suffix.start()].strip() if suffix else title
     landing_normalized = re.sub(r"\s+", " ", landing_title.casefold()).strip(" \t-|:–—")
+    arabic_landing_normalized = re.sub(
+        r"[^\w\u0600-\u06ff]+", " ", landing_title.casefold()
+    ).strip()
+    arabic_landing_normalized = re.sub(r"\s+", " ", arabic_landing_normalized)
+    if re.fullmatch(
+        r"(?:آخر|اخر|أحدث|احدث)\s+الأخبار(?:\s+(?:العربية|الدولية|العالمية|والعالمية|والسياسية|والاقتصادية|والرياضية|والتقنية|والثقافية)){1,5}",
+        arabic_landing_normalized,
+    ):
+        return True
     landing_patterns = (
         r"^(?:breaking\s+news,\s*)?world\s+news\s+and\s+videos?\s+from\b",
         r"^(?:latest\s+)?news\s+and\s+videos?\s+from\b",
