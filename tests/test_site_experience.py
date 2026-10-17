@@ -1486,5 +1486,57 @@ class BoundedImageProviderSearchTests(unittest.TestCase):
         self.assertIn("(article.content|length < 180)", source)
         self.assertIn('content="noindex,follow"', source)
 
+    def test_content_audit_treats_google_news_url_as_wrapper_not_publisher(self):
+        now = datetime(2026, 10, 17, tzinfo=timezone.utc)
+        row = {
+            "slug": "google-news-wrapper",
+            "source_url": "https://news.google.com/rss/articles/example",
+            "source_domain": "bbc.com",
+            "source_name": "BBC News",
+            "category": "politics",
+            "original_language": "en",
+            "title_en": "Government announces new election policy",
+            "summary_en": "The government announced a new election policy today.",
+            "content_en": "",
+            "title_ar": "",
+            "summary_ar": "",
+            "content_ar": "",
+            "image_url": "",
+            "image_source": "",
+            "image_license_url": "",
+            "image_checked_at": None,
+            "published_at": now,
+            "is_demo": False,
+        }
+        issues = world_pulse._content_quality_audit_issues(row, now=now)
+        self.assertNotIn("source_domain_mismatch", issues)
+        self.assertNotIn("source_not_allowlisted_for_category_language", issues)
+
+    def test_content_audit_still_flags_wrong_direct_publisher_domain(self):
+        now = datetime(2026, 10, 17, tzinfo=timezone.utc)
+        row = {
+            "slug": "wrong-direct-host",
+            "source_url": "https://example.invalid/news/story",
+            "source_domain": "bbc.com",
+            "source_name": "BBC News",
+            "category": "politics",
+            "original_language": "en",
+            "title_en": "Government announces new election policy",
+            "summary_en": "The government announced a new election policy today.",
+            "content_en": "",
+            "title_ar": "",
+            "summary_ar": "",
+            "content_ar": "",
+            "image_url": "",
+            "image_source": "",
+            "image_license_url": "",
+            "image_checked_at": None,
+            "published_at": now,
+            "is_demo": False,
+        }
+        issues = world_pulse._content_quality_audit_issues(row, now=now)
+        self.assertIn("source_domain_mismatch", issues)
+
+
 if __name__ == "__main__":
     unittest.main()
