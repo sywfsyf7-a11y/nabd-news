@@ -77,12 +77,56 @@ class SiteExperienceTests(unittest.TestCase):
 
     def test_persistent_news_discovery_interval_is_separate_from_publish_interval(self):
         now = datetime(2026, 10, 16, 12, 30, tzinfo=timezone.utc)
-        state = {"discovered_at": (now - timedelta(minutes=29)).isoformat(), "items": []}
-        with patch.object(world_pulse, "NEWS_DISCOVERY_REFRESH_MINUTES", 30):
+        state = {"discovered_at": (now - timedelta(minutes=14)).isoformat(), "items": []}
+        with patch.object(world_pulse, "NEWS_DISCOVERY_REFRESH_MINUTES", 15):
             self.assertFalse(world_pulse._news_queue_discovery_due(state, now))
             self.assertTrue(world_pulse._news_queue_discovery_due(
-                {"discovered_at": (now - timedelta(minutes=31)).isoformat(), "items": []}, now
+                {"discovered_at": (now - timedelta(minutes=16)).isoformat(), "items": []}, now
             ))
+
+    def test_category_source_allowlists_match_the_curated_arabic_and_english_publishers(self):
+        expected = {
+            "politics": {
+                "ar": {"aljazeera.net", "alarabiya.net", "skynewsarabia.com", "aawsat.com", "alquds.co.uk", "wam.ae", "spa.gov.sa"},
+                "en": {"bbc.com", "reuters.com", "apnews.com", "politico.com", "theguardian.com"},
+            },
+            "economy": {
+                "ar": {"asharqbusiness.com", "cnbcarabia.com", "mubasher.info", "argaam.com"},
+                "en": {"bloomberg.com", "ft.com", "wsj.com", "cnbc.com", "marketwatch.com"},
+            },
+            "technology": {
+                "ar": {"aitnews.com", "tech-wd.com", "arabhardware.net"},
+                "en": {"theverge.com", "techcrunch.com", "wired.com", "arstechnica.com"},
+            },
+            "gaming": {
+                "ar": {"saudigamer.com", "arabhardware.net"},
+                "en": {"ign.com", "gamespot.com", "polygon.com", "eurogamer.net", "kotaku.com"},
+            },
+            "sports": {
+                "ar": {"filgoal.com", "kooora.com", "beinsports.com", "yallakora.com"},
+                "en": {"bbc.com", "espn.com", "skysports.com", "theathletic.com"},
+            },
+            "science": {
+                "ar": {"nationalgeographic.com", "aljazeera.net"},
+                "en": {"nasa.gov", "jpl.nasa.gov", "space.com", "livescience.com", "scientificamerican.com", "nature.com"},
+            },
+            "culture": {
+                "ar": {"alaraby.co.uk", "alarab.co.uk"},
+                "en": {"lithub.com", "artsy.net", "theguardian.com", "newyorker.com"},
+            },
+            "world": {
+                "ar": {"bbc.com", "france24.com", "dw.com"},
+                "en": {"bbc.com", "euronews.com", "apnews.com", "cnn.com"},
+            },
+        }
+        actual = {
+            category: {lang: set(domains) for lang, domains in languages.items()}
+            for category, languages in world_pulse.CATEGORY_SOURCE_DOMAINS.items()
+        }
+        self.assertEqual(actual, expected)
+        self.assertNotIn("npr.org", {d for langs in actual.values() for domains in langs.values() for d in domains})
+        self.assertNotIn("cnn.com", actual["politics"]["ar"])
+        self.assertNotIn("ign.com", actual["gaming"]["ar"])
 
     def test_art_institute_catalog_is_culture_only_and_requires_public_domain_records(self):
         import json
@@ -676,7 +720,7 @@ class SiteExperienceTests(unittest.TestCase):
 
         self.assertEqual(
             world_pulse._source_domain_for_category("science", "en", "jpl.nasa.gov"),
-            "jpl.nasa.gov",
+            "nasa.gov",
         )
         with patch.object(world_pulse, "urlopen", side_effect=fake_urlopen):
             with patch.object(world_pulse, "_control_enabled", return_value=True):
@@ -690,7 +734,7 @@ class SiteExperienceTests(unittest.TestCase):
 
         self.assertEqual((result[0], result[1]), ("science", "en"))
         self.assertEqual(len(result[2]), 1)
-        self.assertEqual(result[2][0]["source_domain"], "jpl.nasa.gov")
+        self.assertEqual(result[2][0]["source_domain"], "nasa.gov")
         self.assertEqual(
             result[2][0]["source_url"],
             "https://www.jpl.nasa.gov/news/example-mars-mission/",
@@ -1314,6 +1358,13 @@ class BoundedImageProviderSearchTests(unittest.TestCase):
         self.assertEqual(query.count("LIMIT 120"), 2)
         self.assertIn("original_language = 'ar'", query)
         self.assertIn("original_language = 'en'", query)
+        self.assertIn("LOWER(source_domain) = ANY(%s)", query)
+        self.assertIn("LOWER(source_name) LIKE ANY(%s)", query)
+        params = cursor.execute.call_args.args[1]
+        self.assertEqual(len(params), 6)
+        self.assertIn("aljazeera.net", params[0])
+        self.assertIn("theverge.com", params[3])
+        self.assertNotIn("npr.org", params[0] + params[3])
 
     def test_partial_translation_falls_back_to_cohesive_native_article(self):
         native_body = (
