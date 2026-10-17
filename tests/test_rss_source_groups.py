@@ -92,19 +92,60 @@ class RSSPublisherGroupTests(unittest.TestCase):
         self.assertEqual(result, [])
         self.assertEqual({(category, lang) for category, lang, _ in calls}, expected_pairs)
         self.assertTrue(all(1 <= len(group) <= 4 for _, _, group in calls))
-        # Every category/language pair gets two rotating groups plus, when
-        # configured, one extra priority group for important regional sources.
+        # Each category/language pair gets two rotating groups and sometimes a priority
+        # group. Science-English also gets the three explicitly configured official feeds.
         counts = [
             sum(1 for c, l, _ in calls if (c, l) == pair)
             for pair in expected_pairs
         ]
-        self.assertTrue(all(2 <= count <= 3 for count in counts))
+        for pair in expected_pairs - {("science", "en")}:
+            count = sum(1 for c, l, _ in calls if (c, l) == pair)
+            self.assertTrue(2 <= count <= 3, (pair, count))
+        science_en_groups = [group for c, l, group in calls if (c, l) == ("science", "en")]
+        direct_feeds = [group for group in science_en_groups if group[0] == world_pulse.DIRECT_RSS_SENTINEL]
+        self.assertEqual(len(direct_feeds), 3)
+        self.assertEqual({group[1] for group in direct_feeds}, {"nasa.gov", "noaa.gov"})
         for category, lang, priority_domains in (
             ("gaming", "ar", ("saudigamer.com", "true-gaming.net", "arabhardware.net")),
             ("world", "ar", ("aljazeera.net", "almamlakatv.com", "petra.gov.jo")),
         ):
             pair_groups = [group for c, l, group in calls if (c, l) == (category, lang)]
             self.assertIn(priority_domains, pair_groups)
+
+    def test_official_direct_rss_rejects_entries_outside_expected_publisher_host(self):
+        good = {
+            "title": "NASA announces a new science mission",
+            "link": "https://www.nasa.gov/news-release/example-mission/",
+            "summary": "A short public news release about the science mission.",
+            "published": "Fri, 16 Oct 2026 08:00:00 GMT",
+        }
+        bad = {
+            "title": "A cross-publisher item must be rejected",
+            "link": "https://example.invalid/copied-story/",
+            "summary": "This URL is not hosted by the trusted feed owner.",
+        }
+        response = Mock()
+        response.__enter__ = Mock(return_value=response)
+        response.__exit__ = Mock(return_value=False)
+        response.read.return_value = b"<rss />"
+        with (
+            patch.object(world_pulse, "urlopen", return_value=response),
+            patch.object(world_pulse.feedparser, "parse", return_value=SimpleNamespace(entries=[good, bad])),
+            patch.object(world_pulse, "_parse_published", return_value=datetime(2026, 10, 16, tzinfo=timezone.utc)),
+            patch.object(world_pulse, "_control_enabled", return_value=True),
+            patch.object(world_pulse, "_domain_needs_license", return_value=False),
+            patch.object(world_pulse, "_is_headline_only_domain", return_value=False),
+            patch.object(world_pulse, "_publisher_requires_license", return_value=False),
+        ):
+            category, lang, items = world_pulse._parse_direct_rss_feed(
+                "https://www.nasa.gov/news-release/feed/", "science", "en", "nasa.gov", "NASA News Releases"
+            )
+
+        self.assertEqual((category, lang), ("science", "en"))
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["source_url"], good["link"])
+        self.assertEqual(items[0]["source_domain"], "nasa.gov")
+        self.assertEqual(items[0]["original_title"], good["title"])
 
 
 class RSSDeadlineSeparationTests(unittest.TestCase):
