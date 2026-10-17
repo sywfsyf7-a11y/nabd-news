@@ -369,8 +369,10 @@ class SourcePolicyTests(unittest.TestCase):
             "source_language": "en",
         }])
         self.assertIn("Never invent or infer names, dates, places, numbers", prompt)
-        self.assertIn("Do not pad the article with generic filler", prompt)
+        self.assertIn("not a line-by-line paraphrase and not a synonym swap", prompt)
+        self.assertIn("Do not pad", prompt)
         self.assertIn("headline and RSS excerpt", prompt)
+        self.assertIn("no more than 120 words", prompt)
 
     def test_library_of_congress_image_search_accepts_only_item_level_open_rights(self):
         import io
