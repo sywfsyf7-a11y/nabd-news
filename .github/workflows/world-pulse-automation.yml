@@ -71,17 +71,37 @@ jobs:
           curl --fail --silent --show-error --location \
             --connect-timeout 15 --max-time 150 \
             --retry 6 --retry-delay 10 --retry-all-errors \
-            "$SITE_URL/?lang=en" --output /dev/null
+            "$SITE_URL/?lang=en" --output /tmp/home-en.html
+          curl --fail --silent --show-error --location \
+            --connect-timeout 15 --max-time 45 \
+            "$SITE_URL/?lang=ar" --output /tmp/home-ar.html
+          curl --fail --silent --show-error --location \
+            --connect-timeout 15 --max-time 45 \
+            "$SITE_URL/healthz" --output /tmp/healthz.json
           sleep 5
           curl --fail --silent --show-error --location \
             --connect-timeout 15 --max-time 45 \
             "$SITE_URL/api/news-status" --output /tmp/news-status.json
           python - <<'PY'
           import json
+          import re
           from pathlib import Path
+
+          health = json.loads(Path("/tmp/healthz.json").read_text(encoding="utf-8"))
+          if health.get("status") != "ok":
+              raise SystemExit("The production /healthz endpoint did not return status=ok.")
+
+          for language, filename in (("en", "/tmp/home-en.html"), ("ar", "/tmp/home-ar.html")):
+              html = Path(filename).read_text(encoding="utf-8")
+              match = re.search(r'<html\s+lang="(en|ar)"', html, re.IGNORECASE)
+              actual = match.group(1).lower() if match else "missing"
+              print(f"  homepage_{language}_document_language:", actual)
+              if actual != language:
+                  raise SystemExit(f"Expected the {language} homepage to declare lang={language}, got {actual}.")
 
           status = json.loads(Path("/tmp/news-status.json").read_text(encoding="utf-8"))
           print("World Pulse runtime check:")
+          print("  healthz:", health.get("status"))
           print("  refresh_state:", status.get("state", "unknown"))
           print("  refresh_running:", status.get("running", False))
           print("  last_refresh_at:", status.get("last_refresh_at"))
