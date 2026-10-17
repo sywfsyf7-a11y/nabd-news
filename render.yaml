@@ -53,4 +53,4 @@ services:
       - key: MAX_ARTICLES_PER_CATEGORY
         value: "3"
       - key: MAX_IMAGE_LOOKUPS_PER_REFRESH
-        value: "1"
+        value: "2"
