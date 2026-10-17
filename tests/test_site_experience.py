@@ -505,6 +505,86 @@ class SiteExperienceTests(unittest.TestCase):
         self.assertEqual(executor.shutdown_args, (False, True))
         self.assertTrue(all(future.cancelled() for future in executor.futures if not future.done()))
 
+    def test_generic_feed_section_headlines_are_rejected_but_real_headlines_pass(self):
+        self.assertTrue(world_pulse._looks_like_feed_section_title("Latest Nintendo Life News", "Nintendo Life"))
+        self.assertTrue(world_pulse._looks_like_feed_section_title("مستجدات التكنولوجيا", ""))
+        self.assertTrue(world_pulse._looks_like_feed_section_title("New York - The Guardian", "The Guardian"))
+        self.assertFalse(
+            world_pulse._looks_like_feed_section_title(
+                "Nintendo announces a new console and release window", "Nintendo Life"
+            )
+        )
+        self.assertFalse(
+            world_pulse._looks_like_feed_section_title(
+                "New York transit authority announces a subway plan", "The Guardian"
+            )
+        )
+
+    def test_google_news_rss_parser_skips_a_section_label_but_keeps_a_real_story(self):
+        from io import BytesIO
+
+        rss_xml = b"""<?xml version="1.0" encoding="UTF-8"?>
+        <rss version="2.0"><channel><title>Google News</title>
+          <item>
+            <title>Latest Nintendo Life News</title>
+            <link>https://www.nintendolife.com/news</link>
+            <source url="https://www.nintendolife.com/">Nintendo Life</source>
+          </item>
+          <item>
+            <title>Nintendo announces a new console and release window</title>
+            <link>https://www.nintendolife.com/news/new-console-window</link>
+            <description>Nintendo described a new console and release window.</description>
+            <source url="https://www.nintendolife.com/">Nintendo Life</source>
+          </item>
+        </channel></rss>"""
+
+        with patch.object(world_pulse, "urlopen", return_value=BytesIO(rss_xml)):
+            with patch.object(world_pulse, "_source_domain_for_category", return_value="nintendolife.com"):
+                with patch.object(world_pulse, "_control_enabled", return_value=True):
+                    with patch.object(world_pulse, "_domain_needs_license", return_value=False):
+                        with patch.object(world_pulse, "_publisher_requires_license", return_value=False):
+                            with patch.object(world_pulse, "_is_headline_only_domain", return_value=False):
+                                category, lang, items = world_pulse._parse_any_rss(
+                                    "https://news.google.com/rss/search?q=test", "gaming", "en", "Google News"
+                                )
+
+        self.assertEqual((category, lang), ("gaming", "en"))
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["original_title"], "Nintendo announces a new console and release window")
+
+    def test_display_builder_hides_legacy_section_titles_without_deleting_archive_rows(self):
+        rows = [
+            {
+                "slug": "real-story",
+                "source_url": "https://www.nintendolife.com/news/new-console-window",
+                "source_domain": "nintendolife.com",
+                "source_name": "Nintendo Life",
+                "category": "gaming",
+                "original_language": "en",
+                "title_en": "Nintendo announces a new console and release window",
+                "is_demo": False,
+            },
+            {
+                "slug": "old-section-label",
+                "source_url": "https://www.nintendolife.com/news",
+                "source_domain": "nintendolife.com",
+                "source_name": "Nintendo Life",
+                "category": "gaming",
+                "original_language": "en",
+                "title_en": "Latest Nintendo Life News",
+                "is_demo": False,
+            },
+        ]
+        with patch.object(world_pulse, "_all_live_articles", return_value=rows):
+            with patch.object(world_pulse, "_display_category", side_effect=lambda row, lang: row["category"]):
+                with patch.object(world_pulse, "_row_allowed_on_language_site", return_value=True):
+                    with patch.object(world_pulse, "_stories_are_near_duplicates", return_value=False):
+                        with patch.object(world_pulse, "_normalise_story", side_effect=lambda row, lang: dict(row)):
+                            stories = world_pulse._build_display_stories("en")
+
+        self.assertEqual([story["slug"] for story in stories], ["real-story"])
+        self.assertEqual(len(rows), 2, "legacy archive rows must be hidden, not deleted")
+
     def test_google_news_rss_query_is_limited_to_recent_stories(self):
         with patch.object(world_pulse, "_control_enabled", return_value=True):
             with patch.object(world_pulse, "_parse_any_rss", return_value=("world", "ar", [])) as parser:

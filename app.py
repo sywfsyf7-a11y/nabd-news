@@ -1573,6 +1573,56 @@ def _clean_text(value: Any, limit: int = 2500) -> str:
     text = re.sub(r"\s+", " ", text).strip()
     return text[:limit]
 
+
+_GENERIC_FEED_SECTION_TITLES = {
+    "news", "latest news", "latest headlines", "latest stories", "top stories",
+    "all news", "news home", "news homepage", "news archive", "world news",
+    "technology news", "latest technology news", "gaming news", "latest gaming news",
+    "sports news", "latest sports news", "latest nintendo life news", "nintendo life news",
+    "مستجدات التكنولوجيا", "مستجدات التقنية", "مستجدات العالم", "مستجدات الأخبار",
+    "مستجدات الاخبار", "أخبار التكنولوجيا", "اخبار التكنولوجيا", "أخبار التقنية",
+    "اخبار التقنية", "آخر الأخبار", "اخر الاخبار", "أحدث الأخبار", "احدث الاخبار",
+}
+
+
+def _looks_like_feed_section_title(value: Any, publisher: Any = "") -> bool:
+    """Reject obvious publisher-section labels without broadly filtering short real headlines."""
+    title = _clean_text(value, 350)
+    if not title:
+        return True
+    normalized = re.sub(r"[^\w\u0600-\u06ff]+", " ", title.casefold()).strip()
+    normalized = re.sub(r"\s+", " ", normalized)
+    if normalized in _GENERIC_FEED_SECTION_TITLES:
+        return True
+
+    # RSS aggregators often publish navigation labels such as "Latest Nintendo Life News".
+    if re.fullmatch(
+        r"(?:latest|recent|top|all|more)\s+(?:[\w'’.-]+\s+){0,5}(?:news|headlines|stories|updates)",
+        normalized,
+    ):
+        return True
+    if re.fullmatch(
+        r"(?:آخر|اخر|أحدث|احدث)\s+(?:أخبار|اخبار)\s+[\w\u0600-\u06ff]+(?:\s+[\w\u0600-\u06ff]+){0,3}",
+        normalized,
+    ):
+        return True
+
+    # Google News appends the publisher after a dash. If the remaining "headline" is
+    # only a very short location/section label, do not publish it as a standalone story.
+    publisher_text = _clean_text(publisher, 120)
+    if publisher_text:
+        suffix = re.search(
+            r"\s*(?:[-–—|:])\s*" + re.escape(publisher_text) + r"\s*$",
+            title,
+            flags=re.IGNORECASE,
+        )
+        if suffix:
+            prefix = title[:suffix.start()].strip()
+            if len(prefix) < 18 and len(prefix.split()) <= 2:
+                return True
+    return False
+
+
 def _parse_published(entry: Any) -> datetime | None:
     parsed = entry.get("published_parsed") or entry.get("updated_parsed")
     if parsed:
@@ -3234,6 +3284,8 @@ def _parse_any_rss(feed_url: str, category: str, lang: str, default_source: str)
                 source_href = str(source_info.get("href") or source_info.get("url") or "").strip()
             if not publisher:
                 continue
+            if _looks_like_feed_section_title(title, publisher):
+                continue
 
             source_host = (urlparse(source_href).hostname or "").casefold().removeprefix("www.") if source_href else ""
             article_host = (urlparse(url).hostname or "").casefold().removeprefix("www.")
@@ -3456,6 +3508,8 @@ def _parse_direct_rss_feed(
             url = str(entry.get("link") or "").strip()
             if not title or not url.startswith(("https://", "http://")):
                 continue
+            if _looks_like_feed_section_title(title, source_name):
+                continue
             host = (urlparse(url).hostname or "").casefold().rstrip(".").removeprefix("www.")
             if not host or not _domain_matches(host, expected_domain):
                 continue
@@ -3675,8 +3729,12 @@ def _collect_rss_articles() -> list[dict[str, Any]]:
 
     classification_started = time.monotonic()
     parsed_entry_count = sum(len(items) for _category, _lang, items in collected_results)
+    section_headlines_rejected = 0
     for requested_category, _requested_lang, items in collected_results:
         for item in items:
+            if _looks_like_feed_section_title(item.get("original_title"), item.get("source_name", "")):
+                section_headlines_rejected += 1
+                continue
             actual_category = _classify_story(
                 item.get("original_title", ""), item.get("original_summary", ""), requested_category,
                 item.get("source_domain", "")
@@ -3686,8 +3744,9 @@ def _collect_rss_articles() -> list[dict[str, Any]]:
             item["category"] = actual_category
             by_category[actual_category].append(item)
     logger.info(
-        "RSS candidate classification complete: feed_results=%d entries=%d elapsed=%.1fs",
-        len(collected_results), parsed_entry_count, time.monotonic() - classification_started,
+        "RSS candidate classification complete: feed_results=%d entries=%d section_headlines_rejected=%d elapsed=%.1fs",
+        len(collected_results), parsed_entry_count, section_headlines_rejected,
+        time.monotonic() - classification_started,
     )
 
     cleaned: dict[str, list[dict[str, Any]]] = {key: [] for key in CATEGORY_NAMES}
@@ -5386,7 +5445,13 @@ def _build_display_stories(lang: str) -> list[dict[str, Any]]:
     for original in _all_live_articles():
         source_lang = str(original.get("original_language") or "").casefold()
         has_display_title = bool(original.get(f"title_{lang}") or original.get(f"title_{source_lang}"))
-        if original.get("is_demo") or not original.get("source_url") or not has_display_title:
+        source_title = original.get(f"title_{source_lang}") or original.get(f"title_{lang}") or ""
+        if (
+            original.get("is_demo")
+            or not original.get("source_url")
+            or not has_display_title
+            or _looks_like_feed_section_title(source_title, original.get("source_name", ""))
+        ):
             continue
         row = original
         corrected_category = _display_category(original, lang)
