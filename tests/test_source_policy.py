@@ -69,8 +69,9 @@ class SourcePolicyTests(unittest.TestCase):
         }
         story = world_pulse._normalise_story(row, "en")
         self.assertTrue(story["headline_only"])
+        self.assertTrue(story["source_only"])
         self.assertEqual(story["content"], "")
-        self.assertIn("Headline and source link only", story["summary"])
+        self.assertIn("Publisher headline only", story["summary"])
     def test_major_publishers_are_configured_with_safe_rights_modes(self):
         self.assertEqual(world_pulse._source_domain_for_category("world", "ar", "www.aljazeera.net"), "aljazeera.net")
         self.assertEqual(world_pulse._source_domain_for_category("world", "en", "www.aljazeera.com"), "aljazeera.com")
@@ -99,8 +100,9 @@ class SourcePolicyTests(unittest.TestCase):
         }
         story = world_pulse._normalise_story(row, "en")
         self.assertTrue(story["headline_only"])
+        self.assertTrue(story["source_only"])
         self.assertEqual(story["content"], "")
-        self.assertIn("Headline and source link only", story["summary"])
+        self.assertIn("Publisher headline only", story["summary"])
 
     def test_missing_images_use_language_specific_A_or_E_fallback(self):
         base = {
