@@ -5187,7 +5187,7 @@ def _resolve_google_news_article_url(
             source_url,
             headers={"User-Agent": "WorldPulseNews/2.5 (+source-link verification)", "Accept": "text/html"},
         )
-        with urlopen(req, timeout=min(5, max(2, RSS_TIMEOUT_SECONDS))) as response:
+        with urlopen(req, timeout=min(3, max(2, RSS_TIMEOUT_SECONDS))) as response:
             final_url = str(response.geturl() or "").strip()
         final = urlparse(final_url)
         final_host = (final.hostname or "").casefold().removeprefix("www.")
