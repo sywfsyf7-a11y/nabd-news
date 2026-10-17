@@ -2103,6 +2103,8 @@ def _db_fetch_articles_needing_images(limit: int = 6) -> list[dict[str, Any]]:
                    AND is_hidden = FALSE
                    AND source_url <> ''
                    AND (
+                    COALESCE(image_relevance_verified, FALSE) = FALSE
+                    OR (
                     (
                       (
                         COALESCE(image_url, '') = ''
@@ -2121,7 +2123,7 @@ def _db_fetch_articles_needing_images(limit: int = 6) -> list[dict[str, Any]]:
                       AND (image_checked_at IS NULL OR image_checked_at < NOW() - (%s * INTERVAL '1 second'))
                     )
                   )
-                ORDER BY image_checked_at ASC NULLS FIRST,
+                ORDER BY image_relevance_verified ASC, image_checked_at ASC NULLS FIRST,
                          COALESCE(published_at, fetched_at) DESC, fetched_at DESC
                 LIMIT %s
             """, (IMAGE_RETRY_AFTER_HOURS, IMAGE_CACHE_MAX_AGE_SECONDS, max(1, min(24, int(limit)))))
@@ -4224,7 +4226,7 @@ def _enrich_article_images(raw_articles: list[dict[str, Any]], *, force_refresh:
             ):
                 for key in (
                     "image_url", "image_source", "image_credit", "image_credit_url",
-                    "image_provider_url", "image_license_url", "image_checked_at",
+                    "image_provider_url", "image_license_url", "image_checked_at", "image_relevance_verified",
                 ):
                     if cached.get(key) not in (None, ""):
                         item[key] = cached[key]
@@ -4233,7 +4235,7 @@ def _enrich_article_images(raw_articles: list[dict[str, Any]], *, force_refresh:
                 key: cached.get(key)
                 for key in (
                     "image_url", "image_source", "image_credit", "image_credit_url",
-                    "image_provider_url", "image_license_url", "image_checked_at",
+                    "image_provider_url", "image_license_url", "image_checked_at", "image_relevance_verified",
                 )
             }
 
@@ -4282,7 +4284,7 @@ def _enrich_article_images(raw_articles: list[dict[str, Any]], *, force_refresh:
                 item.update({
                     "image_url": "", "image_source": "none", "image_credit": "",
                     "image_credit_url": "", "image_provider_url": "", "image_license_url": "",
-                    "image_checked_at": datetime.now(timezone.utc),
+                    "image_checked_at": datetime.now(timezone.utc), "image_relevance_verified": False,
                 })
     except FuturesTimeoutError:
         timed_out = True
@@ -4308,7 +4310,7 @@ def _enrich_article_images(raw_articles: list[dict[str, Any]], *, force_refresh:
             item.update({
                 "image_url": "", "image_source": "none", "image_credit": "",
                 "image_credit_url": "", "image_provider_url": "", "image_license_url": "",
-                "image_checked_at": datetime.now(timezone.utc),
+                "image_checked_at": datetime.now(timezone.utc), "image_relevance_verified": False,
             })
             errors += 1
         logger.warning(
@@ -5804,7 +5806,7 @@ def _refresh_existing_article_images_job(limit: int = 8, slug: str | None = None
             cached = _MEMORY_ARTICLES.get(source_url)
             if cached is not None:
                 for key in ("image_url", "image_source", "image_credit", "image_credit_url",
-                            "image_provider_url", "image_license_url", "image_checked_at"):
+                            "image_provider_url", "image_license_url", "image_checked_at", "image_relevance_verified"):
                     cached[key] = raw.get(key, "")
                 updated_memory += 1
         found = sum(1 for item in candidates if item.get("image_url"))
@@ -6449,7 +6451,7 @@ def _refresh_news_job() -> None:
             image_updates = _db_update_article_images(image_candidates)
             image_keys = (
                 "image_url", "image_source", "image_credit", "image_credit_url",
-                "image_provider_url", "image_license_url", "image_checked_at",
+                "image_provider_url", "image_license_url", "image_checked_at", "image_relevance_verified",
             )
             by_url = {str(item.get("source_url") or ""): item for item in image_candidates}
             for article_data in ready:
