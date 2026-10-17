@@ -1,5 +1,7 @@
 """Regression tests for story classification, image matching and duplicate suppression."""
 import unittest
+
+import app as world_pulse
 from datetime import datetime, timezone
 
 from app import (
@@ -37,6 +39,25 @@ class NewsQualityTests(unittest.TestCase):
             "published_at": published,
         }
         self.assertTrue(_stories_are_near_duplicates(first, second))
+
+    def test_precomputed_feed_signatures_keep_near_duplicate_detection(self):
+        first = {
+            "source_url": "https://one.example/story",
+            "original_language": "en",
+            "original_title": "Government announces new energy plan for households",
+            "title_en": "Government announces new energy plan for households",
+            "published_at": datetime(2026, 10, 17, tzinfo=timezone.utc),
+        }
+        second = {
+            "source_url": "https://two.example/story",
+            "original_language": "en",
+            "original_title": "Government announces new energy plan for the households",
+            "title_en": "Government announces new energy plan for the households",
+            "published_at": datetime(2026, 10, 17, tzinfo=timezone.utc),
+        }
+        left = world_pulse._display_dedupe_signature(first, "en")
+        right = world_pulse._display_dedupe_signature(second, "en")
+        self.assertTrue(world_pulse._display_signatures_are_near_duplicates(left, right, "en"))
 
     def test_similar_length_headlines_with_distinct_words_are_not_duplicates(self):
         first = {
