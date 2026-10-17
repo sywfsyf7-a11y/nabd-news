@@ -447,6 +447,36 @@ class GeminiRequestBudgetTests(unittest.TestCase):
         self.assertEqual(client_options.retry_options.attempts, 1)
 
 
+    def test_google_news_redirect_is_resolved_only_to_expected_allowlisted_publisher(self):
+        response = MagicMock()
+        response.__enter__.return_value = response
+        response.__exit__.return_value = False
+        response.geturl.return_value = "https://www.theverge.com/2026/10/17/example-story"
+        with patch.object(world_pulse, "urlopen", return_value=response):
+            resolved = world_pulse._resolve_google_news_article_url(
+                "https://news.google.com/rss/articles/example-token",
+                "theverge.com", "technology", "en",
+            )
+        self.assertEqual(resolved, "https://www.theverge.com/2026/10/17/example-story")
+
+        response.geturl.return_value = "https://example.invalid/copied-story"
+        with patch.object(world_pulse, "urlopen", return_value=response):
+            rejected = world_pulse._resolve_google_news_article_url(
+                "https://news.google.com/rss/articles/example-token",
+                "theverge.com", "technology", "en",
+            )
+        self.assertEqual(rejected, "")
+
+    def test_direct_allowlisted_article_url_does_not_make_a_network_request(self):
+        url = "https://www.theverge.com/2026/10/17/example-story"
+        with patch.object(world_pulse, "urlopen") as network:
+            self.assertEqual(
+                world_pulse._resolve_google_news_article_url(url, "theverge.com", "technology", "en"),
+                url,
+            )
+            network.assert_not_called()
+
+
 class DatabaseURLTests(unittest.TestCase):
     def test_shared_supabase_pooler_url_uses_transaction_pooling_compatibly(self):
         dsn = (
