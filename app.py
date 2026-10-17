@@ -1060,35 +1060,37 @@ def _db_fetch_all() -> list[dict[str, Any]]:
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute("""
-                (
-                    SELECT slug, source_url, category, source_name, source_domain, image_url,
-                           image_source, image_credit, image_credit_url, image_provider_url, image_license_url, image_checked_at,
-                           title_ar, title_en, summary_ar, summary_en,
-                           content_ar, content_en, published_at, fetched_at,
-                           read_minutes, original_language, is_demo
-                    FROM world_pulse_articles
-                    WHERE is_demo = FALSE
-                      AND original_language = 'ar'
-                      AND LENGTH(TRIM(COALESCE(title_ar, ''))) > 0
-                      AND LENGTH(TRIM(COALESCE(summary_ar, ''))) > 0
-                    ORDER BY COALESCE(published_at, fetched_at) DESC, fetched_at DESC
-                    LIMIT 120
-                )
-                UNION ALL
-                (
-                    SELECT slug, source_url, category, source_name, source_domain, image_url,
-                           image_source, image_credit, image_credit_url, image_provider_url, image_license_url, image_checked_at,
-                           title_ar, title_en, summary_ar, summary_en,
-                           content_ar, content_en, published_at, fetched_at,
-                           read_minutes, original_language, is_demo
-                    FROM world_pulse_articles
-                    WHERE is_demo = FALSE
-                      AND original_language = 'en'
-                      AND LENGTH(TRIM(COALESCE(title_en, ''))) > 0
-                      AND LENGTH(TRIM(COALESCE(summary_en, ''))) > 0
-                    ORDER BY COALESCE(published_at, fetched_at) DESC, fetched_at DESC
-                    LIMIT 120
-                )
+                SELECT * FROM (
+                    (
+                        SELECT slug, source_url, category, source_name, source_domain, image_url,
+                               image_source, image_credit, image_credit_url, image_provider_url, image_license_url, image_checked_at,
+                               title_ar, title_en, summary_ar, summary_en,
+                               content_ar, content_en, published_at, fetched_at,
+                               read_minutes, original_language, is_demo
+                        FROM world_pulse_articles
+                        WHERE is_demo = FALSE
+                          AND original_language = 'ar'
+                          AND LENGTH(TRIM(COALESCE(title_ar, ''))) > 0
+                          AND LENGTH(TRIM(COALESCE(summary_ar, ''))) > 0
+                        ORDER BY COALESCE(published_at, fetched_at) DESC, fetched_at DESC
+                        LIMIT 120
+                    )
+                    UNION ALL
+                    (
+                        SELECT slug, source_url, category, source_name, source_domain, image_url,
+                               image_source, image_credit, image_credit_url, image_provider_url, image_license_url, image_checked_at,
+                               title_ar, title_en, summary_ar, summary_en,
+                               content_ar, content_en, published_at, fetched_at,
+                               read_minutes, original_language, is_demo
+                        FROM world_pulse_articles
+                        WHERE is_demo = FALSE
+                          AND original_language = 'en'
+                          AND LENGTH(TRIM(COALESCE(title_en, ''))) > 0
+                          AND LENGTH(TRIM(COALESCE(summary_en, ''))) > 0
+                        ORDER BY COALESCE(published_at, fetched_at) DESC, fetched_at DESC
+                        LIMIT 120
+                    )
+                ) AS recent_articles
                 ORDER BY COALESCE(published_at, fetched_at) DESC, fetched_at DESC
             """)
             rows = [dict(row) for row in cur.fetchall()]
