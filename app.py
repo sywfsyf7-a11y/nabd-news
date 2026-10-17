@@ -1053,7 +1053,7 @@ def _content_quality_audit_issues(
 
 
 def _run_content_quality_audit_once() -> None:
-    """Run an explicitly enabled, one-time read-only archive/image audit and persist its report."""
+    """Run an explicitly enabled, read-only archive/image audit at most once every 30 minutes."""
     if os.getenv("NEWS_CONTENT_AUDIT_ONCE", "false").strip().casefold() not in {"1", "true", "yes", "on"}:
         return
     if not _ensure_schema():
@@ -1064,7 +1064,7 @@ def _run_content_quality_audit_once() -> None:
         logger.warning("Content audit skipped because the database connection is unavailable")
         return
 
-    state_key = "content_quality_audit_v1"
+    state_key = "content_quality_audit_v2"
     report: dict[str, Any] = {
         "started_at": datetime.now(timezone.utc).isoformat(),
         "total_articles": 0,
@@ -1090,10 +1090,13 @@ def _run_content_quality_audit_once() -> None:
                 VALUES (%s, 'running', NOW())
                 ON CONFLICT (state_key) DO UPDATE
                 SET state_value = 'running', updated_at = NOW()
-                WHERE world_pulse_runtime_state.state_value NOT LIKE 'done:%%'
+                WHERE (
+                    world_pulse_runtime_state.state_value NOT LIKE 'done:%%'
+                    OR world_pulse_runtime_state.updated_at < NOW() - INTERVAL '30 minutes'
+                  )
                   AND (
-                      world_pulse_runtime_state.state_value <> 'running'
-                      OR world_pulse_runtime_state.updated_at < NOW() - INTERVAL '30 minutes'
+                    world_pulse_runtime_state.state_value <> 'running'
+                    OR world_pulse_runtime_state.updated_at < NOW() - INTERVAL '30 minutes'
                   )
                 RETURNING state_key
             """, (state_key,))

@@ -58,3 +58,5 @@ services:
         value: "3"
       - key: SOURCE_LINK_REPAIR_BATCH_SIZE
         value: "12"
+      - key: NEWS_CONTENT_AUDIT_ONCE
+        value: "true"
