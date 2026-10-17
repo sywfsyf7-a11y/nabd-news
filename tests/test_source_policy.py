@@ -36,7 +36,8 @@ class SourcePolicyTests(unittest.TestCase):
             summary_en="The company reported a specific update to its technology product.",
             content_en=("The source says the company reported a concrete technology update. "
                          "The available report gives the basic development and its stated context, "
-                         "without adding unverified dates, figures, or claims."),
+                         "without adding unverified dates, figures, claims, or other unsupported background."),
+
         )
         self.assertTrue(world_pulse._row_allowed_on_language_site(arabic_story_translated, "en"))
 
@@ -62,7 +63,8 @@ class SourcePolicyTests(unittest.TestCase):
             title_ar="تحديث تقني جديد",
             summary_ar="أعلنت الشركة عن تحديث محدد لمنتجها التقني.",
             content_ar=("يفيد المصدر بأن الشركة أعلنت عن تحديث تقني ملموس. وتوضح المادة المتاحة "
-                        "التطور الأساسي والسياق المذكور، من دون إضافة تواريخ أو أرقام أو ادعاءات غير مؤكدة."),
+                        "التطور الأساسي والسياق المذكور، من دون إضافة تواريخ أو أرقام أو ادعاءات غير مؤكدة. "
+                        "كما يقتصر هذا العرض على ما ورد في المادة ولا يضيف خلفيات أو تفاصيل غير مسندة للمصدر."),
         )
         self.assertTrue(world_pulse._row_allowed_on_language_site(english_story_translated, "ar"))
 
