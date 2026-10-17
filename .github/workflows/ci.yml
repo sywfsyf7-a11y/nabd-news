@@ -15,6 +15,11 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Render currently builds on Python 3.14; keep 3.12 covered too.
+        python-version: ["3.12", "3.14"]
     env:
       NEWS_AUTO_FETCH: "false"
       NEWS_SCHEDULER_ENABLED: "false"
@@ -28,7 +33,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python-version }}
           cache: pip
       - name: Build production CSS
         run: npm install --no-audit --no-fund && npm run build:css
