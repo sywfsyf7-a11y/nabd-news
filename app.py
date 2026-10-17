@@ -2463,19 +2463,14 @@ def _image_match_score(title: str, description: str) -> float:
     image_tokens = _image_tokens(description)
     overlap = title_tokens & image_tokens
     overlap_count = len(overlap)
-    # A long news headline contains many low-value words. A single capitalized entity
-    # can still identify a relevant photo, but a three-word query such as "Trump tariff
-    # China" must not pass on "China" alone. Keep the stricter rule for short queries.
-    capitalized_title_tokens = {
-        token.casefold()
-        for token in re.findall(r"(?<![A-Za-z])[A-Z][A-Za-z0-9'’-]{2,}", title)
-    }
-    named_entity_match = len(title_tokens) >= 5 and bool(overlap & capitalized_title_tokens)
+    # A country/person name alone is not enough for a long news headline. Otherwise,
+    # a generic portrait mentioning "Iran" can pass for a story about oil tankers or a
+    # maritime blockade. Require at least two matching topic terms for longer queries.
     required = 1 if len(title_tokens) <= 2 else 2
     overlap_ratio = overlap_count / max(1, len(title_tokens))
-    if overlap_count < required and not named_entity_match:
+    if overlap_count < required:
         return 0.0
-    if overlap_ratio < 0.08 and not named_entity_match:
+    if overlap_ratio < 0.08:
         return 0.0
     return overlap_ratio + min(overlap_count, 4) * 0.025
 
@@ -2594,17 +2589,51 @@ _ARABIC_IMAGE_ENTITY_TRANSLATIONS = (
     ("تسلا", "Tesla"),
 )
 
+_ARABIC_IMAGE_TOPIC_TRANSLATIONS = (
+    ("مضيق هرمز", "Strait of Hormuz"),
+    ("ناقلات النفط", "oil tankers"),
+    ("أسعار النفط", "oil prices"),
+    ("حصار نفطي", "oil blockade"),
+    ("أزمة بحرية", "maritime crisis"),
+    ("إمدادات النفط", "oil supply"),
+    ("النفط", "oil"),
+    ("نفطي", "oil"),
+    ("ناقلات", "tankers"),
+    ("بحرية", "maritime"),
+    ("بحري", "maritime"),
+    ("حصار", "blockade"),
+    ("مضيق", "strait"),
+    ("شحن", "shipping"),
+    ("سفن", "ships"),
+    ("صواريخ", "missiles"),
+    ("زلزال", "earthquake"),
+    ("إعصار", "hurricane"),
+    ("فيضانات", "flooding"),
+    ("حرائق", "wildfire"),
+    ("ذكاء اصطناعي", "artificial intelligence"),
+    ("ألعاب فيديو", "video games"),
+    ("إصدار لعبة", "game release"),
+)
+
+
 def _english_image_anchor_query(title: str, context: str = "") -> str:
-    """Translate known Arabic entities only for image search, never for published article text."""
+    """Translate known Arabic names and subject terms for image search only."""
     source = _clean_text(f"{title} {context}", 1000).casefold()
     matches: list[str] = []
     seen: set[str] = set()
-    for arabic, english in _ARABIC_IMAGE_ENTITY_TRANSLATIONS:
-        key = arabic.casefold()
-        if key in source and english.casefold() not in seen:
+    # Include the event's subject as well as its location/name. A location alone is
+    # dangerously broad: an Iran-related portrait should not match an oil-shipping story.
+    for arabic, english in _ARABIC_IMAGE_TOPIC_TRANSLATIONS:
+        if arabic.casefold() in source and english.casefold() not in seen:
             seen.add(english.casefold())
             matches.append(english)
         if len(matches) >= 4:
+            break
+    for arabic, english in _ARABIC_IMAGE_ENTITY_TRANSLATIONS:
+        if arabic.casefold() in source and english.casefold() not in seen:
+            seen.add(english.casefold())
+            matches.append(english)
+        if len(matches) >= 7:
             break
     return " ".join(matches)
 
@@ -2746,6 +2775,7 @@ def _search_commons_image(title: str, lang: str, category: str = "world") -> dic
             "image_license_url": license_url,
             "image_checked_at": datetime.now(timezone.utc),
             "image_title": page_title,
+            "_image_relevance_evidence": evidence,
             "_image_relevance_score": score,
         }
         if best is None or score > best[0]:
@@ -2821,6 +2851,7 @@ def _search_loc_open_access_image(title: str, lang: str = "en", category: str = 
                 "image_license_url": item_url,
                 "image_checked_at": datetime.now(timezone.utc),
                 "image_title": item_title,
+                "_image_relevance_evidence": item_title + " " + evidence,
                 "_image_relevance_score": score,
             }
             if best is None or score > best[0]:
@@ -2880,6 +2911,7 @@ def _search_art_institute_image(title: str, lang: str = "en", category: str = "w
                 "image_license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
                 "image_checked_at": datetime.now(timezone.utc),
                 "image_title": item_title,
+                "_image_relevance_evidence": item_title + " " + evidence,
                 "_image_relevance_score": score,
             }
             if best is None or score > best[0]:
@@ -2958,6 +2990,7 @@ def _search_met_open_access_image(title: str, lang: str = "en", category: str = 
                     "image_license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
                     "image_checked_at": datetime.now(timezone.utc),
                     "image_title": item_title,
+                    "_image_relevance_evidence": item_title + " " + evidence,
                     "_image_relevance_score": score,
                 }
                 if best is None or score > best[0]:
@@ -3033,6 +3066,7 @@ def _search_cleveland_museum_image(title: str, lang: str = "en", category: str =
                 "image_license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
                 "image_checked_at": datetime.now(timezone.utc),
                 "image_title": item_title,
+                "_image_relevance_evidence": item_title + " " + evidence,
                 "_image_relevance_score": score,
             }
             if best is None or score > best[0]:
@@ -3123,6 +3157,7 @@ def _search_wellcome_open_access_image(title: str, lang: str = "en", category: s
                     "image_license_url": license_url,
                     "image_checked_at": datetime.now(timezone.utc),
                     "image_title": item_title,
+                    "_image_relevance_evidence": item_title + " " + evidence,
                     "image_license_label": license_label,
                     "_image_relevance_score": score,
                 }
@@ -3218,6 +3253,7 @@ def _search_nasa_image(title: str, lang: str = "en", category: str = "world") ->
                 "image_license_url": "https://www.nasa.gov/nasa-brand-center/images-and-media/",
                 "image_checked_at": datetime.now(timezone.utc),
                 "image_title": item_title,
+                "_image_relevance_evidence": item_title + " " + evidence,
                 "_image_relevance_score": score,
             }
             if best is None or score > best[0]:
@@ -3267,6 +3303,7 @@ def _search_approved_presskit_image(title: str, category: str) -> dict[str, str]
             "image_license_url": license_url,
             "image_checked_at": datetime.now(timezone.utc),
             "image_title": _clean_text(entry.get("title") or "", 240),
+            "_image_relevance_evidence": keyword_text + " " + description,
             "_image_relevance_score": score,
         }
         if best is None or score > best[0]:
@@ -3785,9 +3822,18 @@ def _search_article_image_with_variants(
     lang: str = "en",
     category: str = "world",
 ) -> dict[str, Any]:
-    """Try bounded headline/context variants and prefer a stronger topic match."""
+    """Try bounded image searches, then re-score candidates against the actual story."""
     variants = _image_search_query_variants(title, context, category)
     category_query = _category_image_search_query(title, context, category)
+    # Validate using the article's actual subject, not the current provider query.
+    # A country name or broad section term alone cannot validate an unrelated portrait.
+    story_reference = _clean_text(
+        " ".join(part for part in (
+            _image_search_query(title, context),
+            _english_image_anchor_query(title, context),
+        ) if part),
+        320,
+    )
     best: dict[str, Any] = {}
     best_score = -1.0
     best_is_category_fallback = False
@@ -3796,35 +3842,41 @@ def _search_article_image_with_variants(
         if index == 0:
             result = _search_any_reusable_image(query, lang, category)
         else:
-            # The last category query uses only the bounded general openly licensed catalogues.
+            # Secondary/category searches use only bounded open catalogues.
             result = _search_any_reusable_image(query, lang, category, open_only=True)
         if not result:
             continue
-        score = float(result.get("_image_relevance_score") or 0.0)
+        provider_score = float(result.get("_image_relevance_score") or 0.0)
+        evidence = _clean_text(
+            result.get("_image_relevance_evidence") or result.get("image_title") or "",
+            1800,
+        )
+        story_score = _image_match_score(story_reference, evidence) if evidence and story_reference else 0.0
+        # Provider scores alone may be high because only a location or category word
+        # matched. Use the lower of catalogue relevance and article-topic relevance.
+        score = min(provider_score, story_score) if provider_score > 0 and story_score > 0 else 0.0
+        if score < MIN_IMAGE_RELEVANCE_SCORE:
+            logger.info(
+                "Image candidate rejected: source=%s provider_score=%.3f story_score=%.3f",
+                result.get("image_source", "unknown"), provider_score, story_score,
+            )
+            continue
         if score > best_score:
             best_score = score
             best = dict(result)
+            best["_image_relevance_score"] = score
             best_is_category_fallback = is_category_fallback
-        # Any strong match ends the search early, including later headline/context queries.
         if score >= 0.42:
             break
     if not best:
         return {}
-    if best_score < MIN_IMAGE_RELEVANCE_SCORE:
-        # A legally reusable photo can still be editorially wrong. Prefer the labelled
-        # story-specific SVG fallback over a weakly related picture.
-        logger.info(
-            "Image lookup rejected weak match: relevance=%.3f required=%.3f; using editorial fallback",
-            max(0.0, best_score), MIN_IMAGE_RELEVANCE_SCORE,
-        )
-        return {}
     if best_is_category_fallback:
-        # Treat broad section photography as illustrative context, not as evidence that
-        # this exact person, object, team or location appeared in the news report.
+        # Broad section imagery is marked as illustrative, not as documentary proof.
         credit = str(best.get("image_credit") or "").strip()
         label = "illustrative category image" if lang == "en" else "صورة توضيحية للقسم"
         best["image_credit"] = f"{credit} · {label}" if credit else label
     best.pop("_image_relevance_score", None)
+    best.pop("_image_relevance_evidence", None)
     if best.get("image_url"):
         logger.info(
             "Image search selected source=%s relevance=%.3f",

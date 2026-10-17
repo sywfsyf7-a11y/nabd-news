@@ -144,6 +144,7 @@ def search_openverse_image(
                 "image_license_url": license_url,
                 "image_checked_at": now_fn(),
                 "image_title": item_title,
+                "_image_relevance_evidence": evidence,
                 "image_license_label": license_label,
                 "_image_relevance_score": score,
             }
