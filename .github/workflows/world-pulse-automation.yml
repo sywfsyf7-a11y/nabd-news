@@ -29,7 +29,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: world-pulse-production-readiness-v2
+  group: world-pulse-production-readiness-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
