@@ -2181,9 +2181,10 @@ def _sync_cached_image_metadata(articles: list[dict[str, Any]]) -> None:
                             "/static/images/fallback-ar.svg" if lang == "ar"
                             else "/static/images/fallback-en.svg"
                         ),
-                        "image_source": "fallback_ar" if lang == "ar" else "fallback_en",
+                        "image_source": "editorial_generated",
                         "image_credit": "", "image_credit_url": "",
                         "image_provider_url": "", "image_license_url": "",
+                        "image_relevance_verified": False,
                         "image_relevance_verified": False,
                     })
                 story["image_license_name"] = _image_license_label(
@@ -6738,6 +6739,7 @@ def _normalise_story(row: dict[str, Any], lang: str) -> dict[str, Any]:
     for key in ("source_name", "image_url", "image_source", "image_credit", "image_credit_url",
                 "image_provider_url", "image_license_url"):
         story.setdefault(key, "")
+    story["image_relevance_verified"] = story.get("image_relevance_verified") is True
     if story.get("original_language") not in {"ar", "en"}:
         story["original_language"] = "ar" if _looks_arabic(story.get("title_ar", "")) else "en"
     if story.get("image_url") and (
@@ -6746,7 +6748,8 @@ def _normalise_story(row: dict[str, Any], lang: str) -> dict[str, Any]:
         or story.get("image_relevance_verified") is not True
     ):
         story.update({"image_url": "", "image_source": "none", "image_credit": "",
-                      "image_credit_url": "", "image_provider_url": "", "image_license_url": ""})
+                      "image_credit_url": "", "image_provider_url": "", "image_license_url": "",
+                      "image_relevance_verified": False})
     if not story.get("slug"):
         story["slug"] = _slug_for_url(story.get("source_url", "world-pulse"))
     native_lang = str(story.get("original_language") or "en").casefold()
