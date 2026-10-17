@@ -26,9 +26,9 @@ class SourcePolicyTests(unittest.TestCase):
             "summary_en": "",
         }
         self.assertTrue(world_pulse._row_allowed_on_language_site(arabic_story, "ar"))
-        self.assertTrue(world_pulse._row_allowed_on_language_site(arabic_story, "en"))
+        self.assertFalse(world_pulse._row_allowed_on_language_site(arabic_story, "en"))
         english_story = dict(arabic_story, original_language="en", source_domain="theverge.com")
-        self.assertTrue(world_pulse._row_allowed_on_language_site(english_story, "ar"))
+        self.assertFalse(world_pulse._row_allowed_on_language_site(english_story, "ar"))
         self.assertTrue(world_pulse._row_allowed_on_language_site(english_story, "en"))
 
         unapproved = dict(arabic_story, source_domain="unknown.example")
