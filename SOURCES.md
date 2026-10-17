@@ -1,12 +1,27 @@
 # World Pulse — Publisher and image-source policy
 
-This maintained allowlist contains 329 category-and-language assignments covering 201 distinct publisher domains across eight sections. It is curated coverage rather than a claim that every publisher on the internet has been integrated. Google News RSS is used for discovery only; the original publisher's article URL remains the destination for readers.
+This maintained allowlist is curated across eight sections and both source languages. Editorial priority groups are checked on every discovery cycle; the remaining approved publishers rotate in bounded groups. Google News RSS is discovery transport only: the reader should land on the original publisher article, never treat Google News as the reporting source.
 
-Arabic- and English-origin stories are kept in one permanent archive and grouped by the same eight editorial sections. An item may be shown in either interface only when its title, executive summary and substantive body are complete in that interface language (at least 180 characters in the body). An incomplete translation stays on the source-language interface, so English headlines do not leak into the Arabic feed and Arabic headlines do not leak into the English feed. Headline-only publishers remain native-language headline/link entries; their protected text is not translated or rewritten. Each publisher is validated against the allowlist for its category and native language. Some publishers may return no eligible stories because of regional feeds, robots restrictions, or the rights gate.
+Arabic- and English-origin stories are kept in one permanent archive and grouped by the same eight editorial sections. The Arabic interface shows only Arabic-origin publisher stories; the English interface shows only English-origin publisher stories. A translation is not used to move an English-source item into the Arabic feed or an Arabic-source item into the English feed. Headline-only publishers remain native-language headline/link entries; their protected text is not translated or rewritten. Each publisher is validated against the allowlist for its category and native language. Some publishers may return no eligible stories because of regional feeds, robots restrictions, or the rights gate.
+
+## Editorial priority order
+
+These groups are intentionally checked every discovery cycle before the rotating allowlisted publishers. A priority only takes effect when the publisher is present in the matching category/language allowlist and passes its rights policy.
+
+| Section | Arabic priority sources | English priority sources |
+|---|---|---|
+| Politics | Al Jazeera Net, Al Arabiya, Sky News Arabia, Asharq Al-Awsat, Al-Quds Al-Arabi | BBC, Reuters, AP, Politico, The Guardian |
+| Economy | Asharq Business, CNBC Arabia, Mubasher, Argaam | Bloomberg, Financial Times, Wall Street Journal, MarketWatch, CNBC |
+| Technology & AI | AITNews, Tech-WD, Arab Hardware | The Verge, TechCrunch, WIRED, Ars Technica |
+| Gaming | Saudi Gamer, Arab Hardware, Arabic Games Network | IGN, GameSpot, Polygon, Eurogamer, Kotaku |
+| Sports | FilGoal, Kooora, beIN SPORTS, Yalla Kora | BBC Sport, ESPN, Sky Sports, The Athletic |
+| Science & Space | National Geographic Arabia, Al Jazeera Net | NASA, Space.com, Live Science, Scientific American, Nature |
+| Culture & Arts | Al Qafilah, Thifaf, Al Jazeera Culture, The New Arab | Literary Hub, Artsy, The Guardian, The New Yorker |
+| World News | Al Jazeera Net, BBC Arabic, France 24 Arabic, DW Arabic | BBC, Euronews, AP, CNN International |
 
 ## Publisher allowlist
 
-The catalogue below contains **329 category/language assignments across 201 distinct publisher domains**. The language on each line is the publisher's source language. Cross-language display requires a complete, supported edition in the visitor's interface language; source-only entries remain native-language. All eight sections keep their own category tags.
+The catalogue below lists approved publishers by category and source language. Each story is displayed only on its matching language edition. Headline-only publishers remain link-only unless a separately reviewed content licence is configured. All eight sections keep their own category tags.
 
 Google News RSS is used as a discovery transport, not as the publisher of the story. The publisher URL is stored as the reader's source link. Each incoming result must resolve to an allowlisted publisher host, pass category checks and rights gates, and be de-duplicated against Supabase and the persistent pending queue. The source list is curated rather than a claim that every website on the internet is integrated. Publisher feeds may return no current stories or decline requests, and a listed domain is not a promise of a new article every cycle.
 
