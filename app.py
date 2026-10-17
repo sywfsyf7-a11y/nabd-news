@@ -39,7 +39,7 @@ from image_sources import openverse_license_url_ok as _openverse_license_url_ok
 from image_sources import search_openverse_image as _search_openverse_provider
 import psycopg2
 from psycopg2.extras import RealDictCursor
-from flask import Flask, Response, abort, jsonify, redirect, render_template, request, session, url_for
+from flask import Flask, Response, abort, g, jsonify, redirect, render_template, request, session, url_for
 from PIL import Image, ImageDraw, ImageOps
 
 try:
@@ -68,8 +68,20 @@ logging.basicConfig(
 )
 logger = logging.getLogger("world_pulse")
 
+SLOW_REQUEST_LOG_SECONDS = max(1.0, float(os.getenv("SLOW_REQUEST_LOG_SECONDS", "2.0")))
+
 @app.after_request
 def add_security_headers(response):
+    started_at = getattr(g, "_wp_request_started_at", None)
+    if isinstance(started_at, (int, float)):
+        elapsed = time.perf_counter() - started_at
+        if elapsed >= SLOW_REQUEST_LOG_SECONDS:
+            # Log the path only (not query values) so story titles/search text are not
+            # copied into operational logs.
+            logger.warning(
+                "Slow HTTP request method=%s path=%s status=%s duration_seconds=%.3f",
+                request.method, request.path, response.status_code, elapsed,
+            )
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
@@ -1388,6 +1400,7 @@ def _cached_db_article_snapshot() -> list[dict[str, Any]]:
 def _db_fetch_all() -> list[dict[str, Any]]:
     """Read the persistent archive, retaining the last good snapshot during outages."""
     global _DB_ARTICLES_CACHE, _DB_ARTICLES_CACHE_AT
+    total_started = time.perf_counter()
     now = time.monotonic()
     with _DB_ARTICLES_CACHE_LOCK:
         if (
@@ -1396,13 +1409,32 @@ def _db_fetch_all() -> list[dict[str, Any]]:
         ):
             return [dict(row) for row in _DB_ARTICLES_CACHE]
 
-    if not _ensure_schema():
+    schema_started = time.perf_counter()
+    schema_ready = _ensure_schema()
+    schema_seconds = time.perf_counter() - schema_started
+    if not schema_ready:
+        elapsed = time.perf_counter() - total_started
+        if elapsed >= SLOW_REQUEST_LOG_SECONDS:
+            logger.warning(
+                "Slow archive read before schema-ready result duration_seconds=%.3f schema_seconds=%.3f",
+                elapsed, schema_seconds,
+            )
         logger.warning("Archive database check failed; serving last known article snapshot")
         return _cached_db_article_snapshot()
+
+    connect_started = time.perf_counter()
     conn = _connect_db()
+    connect_seconds = time.perf_counter() - connect_started
     if conn is None:
+        elapsed = time.perf_counter() - total_started
+        if elapsed >= SLOW_REQUEST_LOG_SECONDS:
+            logger.warning(
+                "Slow archive read without connection duration_seconds=%.3f schema_seconds=%.3f connect_seconds=%.3f",
+                elapsed, schema_seconds, connect_seconds,
+            )
         logger.warning("Archive database connection unavailable; serving last known article snapshot")
         return _cached_db_article_snapshot()
+    query_started = time.perf_counter()
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute("""
@@ -1440,18 +1472,27 @@ def _db_fetch_all() -> list[dict[str, Any]]:
                 ORDER BY COALESCE(published_at, fetched_at) DESC, fetched_at DESC
             """)
             rows = [dict(row) for row in cur.fetchall()]
+        query_seconds = time.perf_counter() - query_started
         with _DB_ARTICLES_CACHE_LOCK:
             _DB_ARTICLES_CACHE = rows
             _DB_ARTICLES_CACHE_AT = time.monotonic()
+        total_seconds = time.perf_counter() - total_started
+        if total_seconds >= SLOW_REQUEST_LOG_SECONDS:
+            logger.warning(
+                "Slow archive read rows=%d duration_seconds=%.3f schema_seconds=%.3f connect_seconds=%.3f query_seconds=%.3f",
+                len(rows), total_seconds, schema_seconds, connect_seconds, query_seconds,
+            )
         return [dict(row) for row in rows]
     except Exception as exc:
+        total_seconds = time.perf_counter() - total_started
         logger.warning(
-            "Could not read persistent news archive; serving last known snapshot (%s)",
-            type(exc).__name__,
+            "Could not read persistent news archive (%s); duration_seconds=%.3f schema_seconds=%.3f connect_seconds=%.3f",
+            type(exc).__name__, total_seconds, schema_seconds, connect_seconds,
         )
         return _cached_db_article_snapshot()
     finally:
         _release_db_connection(conn)
+
 
 
 def _db_fetch_article_by_slug(slug: str) -> dict[str, Any] | None:
@@ -5807,7 +5848,14 @@ def _get_display_stories(lang: str) -> list[dict[str, Any]]:
         if cached and now - cached[0] < _DISPLAY_STORIES_CACHE_TTL_SECONDS:
             return [dict(row) for row in cached[1]]
 
+    build_started = time.perf_counter()
     stories = _build_display_stories(lang)
+    build_seconds = time.perf_counter() - build_started
+    if build_seconds >= SLOW_REQUEST_LOG_SECONDS:
+        logger.warning(
+            "Slow display pool build language=%s stories=%d duration_seconds=%.3f",
+            lang, len(stories), build_seconds,
+        )
     with _DISPLAY_STORIES_CACHE_LOCK:
         _DISPLAY_STORIES_CACHE[lang] = (time.monotonic(), stories)
     return [dict(row) for row in stories]
@@ -5844,6 +5892,7 @@ def _format_date(value: Any, lang: str) -> str:
 
 @app.before_request
 def remember_language() -> None:
+    g._wp_request_started_at = time.perf_counter()
     _ensure_background_scheduler()
     requested = request.args.get("lang", "").lower()
     if requested in ("ar", "en"):
