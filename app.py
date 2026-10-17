@@ -120,7 +120,8 @@ IMAGE_RETRY_AFTER_HOURS = max(1, min(168, int(os.getenv("IMAGE_RETRY_AFTER_HOURS
 IMAGE_CACHE_MAX_AGE_SECONDS = max(3600, int(os.getenv("IMAGE_CACHE_MAX_AGE_HOURS", "24")) * 3600)
 TRUSTED_REUSABLE_IMAGE_SOURCES = {
     "wikimedia_relevant", "openverse_licensed", "loc_open_access", "nasa_images",
-    "artic_open_access", "met_open_access", "presskit_approved"
+    "artic_open_access", "met_open_access", "cleveland_museum_open_access",
+    "wellcome_open_access", "presskit_approved"
 }
 
 
@@ -239,37 +240,48 @@ CATEGORY_QUERIES = {
 
 CATEGORY_SOURCE_DOMAINS = {
     "politics": {
-        "ar": ["aljazeera.net","bbc.com","alarabiya.net","skynewsarabia.com","aawsat.com","alquds.co.uk","alghad.com","almamlakatv.com","roya.tv","arabic.rt.com","cnn.com","france24.com","dw.com","euronews.com","aa.com.tr","alhurra.com","independentarabia.com","wam.ae","petra.gov.jo"],
-        "en": ["bbc.com","bbc.co.uk","aljazeera.com","cnn.com","reuters.com","apnews.com","politico.com","thehill.com","axios.com","voanews.com","rferl.org","dw.com","france24.com","euronews.com","abc.net.au","cbc.ca","npr.org","theconversation.com","almonitor.com","foreignpolicy.com","defensenews.com","opendemocracy.net","chinadaily.com.cn"],
+        "ar": ["aljazeera.net","bbc.com","alarabiya.net","skynewsarabia.com","aawsat.com","alquds.co.uk","alghad.com","almamlakatv.com","roya.tv","arabic.rt.com","cnn.com","france24.com","dw.com","euronews.com","aa.com.tr","alhurra.com","independentarabia.com","wam.ae","petra.gov.jo","spa.gov.sa","sabq.org","okaz.com.sa"],
+        "en": ["bbc.com","bbc.co.uk","aljazeera.com","cnn.com","reuters.com","apnews.com","politico.com","thehill.com","axios.com","voanews.com","rferl.org","dw.com","france24.com","euronews.com","abc.net.au","cbc.ca","npr.org","theconversation.com","almonitor.com","foreignpolicy.com","defensenews.com","opendemocracy.net","chinadaily.com.cn","thenationalnews.com","khaleejtimes.com","gulfnews.com","arabnews.com","saudigazette.com.sa","thearabweekly.com","globalvoices.org"],
     },
     "economy": {
-        "ar": ["asharqbusiness.com","cnbcarabia.com","mubasher.info","alarabiya.net","argaam.com","aleqt.com","zawya.com","almalnews.com","amwalalghad.com","almamlakatv.com","alghad.com","albayan.ae","alittihad.ae","wam.ae","petra.gov.jo"],
-        "en": ["bloomberg.com","ft.com","wsj.com","cnbc.com","marketwatch.com","fortune.com","businessinsider.com","investopedia.com","finance.yahoo.com","economist.com","economictimes.indiatimes.com","forbes.com","theinformation.com","techcrunch.com","axios.com","cnn.com","dw.com","reuters.com","apnews.com"],
+        "ar": ["asharqbusiness.com","cnbcarabia.com","mubasher.info","alarabiya.net","argaam.com","aleqt.com","zawya.com","almalnews.com","amwalalghad.com","almamlakatv.com","alghad.com","albayan.ae","alittihad.ae","wam.ae","petra.gov.jo","spa.gov.sa","sabq.org","okaz.com.sa"],
+        "en": ["bloomberg.com","ft.com","wsj.com","cnbc.com","marketwatch.com","fortune.com","businessinsider.com","investopedia.com","finance.yahoo.com","economist.com","economictimes.indiatimes.com","forbes.com","theinformation.com","techcrunch.com","axios.com","cnn.com","dw.com","reuters.com","apnews.com","thenationalnews.com","khaleejtimes.com","gulfnews.com","arabnews.com","arabianbusiness.com","saudigazette.com.sa"],
     },
     "technology": {
-        "ar": ["aitnews.com","tech-wd.com","arabhardware.net","alarabiya.net","almamlakatv.com","france24.com","dw.com","cnn.com","aljazeera.net","arabic.rt.com"],
-        "en": ["theverge.com","techcrunch.com","wired.com","arstechnica.com","engadget.com","zdnet.com","cnet.com","techradar.com","androidauthority.com","tomshardware.com","venturebeat.com","9to5mac.com","thenextweb.com","digitaltrends.com","gizmodo.com","technologyreview.com","theregister.com","bloomberg.com","cnn.com","apnews.com"],
+        "ar": ["aitnews.com","tech-wd.com","arabhardware.net","alarabiya.net","almamlakatv.com","france24.com","dw.com","cnn.com","aljazeera.net","arabic.rt.com","spa.gov.sa"],
+        "en": ["theverge.com","techcrunch.com","wired.com","arstechnica.com","engadget.com","zdnet.com","cnet.com","techradar.com","androidauthority.com","tomshardware.com","venturebeat.com","9to5mac.com","thenextweb.com","digitaltrends.com","gizmodo.com","technologyreview.com","theregister.com","bloomberg.com","cnn.com","apnews.com","9to5google.com","androidcentral.com","macrumors.com","windowscentral.com","techspot.com","notebookcheck.net"],
     },
     "gaming": {
-        "ar": ["saudigamer.com","arabhardware.net","arabgamenews.com","vga4a.com","agdn-online.com","true-gaming.net","l3ab.co","gamers8.gg"],
-        "en": ["ign.com","gamespot.com","polygon.com","pcgamer.com","eurogamer.net","gamesradar.com","destructoid.com","rockpapershotgun.com","gematsu.com","videogameschronicle.com","kotaku.com","gamingbolt.com","nintendolife.com","pushsquare.com","purexbox.com","theverge.com"],
+        "ar": ["saudigamer.com","arabhardware.net","arabgamenews.com","vga4a.com","agdn-online.com","true-gaming.net","l3ab.co","gamers8.gg","ign.com"],
+        "en": ["ign.com","gamespot.com","polygon.com","pcgamer.com","eurogamer.net","gamesradar.com","destructoid.com","rockpapershotgun.com","gematsu.com","videogameschronicle.com","kotaku.com","gamingbolt.com","nintendolife.com","pushsquare.com","purexbox.com","theverge.com","thegamer.com","pcgamesn.com","gamingonlinux.com","tech4gamers.com","esportsinsider.com","gameinformer.com","mmorpg.com","windowscentral.com"],
     },
     "sports": {
-        "ar": ["filgoal.com","kooora.com","beinsports.com","yallakora.com","goal.com","arriyadiyah.com","alriyadh.com","sports360.com","365scores.com","fifa.com","olympics.com","almamlakatv.com","alghad.com","cnn.com"],
-        "en": ["bbc.com","espn.com","skysports.com","formula1.com","fifa.com","olympics.com","goal.com","sportingnews.com","bleacherreport.com","talksport.com","motorsport.com","nba.com","nfl.com","mlb.com","apnews.com","reuters.com"],
+        "ar": ["filgoal.com","kooora.com","beinsports.com","yallakora.com","goal.com","arriyadiyah.com","alriyadh.com","sports360.com","365scores.com","fifa.com","olympics.com","almamlakatv.com","alghad.com","cnn.com","spa.gov.sa","sabq.org"],
+        "en": ["bbc.com","espn.com","skysports.com","formula1.com","fifa.com","olympics.com","goal.com","sportingnews.com","bleacherreport.com","talksport.com","motorsport.com","nba.com","nfl.com","mlb.com","apnews.com","reuters.com","cbssports.com","foxsports.com","sports.yahoo.com","the-race.com"],
     },
     "science": {
-        "ar": ["ngalarabiya.com","aljazeera.net","alarabiya.net","dw.com","france24.com","euronews.com","cnn.com","aa.com.tr","alhurra.com","petra.gov.jo","wam.ae","almamlakatv.com","arabic.rt.com"],
-        "en": ["nasa.gov","space.com","scientificamerican.com","livescience.com","phys.org","sciencenews.org","eurekalert.org","noaa.gov","usgs.gov","nsf.gov","energy.gov","nih.gov","esa.int","nature.com","newscientist.com","sciencedaily.com","science.org","eos.org","cnn.com","apnews.com"],
+        "ar": ["ngalarabiya.com","aljazeera.net","alarabiya.net","dw.com","france24.com","euronews.com","cnn.com","aa.com.tr","alhurra.com","petra.gov.jo","wam.ae","almamlakatv.com","arabic.rt.com","spa.gov.sa"],
+        "en": ["nasa.gov","space.com","scientificamerican.com","livescience.com","phys.org","sciencenews.org","eurekalert.org","noaa.gov","usgs.gov","nsf.gov","energy.gov","nih.gov","esa.int","nature.com","newscientist.com","sciencedaily.com","science.org","eos.org","cnn.com","apnews.com","nationalgeographic.com","sciencealert.com","theconversation.com"],
     },
     "culture": {
-        "ar": ["alqafilah.com","thifaf.com","aljazeera.net","alaraby.co.uk","alarab.co.uk","alarabiya.net","albayan.ae","alittihad.ae","masrawy.com","almasryalyoum.com","youm7.com","cairo24.com","alkhaleej.ae","cnn.com","france24.com","dw.com"],
-        "en": ["lithub.com","artsy.net","theguardian.com","smithsonianmag.com","artnews.com","hyperallergic.com","pitchfork.com","variety.com","hollywoodreporter.com","npr.org","theconversation.com","bfi.org.uk","literaryreview.co.uk","cnn.com","apnews.com","euronews.com"],
+        "ar": ["alqafilah.com","thifaf.com","aljazeera.net","alaraby.co.uk","alarab.co.uk","alarabiya.net","albayan.ae","alittihad.ae","masrawy.com","almasryalyoum.com","youm7.com","cairo24.com","alkhaleej.ae","cnn.com","france24.com","dw.com","spa.gov.sa","okaz.com.sa"],
+        "en": ["lithub.com","artsy.net","theguardian.com","smithsonianmag.com","artnews.com","hyperallergic.com","pitchfork.com","variety.com","hollywoodreporter.com","npr.org","theconversation.com","bfi.org.uk","literaryreview.co.uk","cnn.com","apnews.com","euronews.com","museumofmodernart.org","nationalgallery.org.uk"],
     },
     "world": {
-        "ar": ["aljazeera.net","bbc.com","dw.com","france24.com","euronews.com","alarabiya.net","skynewsarabia.com","alghad.com","almamlakatv.com","roya.tv","arabic.rt.com","alhurra.com","cnn.com","aa.com.tr","wam.ae","petra.gov.jo","independentarabia.com","alqabas.com","alain.com"],
-        "en": ["euronews.com","bbc.com","bbc.co.uk","aljazeera.com","cnn.com","apnews.com","reuters.com","voanews.com","rferl.org","axios.com","abc.net.au","cbc.ca","france24.com","dw.com","thehill.com","npr.org","theconversation.com","almonitor.com","chinadaily.com.cn","straitstimes.com","japantimes.co.jp","theafricareport.com","restofworld.org","foreignpolicy.com","opendemocracy.net","theguardian.com"],
+        "ar": ["aljazeera.net","bbc.com","dw.com","france24.com","euronews.com","alarabiya.net","skynewsarabia.com","alghad.com","almamlakatv.com","roya.tv","arabic.rt.com","alhurra.com","cnn.com","aa.com.tr","wam.ae","petra.gov.jo","independentarabia.com","alqabas.com","alain.com","spa.gov.sa","sabq.org","okaz.com.sa"],
+        "en": ["euronews.com","bbc.com","bbc.co.uk","aljazeera.com","cnn.com","apnews.com","reuters.com","voanews.com","rferl.org","axios.com","abc.net.au","cbc.ca","france24.com","dw.com","thehill.com","npr.org","theconversation.com","almonitor.com","chinadaily.com.cn","straitstimes.com","japantimes.co.jp","theafricareport.com","restofworld.org","foreignpolicy.com","opendemocracy.net","theguardian.com","thenationalnews.com","khaleejtimes.com","gulfnews.com","arabnews.com","saudigazette.com.sa","globalvoices.org"],
     },
+}
+
+# Ensure requested and regionally useful publishers are checked each discovery rather than
+# only when their rotating domain group happens to be selected. Rights gates still apply.
+PRIORITY_SOURCE_DOMAINS = {
+    ("gaming", "ar"): ("saudigamer.com", "true-gaming.net", "arabhardware.net"),
+    ("world", "ar"): ("aljazeera.net", "almamlakatv.com", "petra.gov.jo"),
+    ("politics", "ar"): ("aljazeera.net", "petra.gov.jo", "spa.gov.sa"),
+    ("world", "en"): ("aljazeera.com", "thenationalnews.com", "arabnews.com"),
+    ("technology", "en"): ("theverge.com", "arstechnica.com", "9to5google.com"),
+    ("science", "en"): ("nasa.gov", "noaa.gov", "science.org"),
 }
 
 # Precompute publisher-to-category membership once. Building this mapping inside
@@ -354,8 +366,15 @@ LICENSE_REQUIRED_DOMAINS = {
     "espn.com", "sciencedaily.com", "theguardian.com", "aljazeera.net",
     "aljazeera.com",
 }
-# BBC and Al Jazeera use headline/link-only mode by default until broader rights are reviewed.
-HEADLINE_ONLY_DOMAINS = {"bbc.com", "bbc.co.uk", "aljazeera.net", "aljazeera.com"}
+# Restricted/licensed publishers can still contribute a headline and source link in the queue,
+# but their RSS descriptions are not passed to the AI editor unless the deployment records a
+# rights-reviewed CONTENT_LICENSE_APPROVED_DOMAINS override. This is operationally conservative,
+# not a guarantee that every publisher's terms permit headline reuse.
+HEADLINE_ONLY_DOMAINS = {
+    "bbc.com", "bbc.co.uk", "aljazeera.net", "aljazeera.com",
+    "reuters.com", "apnews.com", "techcrunch.com", "espn.com",
+    "sciencedaily.com", "theguardian.com", "theathletic.com",
+}
 CONTENT_LICENSE_APPROVED_DOMAINS = {
     part.strip().lower().removeprefix("www.")
     for part in os.getenv("CONTENT_LICENSE_APPROVED_DOMAINS", "").split(",")
@@ -812,6 +831,8 @@ def _known_control_cache_keys() -> set[str]:
         "image:nasa_images",
         "image:artic_open_access",
         "image:met_open_access",
+        "image:cleveland_museum_open_access",
+        "image:wellcome_open_access",
         "image:presskit_approved",
         "image:gemini_generated",
     })
@@ -1342,27 +1363,27 @@ def _db_upsert_many(articles: list[dict[str, Any]]) -> bool:
             source_name = EXCLUDED.source_name,
             source_domain = CASE WHEN EXCLUDED.source_domain <> '' THEN EXCLUDED.source_domain ELSE world_pulse_articles.source_domain END,
             image_url = CASE
-                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'openverse_licensed', 'loc_open_access', 'nasa_images', 'artic_open_access', 'met_open_access', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
+                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'openverse_licensed', 'loc_open_access', 'nasa_images', 'artic_open_access', 'met_open_access', 'cleveland_museum_open_access', 'wellcome_open_access', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
                     THEN world_pulse_articles.image_url
                 ELSE EXCLUDED.image_url END,
             image_source = CASE
-                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'openverse_licensed', 'loc_open_access', 'nasa_images', 'artic_open_access', 'met_open_access', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
+                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'openverse_licensed', 'loc_open_access', 'nasa_images', 'artic_open_access', 'met_open_access', 'cleveland_museum_open_access', 'wellcome_open_access', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
                     THEN world_pulse_articles.image_source
                 ELSE EXCLUDED.image_source END,
             image_credit = CASE
-                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'openverse_licensed', 'loc_open_access', 'nasa_images', 'artic_open_access', 'met_open_access', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
+                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'openverse_licensed', 'loc_open_access', 'nasa_images', 'artic_open_access', 'met_open_access', 'cleveland_museum_open_access', 'wellcome_open_access', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
                     THEN world_pulse_articles.image_credit
                 ELSE EXCLUDED.image_credit END,
             image_credit_url = CASE
-                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'openverse_licensed', 'loc_open_access', 'nasa_images', 'artic_open_access', 'met_open_access', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
+                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'openverse_licensed', 'loc_open_access', 'nasa_images', 'artic_open_access', 'met_open_access', 'cleveland_museum_open_access', 'wellcome_open_access', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
                     THEN world_pulse_articles.image_credit_url
                 ELSE EXCLUDED.image_credit_url END,
             image_provider_url = CASE
-                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'openverse_licensed', 'loc_open_access', 'nasa_images', 'artic_open_access', 'met_open_access', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
+                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'openverse_licensed', 'loc_open_access', 'nasa_images', 'artic_open_access', 'met_open_access', 'cleveland_museum_open_access', 'wellcome_open_access', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
                     THEN world_pulse_articles.image_provider_url
                 ELSE EXCLUDED.image_provider_url END,
             image_license_url = CASE
-                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'openverse_licensed', 'loc_open_access', 'nasa_images', 'artic_open_access', 'met_open_access', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
+                WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'openverse_licensed', 'loc_open_access', 'nasa_images', 'artic_open_access', 'met_open_access', 'cleveland_museum_open_access', 'wellcome_open_access', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
                     THEN world_pulse_articles.image_license_url
                 ELSE EXCLUDED.image_license_url END,
             image_checked_at = COALESCE(EXCLUDED.image_checked_at, world_pulse_articles.image_checked_at),
@@ -3131,12 +3152,26 @@ def _collect_rss_articles() -> list[dict[str, Any]]:
             ]
             if not groups:
                 continue
+            priority_group = tuple(
+                domain for domain in PRIORITY_SOURCE_DOMAINS.get((category, lang), ())
+                if domain in eligible_domains
+            )
+            if priority_group:
+                tasks.append((category, lang, priority_group))
             first_group = rotation_bucket % len(groups)
             selected_group_indexes = [first_group]
             if len(groups) > 1:
                 selected_group_indexes.append((first_group + 1) % len(groups))
             for group_index in selected_group_indexes:
                 tasks.append((category, lang, groups[group_index]))
+    # Priority and rotating groups may overlap; query an identical group only once.
+    unique_tasks: list[tuple[str, str, tuple[str, ...]]] = []
+    seen_tasks: set[tuple[str, str, tuple[str, ...]]] = set()
+    for task in tasks:
+        if task not in seen_tasks:
+            seen_tasks.add(task)
+            unique_tasks.append(task)
+    tasks = unique_tasks
 
     by_category: dict[str, list[dict[str, Any]]] = {key: [] for key in CATEGORY_NAMES}
     batch_started = time.monotonic()
