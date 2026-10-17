@@ -518,7 +518,7 @@ def _row_allowed_on_language_site(row: dict[str, Any], lang: str) -> bool:
         translated_title = str(row.get(f"title_{lang}") or "").strip()
         translated_summary = str(row.get(f"summary_{lang}") or "").strip()
         translated_body = str(row.get(f"content_{lang}") or "").strip()
-        if not translated_title or not translated_summary or len(translated_body) < 80:
+        if not translated_title or not translated_summary or len(translated_body) < 180:
             return False
     return True
 
