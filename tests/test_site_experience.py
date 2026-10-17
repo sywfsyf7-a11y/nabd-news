@@ -270,7 +270,7 @@ class SiteExperienceTests(unittest.TestCase):
             "source_url": "https://www.aljazeera.net/news/world/example",
             "source_name": "Al Jazeera",
             "source_domain": "aljazeera.net",
-            "category": "world",
+            "category": "politics",
             "original_language": "ar",
             "title_ar": "عنوان عربي من الجزيرة",
             "title_en": "",
@@ -458,7 +458,7 @@ class SiteExperienceTests(unittest.TestCase):
                 self.query, self.params = query, params
             def fetchall(self):
                 return [
-                    ("news:world:ar:cnn.com", False),
+                    ("news:world:ar:bbc.com", False),
                     ("image:openverse_licensed", False),
                 ]
 
@@ -479,10 +479,10 @@ class SiteExperienceTests(unittest.TestCase):
             with patch.object(world_pulse, "_ensure_schema", return_value=True):
                 with patch.object(world_pulse, "_connect_db", return_value=connection) as connect:
                     self.assertTrue(world_pulse._prime_source_control_cache())
-                    self.assertFalse(world_pulse._control_enabled("news:world:ar:cnn.com"))
+                    self.assertFalse(world_pulse._control_enabled("news:world:ar:bbc.com"))
                     self.assertFalse(world_pulse._control_enabled("image:openverse_licensed"))
                     # An unset source retains the current default-on behavior.
-                    self.assertTrue(world_pulse._control_enabled("news:world:ar:petra.gov.jo"))
+                    self.assertTrue(world_pulse._control_enabled("news:world:ar:france24.com"))
             connect.assert_called_once()
             self.assertIn("SELECT control_key, enabled FROM world_pulse_controls", connection.cursor_instance.query)
             self.assertTrue(connection.closed)
