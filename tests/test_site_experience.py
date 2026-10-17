@@ -948,5 +948,105 @@ class SiteExperienceTests(unittest.TestCase):
         self.assertEqual(raw["image_source"], "openverse_licensed")
 
 
+    def test_archive_feed_query_limits_each_language_before_combining(self):
+        from unittest.mock import MagicMock
+
+        connection = MagicMock()
+        cursor = connection.cursor.return_value.__enter__.return_value
+        cursor.fetchall.return_value = []
+
+        with patch.object(world_pulse, "_DB_ARTICLES_CACHE", None):
+            with patch.object(world_pulse, "_DB_ARTICLES_CACHE_AT", 0.0):
+                with patch.object(world_pulse, "_ensure_schema", return_value=True):
+                    with patch.object(world_pulse, "_connect_db", return_value=connection):
+                        with patch.object(world_pulse, "_release_db_connection"):
+                            self.assertEqual(world_pulse._db_fetch_all(), [])
+
+        query = cursor.execute.call_args.args[0]
+        self.assertNotIn("ROW_NUMBER()", query)
+        self.assertIn("UNION ALL", query)
+        self.assertEqual(query.count("LIMIT 120"), 2)
+        self.assertIn("original_language = 'ar'", query)
+        self.assertIn("original_language = 'en'", query)
+
+    def test_partial_translation_falls_back_to_cohesive_native_article(self):
+        native_body = (
+            "يتناول التقرير تفاصيل الحدث وسياقه بحسب المعلومات التي نشرها المصدر. "
+            "وتوضح المادة ما جرى والخطوة التالية دون إضافة معلومات غير موجودة في المصدر."
+        )
+        row = {
+            "slug": "partial-translation",
+            "source_url": "https://www.saudigamer.com/example-story/",
+            "source_name": "Saudi Gamer",
+            "source_domain": "saudigamer.com",
+            "category": "gaming",
+            "original_language": "ar",
+            "title_ar": "عنوان عربي أصلي واضح عن تطور جديد في الألعاب",
+            "title_en": "A partial English translation",
+            "summary_ar": "يلخص هذا الموجز الحدث ويوضح أبرز ما يورده المصدر عن تفاصيل التطور الجديد.",
+            "summary_en": "A generated English summary exists but the translated details are incomplete.",
+            "content_ar": native_body,
+            "content_en": "Only a fragment.",
+            "image_url": "",
+            "image_source": "none",
+            "image_credit": "",
+            "image_credit_url": "",
+            "image_provider_url": "",
+            "image_license_url": "",
+        }
+
+        story = world_pulse._normalise_story(row, "en")
+
+        self.assertEqual(story["display_language"], "ar")
+        self.assertTrue(story["translation_fallback"])
+        self.assertEqual(story["title"], row["title_ar"])
+        self.assertEqual(story["summary"], row["summary_ar"])
+        self.assertTrue(story["content"])
+
+    def test_headline_only_article_redirects_to_original_publisher(self):
+        row = {
+            "slug": "bbc-headline-only",
+            "source_url": "https://www.bbc.com/news/example-story",
+            "source_name": "BBC News",
+            "source_domain": "bbc.com",
+            "category": "world",
+            "original_language": "en",
+            "title_en": "A BBC publisher headline",
+            "title_ar": "",
+            "summary_en": "Old source description must not be copied into the page.",
+            "summary_ar": "",
+            "content_en": "Old stored body text must not be shown on an internal article page.",
+            "content_ar": "",
+            "image_url": "",
+            "image_source": "none",
+            "image_credit": "",
+            "image_credit_url": "",
+            "image_provider_url": "",
+            "image_license_url": "",
+            "is_demo": False,
+        }
+
+        with patch.object(world_pulse, "_ensure_background_scheduler"):
+            with patch.object(world_pulse, "current_language", return_value="en"):
+                with patch.object(world_pulse, "_DISPLAY_STORIES_CACHE", {}):
+                    with patch.object(world_pulse, "_db_fetch_article_by_slug", return_value=row):
+                        with patch.object(world_pulse, "_row_allowed_on_language_site", return_value=True):
+                            with patch.object(world_pulse, "_display_category", return_value="world"):
+                                response = world_pulse.app.test_client().get("/article/bbc-headline-only?lang=en")
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers["Location"], row["source_url"])
+
+    def test_source_only_cards_use_publisher_links_and_hidden_status_controls_stay_removed(self):
+        template_path = os.path.join(os.path.dirname(world_pulse.__file__), "templates", "index.html")
+        with open(template_path, encoding="utf-8") as handle:
+            template = handle.read()
+
+        self.assertIn("story.source_url if story.source_only", template)
+        self.assertIn("target=\"_blank\" rel=\"noopener noreferrer\"", template)
+        self.assertIn("{% if not story.headline_only %}", template)
+        self.assertNotIn('id="refreshNews"', template)
+        self.assertNotIn('id="newsStatusText"', template)
+
 if __name__ == "__main__":
     unittest.main()
