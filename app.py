@@ -3911,12 +3911,13 @@ Strict editorial rules:
 - The only evidence for factual claims is that story's headline and RSS excerpt. The source name and URL are attribution metadata, not evidence for other facts.
 - Never invent or infer names, dates, places, numbers, quotes, causes, motives, official statements, outcomes, statistics, or background details not stated in the supplied text.
 - Keep claims and uncertainty exactly as expressed by the source. Do not turn forecasts, allegations, rumours, or analysis into confirmed facts.
-- Use original wording. Do not reproduce a publisher's full article, long phrases, or fabricate quotes or citations.
-- If the excerpt is too thin for a detailed report, write a concise brief that says further details are available at the original source. Do not pad the article with generic filler to reach a target length.
-- Keep each body language to 1–3 short paragraphs and no more than 80 words. A shorter source must produce a shorter brief, not filler.
+- Write an independent editorial synthesis, not a line-by-line paraphrase and not a synonym swap. Add value through clear selection, explanation of the reported change, and organization of supported facts—not by adding unsupported outside context.
+- Do not reproduce a publisher's article, distinctive long phrases, quotes, or its original paragraph structure. No fabricated quotes, citations, or claims of independent verification.
+- If the source is restricted to headline-and-link-only mode, do not summarize its body or invent supporting details. If the available excerpt is too thin for a useful brief, keep the item as a source link rather than padding a thin on-site page.
+- For a normal-mode source with enough evidence, write a concise body of 1–3 short paragraphs and no more than 120 words in each language. A shorter source must produce a shorter brief, not filler.
 - Write concise Arabic and English headlines, ideally no more than 70 characters in Arabic and 90 in English. Keep the title as a headline, not a sentence-length summary.
 - The executive summary must be distinct from the title, specific to the story, and limited to 1–2 sentences. Never copy the headline into the summary or merely restate it with minor wording changes.
-- The body should use short readable paragraphs and add supported details that are not just repetitions of the title or summary. If the excerpt supports only a short account, keep the details concise and say more information is at the original source instead of inventing or padding. Every factual detail must be traceable to the supplied source text. Do not claim the full publisher article was independently checked.
+- The details section must add distinct, source-supported facts beyond the headline and summary where the excerpt permits. If only one verifiable fact is available, make that limitation clear instead of artificially expanding the article. The original publisher URL must remain visible as the source.
 
 Stories to edit: {json.dumps(payload, ensure_ascii=False)}'''
 
@@ -5192,10 +5193,19 @@ def _normalise_story(row: dict[str, Any], lang: str) -> dict[str, Any]:
     if not story.get("slug"):
         story["slug"] = _slug_for_url(story.get("source_url", "world-pulse"))
     native_lang = str(story.get("original_language") or "en").casefold()
-    display_lang = lang if story.get(f"title_{lang}") else native_lang
-    if display_lang not in {"ar", "en"}:
-        display_lang = lang
+    if native_lang not in {"ar", "en"}:
+        native_lang = "ar" if _looks_arabic(story.get("title_ar", "")) else "en"
+    requested_title = str(story.get(f"title_{lang}") or "").strip()
+    requested_summary = str(story.get(f"summary_{lang}") or "").strip()
+    requested_body = str(story.get(f"content_{lang}") or "").strip()
+    # Only show a translation when its title, executive summary, and substantive body
+    # are all present. Otherwise preserve a coherent original-language article.
+    translation_complete = bool(
+        requested_title and requested_summary and len(requested_body) >= 80
+    )
+    display_lang = lang if native_lang == lang or translation_complete else native_lang
     story["display_language"] = display_lang
+    story["translation_fallback"] = display_lang != lang
     raw_title = story.get(f"title_{display_lang}") or story.get(f"title_{lang}") or ""
     raw_summary = story.get(f"summary_{display_lang}") or story.get(f"summary_{lang}") or ""
     raw_content = story.get(f"content_{display_lang}") or story.get(f"content_{lang}") or ""
@@ -5209,22 +5219,31 @@ def _normalise_story(row: dict[str, Any], lang: str) -> dict[str, Any]:
     story["summary"] = _distinct_executive_summary(raw_title, raw_summary, story["content"], display_lang)
     story["headline_only"] = _is_headline_only_domain(str(story.get("source_domain") or ""))
     if story["headline_only"]:
-        # Keep the publisher headline native, but localise the interface notice.
         story["summary"] = (
-            "يعرض نبض العالم العنوان ورابط الناشر فقط لهذا المصدر. افتح المصدر الأصلي لقراءة التفاصيل والسياق وآخر التحديثات."
+            "العنوان من الناشر الأصلي؛ افتح المصدر لمتابعة التقرير والتفاصيل."
             if lang == "ar"
-            else "Headline and source link only. Open the publisher's original page for full details, context, and updates."
+            else "Publisher headline only; open the original source for the full report."
         )
         story["content"] = ""
-    # Use the newsroom's language-specific brand asset only when no rights-cleared
-    # photograph is available. The placeholder is branding, never a documentary photo.
-    story["image_fallback_url"] = (
-        "/static/images/fallback-ar.svg" if lang == "ar"
-        else "/static/images/fallback-en.svg"
+    story["source_only"] = bool(
+        story["headline_only"] or len(str(story.get("content") or "").strip()) < 180
     )
+    # Prefer a local, topic-specific SVG illustration over a generic A/E placeholder
+    # when no reusable photo passes its item-level licence and relevance checks.
+    fallback_category = str(story.get("category") or "world")
+    if fallback_category not in CATEGORY_NAMES:
+        fallback_category = "world"
+    fallback_lang = story.get("display_language") if story.get("display_language") in {"ar", "en"} else lang
+    fallback_params = urlencode({
+        "lang": fallback_lang,
+        "category": fallback_category,
+        "title": story["title"] or CATEGORY_NAMES[fallback_category][fallback_lang],
+        "seed": str(story.get("slug") or story.get("source_url") or story["title"]),
+    })
+    story["image_fallback_url"] = f"/media/editorial.svg?{fallback_params}"
     if not story.get("image_url"):
         story["image_url"] = story["image_fallback_url"]
-        story["image_source"] = "fallback_ar" if lang == "ar" else "fallback_en"
+        story["image_source"] = "editorial_generated"
     story["image_license_name"] = _image_license_label(str(story.get("image_license_url") or ""), str(story.get("image_source") or ""))
     story["image_provider_name"] = _image_provider_label(str(story.get("image_source") or ""))
     story["ai_enriched"] = bool(
@@ -5430,11 +5449,16 @@ def search():
 @app.get("/article/<slug>")
 def article(slug: str):
     lang = current_language()
-    # Reuse the short-lived display pool for current articles, but look up older stories
-    # directly in Supabase so their permanent URLs do not break after they leave the
-    # bounded homepage window.
-    pool = _get_display_stories(lang)
-    selected = next((story for story in pool if story.get("slug") == slug), None)
+    # On a warm display cache, serve a clicked story without another DB query. On a
+    # cold cache, do an indexed slug lookup first; only build the recent list if needed
+    # for related-story links after the target has been found.
+    pool: list[dict[str, Any]] | None = None
+    now = time.monotonic()
+    with _DISPLAY_STORIES_CACHE_LOCK:
+        cached_pool = _DISPLAY_STORIES_CACHE.get(lang)
+        if cached_pool and now - cached_pool[0] < _DISPLAY_STORIES_CACHE_TTL_SECONDS:
+            pool = [dict(row) for row in cached_pool[1]]
+    selected = next((story for story in pool or [] if story.get("slug") == slug), None)
     if selected is None:
         stored = _db_fetch_article_by_slug(slug)
         stored_language = str((stored or {}).get("original_language") or "").casefold()
@@ -5451,7 +5475,20 @@ def article(slug: str):
             selected = _normalise_story(stored, lang)
     if selected is None:
         abort(404)
-    related = [story for story in pool if story.get("slug") != slug and story.get("category") == selected.get("category")][:3]
+    if selected.get("source_only"):
+        source_url = str(selected.get("source_url") or "").strip()
+        parsed_source = urlparse(source_url)
+        if parsed_source.scheme.casefold() in {"http", "https"} and parsed_source.hostname:
+            return redirect(source_url, code=302)
+        abort(404)
+    if pool is None:
+        pool = _get_display_stories(lang)
+    related = [
+        story for story in pool
+        if story.get("slug") != slug
+        and story.get("category") == selected.get("category")
+        and not story.get("source_only")
+    ][:3]
     if len(related) < 3:
         related_ids = {story.get("slug") for story in related}
         related.extend([story for story in pool if story.get("slug") not in related_ids and story.get("slug") != slug][:3 - len(related)])
