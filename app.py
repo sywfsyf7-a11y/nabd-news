@@ -1422,6 +1422,29 @@ def _cached_db_article_snapshot() -> list[dict[str, Any]]:
         return [dict(row) for row in _DB_ARTICLES_CACHE]
 
 
+def _archive_source_filter_params(lang: str) -> tuple[list[str], list[str], list[str]]:
+    """Create SQL predicates so disallowed publishers do not crowd out valid recent stories."""
+    if lang not in {"ar", "en"}:
+        return [], [], []
+    domains = sorted({
+        str(domain).casefold().removeprefix("www.")
+        for languages in CATEGORY_SOURCE_DOMAINS.values()
+        for domain in languages.get(lang, [])
+    })
+    host_patterns = [f"%.{domain}" for domain in domains]
+    source_aliases: set[str] = set()
+    for domain in domains:
+        aliases = _SOURCE_NAME_ALIASES.get(
+            domain, (domain.split(".")[0].replace("-", " "),)
+        )
+        source_aliases.update(
+            re.sub(r"\s+", " ", str(alias).casefold()).strip()
+            for alias in aliases if str(alias).strip()
+        )
+    source_name_patterns = [f"%{alias}%" for alias in sorted(source_aliases)]
+    return domains, host_patterns, source_name_patterns
+
+
 def _db_fetch_all() -> list[dict[str, Any]]:
     """Read the persistent archive, retaining the last good snapshot during outages."""
     global _DB_ARTICLES_CACHE, _DB_ARTICLES_CACHE_AT
@@ -1442,6 +1465,8 @@ def _db_fetch_all() -> list[dict[str, Any]]:
         return _cached_db_article_snapshot()
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            ar_domains, ar_host_patterns, ar_name_patterns = _archive_source_filter_params("ar")
+            en_domains, en_host_patterns, en_name_patterns = _archive_source_filter_params("en")
             cur.execute("""
                 SELECT * FROM (
                     (
@@ -1455,6 +1480,11 @@ def _db_fetch_all() -> list[dict[str, Any]]:
                           AND original_language = 'ar'
                           AND LENGTH(TRIM(COALESCE(title_ar, ''))) > 0
                           AND LENGTH(TRIM(COALESCE(summary_ar, ''))) > 0
+                          AND (
+                              LOWER(source_domain) = ANY(%s)
+                              OR LOWER(source_domain) LIKE ANY(%s)
+                              OR (COALESCE(source_domain, '') = '' AND LOWER(source_name) LIKE ANY(%s))
+                          )
                         ORDER BY COALESCE(published_at, fetched_at) DESC, fetched_at DESC
                         LIMIT 120
                     )
@@ -1470,12 +1500,20 @@ def _db_fetch_all() -> list[dict[str, Any]]:
                           AND original_language = 'en'
                           AND LENGTH(TRIM(COALESCE(title_en, ''))) > 0
                           AND LENGTH(TRIM(COALESCE(summary_en, ''))) > 0
+                          AND (
+                              LOWER(source_domain) = ANY(%s)
+                              OR LOWER(source_domain) LIKE ANY(%s)
+                              OR (COALESCE(source_domain, '') = '' AND LOWER(source_name) LIKE ANY(%s))
+                          )
                         ORDER BY COALESCE(published_at, fetched_at) DESC, fetched_at DESC
                         LIMIT 120
                     )
                 ) AS recent_articles
                 ORDER BY COALESCE(published_at, fetched_at) DESC, fetched_at DESC
-            """)
+            """, (
+                ar_domains, ar_host_patterns, ar_name_patterns,
+                en_domains, en_host_patterns, en_name_patterns,
+            ))
             rows = [dict(row) for row in cur.fetchall()]
         with _DB_ARTICLES_CACHE_LOCK:
             _DB_ARTICLES_CACHE = rows
