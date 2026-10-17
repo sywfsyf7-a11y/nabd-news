@@ -53,13 +53,13 @@ class ContentQualityAuditTests(unittest.TestCase):
     def test_legacy_feed_label_and_A_E_image_are_flagged(self):
         row = {
             "slug": "legacy-section-label",
-            "source_url": "https://www.nintendolife.com/news",
-            "category": "gaming",
-            "source_name": "Nintendo Life",
-            "source_domain": "nintendolife.com",
+            "source_url": "https://www.nasa.gov/news",
+            "category": "science",
+            "source_name": "NASA",
+            "source_domain": "nasa.gov",
             "image_url": "/static/E.jpg",
             "image_source": "fallback_en",
-            "title_en": "Latest Nintendo Life News",
+            "title_en": "Latest NASA News",
             "summary_en": "",
             "content_en": "",
             "original_language": "en",
