@@ -370,7 +370,7 @@ class SourcePolicyTests(unittest.TestCase):
         }])
         self.assertIn("Never invent or infer names, dates, places, numbers", prompt)
         self.assertIn("not a line-by-line paraphrase and not a synonym swap", prompt)
-        self.assertIn("Do not pad", prompt)
+        self.assertIn("rather than padding a thin on-site page", prompt)
         self.assertIn("headline and RSS excerpt", prompt)
         self.assertIn("no more than 120 words", prompt)
 
