@@ -46,6 +46,10 @@ class SiteExperienceTests(unittest.TestCase):
         self.assertEqual(template.count("data-fallback-src="), 3)
         self.assertNotIn("English edition", template)
         self.assertNotIn("article.slug, lang='ar'", template)
+        self.assertIn("story.original_language", template)
+        self.assertEqual(world_pulse.NEWS_REFRESH_MINUTES, 5)
+        self.assertEqual(world_pulse.NEWS_DISCOVERY_REFRESH_MINUTES, 15)
+        self.assertEqual(world_pulse.MAX_ARTICLES_PER_REFRESH, 1)
         self.assertIn("الأخبار تتجدد باستمرار", world_pulse.UI_TEXT["ar"]["live"])
         self.assertIn("Continuously updated", world_pulse.UI_TEXT["en"]["live"])
         tailwind_config_path = os.path.join(os.path.dirname(world_pulse.__file__), "tailwind.config.js")
@@ -237,7 +241,10 @@ class SiteExperienceTests(unittest.TestCase):
         self.assertEqual(story["display_language"], "ar")
         self.assertEqual(story["summary"], "ملخص عربي قصير عن الخبر.")
         self.assertTrue(world_pulse._row_allowed_on_language_site(row, "ar"))
-        self.assertFalse(world_pulse._row_allowed_on_language_site(row, "en"))
+        self.assertTrue(world_pulse._row_allowed_on_language_site(row, "en"))
+        english_view = world_pulse._normalise_story(dict(row), "en")
+        self.assertEqual(english_view["display_language"], "ar")
+        self.assertTrue(english_view["translation_fallback"])
 
     def test_old_cross_language_bookmark_redirects_to_allowlisted_source_if_translation_is_missing(self):
         source_url = "https://www.theverge.com/2026/10/16/example-story"
@@ -261,8 +268,9 @@ class SiteExperienceTests(unittest.TestCase):
                 with patch.object(world_pulse, "_db_fetch_article_by_slug", return_value=stored):
                     response = world_pulse.app.test_client().get("/article/old-international-story?lang=ar")
 
-        self.assertEqual(response.status_code, 302)
-        self.assertEqual(response.headers["Location"], source_url)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("An English-only technology headline", response.get_data(as_text=True))
+        self.assertIn(source_url, response.get_data(as_text=True))
 
     def test_headline_only_article_stays_native_language_and_is_not_translated(self):
         row = {
@@ -291,8 +299,11 @@ class SiteExperienceTests(unittest.TestCase):
         self.assertEqual(story["content"], "")
         self.assertTrue(story["headline_only"])
         self.assertTrue(world_pulse._row_allowed_on_language_site(row, "ar"))
-        self.assertFalse(world_pulse._row_allowed_on_language_site(row, "en"))
-
+        self.assertTrue(world_pulse._row_allowed_on_language_site(row, "en"))
+        english_view = world_pulse._normalise_story(dict(row), "en")
+        self.assertEqual(english_view["display_language"], "ar")
+        self.assertTrue(english_view["headline_only"])
+        self.assertEqual(english_view["content"], "")
 
     def test_rss_excerpt_is_displayed_as_details_when_editorial_ai_is_unavailable(self):
         excerpt = (

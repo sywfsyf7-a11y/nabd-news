@@ -294,6 +294,7 @@
                   {% endif %}
                   <div class="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-medium text-slate-500">
                     <span>{{ story.source_name or ui.source }}</span>
+                    <span class="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-500">{{ ('مصدر عربي' if story.original_language == 'ar' else 'مصدر إنجليزي') if lang == 'ar' else ('Arabic source' if story.original_language == 'ar' else 'English source') }}</span>
                     <span class="h-1 w-1 rounded-full bg-slate-300"></span>
                     <time>{{ story.published_label }}</time>
                   </div>
