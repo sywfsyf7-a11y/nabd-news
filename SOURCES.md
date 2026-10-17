@@ -6,7 +6,7 @@ Arabic- and English-origin stories are kept in one permanent archive and grouped
 
 ## Publisher allowlist
 
-The catalogue below contains **328 category/language assignments across 200 distinct publisher domains**. The language on each line is the publisher's source language. Cross-language display requires a complete, supported edition in the visitor's interface language; source-only entries remain native-language. All eight sections keep their own category tags.
+The catalogue below contains **329 category/language assignments across 201 distinct publisher domains**. The language on each line is the publisher's source language. Cross-language display requires a complete, supported edition in the visitor's interface language; source-only entries remain native-language. All eight sections keep their own category tags.
 
 Google News RSS is used as a discovery transport, not as the publisher of the story. The publisher URL is stored as the reader's source link. Each incoming result must resolve to an allowlisted publisher host, pass category checks and rights gates, and be de-duplicated against Supabase and the persistent pending queue. The source list is curated rather than a claim that every website on the internet is integrated. Publisher feeds may return no current stories or decline requests, and a listed domain is not a promise of a new article every cycle.
 
