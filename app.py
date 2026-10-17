@@ -6630,15 +6630,21 @@ def _build_display_stories(lang: str) -> list[dict[str, Any]]:
         reverse=True,
     )
     unique: list[dict[str, Any]] = []
+    signatures: list[dict[str, Any]] = []
     seen_urls: set[str] = set()
     for row in live:
         url_key = _canonical_story_url(row.get("source_url"))
         if not url_key or url_key in seen_urls:
             continue
-        if any(_stories_are_near_duplicates(row, old, lang=lang) for old in unique[-100:]):
+        signature = _display_dedupe_signature(row, lang)
+        if any(
+            _display_signatures_are_near_duplicates(signature, old, lang)
+            for old in signatures[-100:]
+        ):
             continue
         seen_urls.add(url_key)
         unique.append(row)
+        signatures.append(signature)
     return [_normalise_story(row, lang) for row in unique]
 
 
