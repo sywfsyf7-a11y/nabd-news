@@ -54,3 +54,5 @@ services:
         value: "3"
       - key: MAX_IMAGE_LOOKUPS_PER_REFRESH
         value: "2"
+      - key: IMAGE_REVALIDATION_BATCH_SIZE
+        value: "2"
