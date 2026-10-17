@@ -256,7 +256,7 @@ CATEGORY_SOURCE_DOMAINS = {
     },
     "science": {
         "ar": ["ngalarabiya.com","aljazeera.net","alarabiya.net","dw.com","france24.com","euronews.com","cnn.com","aa.com.tr","alhurra.com","petra.gov.jo","wam.ae","almamlakatv.com","arabic.rt.com","spa.gov.sa"],
-        "en": ["nasa.gov","jpl.nasa.gov","space.com","scientificamerican.com","livescience.com","phys.org","sciencenews.org","eurekalert.org","noaa.gov","usgs.gov","nsf.gov","energy.gov","nih.gov","esa.int","nature.com","newscientist.com","sciencedaily.com","science.org","eos.org","cnn.com","apnews.com","nationalgeographic.com","sciencealert.com","theconversation.com"],
+        "en": ["jpl.nasa.gov","nasa.gov","space.com","scientificamerican.com","livescience.com","phys.org","sciencenews.org","eurekalert.org","noaa.gov","usgs.gov","nsf.gov","energy.gov","nih.gov","esa.int","nature.com","newscientist.com","sciencedaily.com","science.org","eos.org","cnn.com","apnews.com","nationalgeographic.com","sciencealert.com","theconversation.com"],
     },
     "culture": {
         "ar": ["alqafilah.com","thifaf.com","aljazeera.net","alaraby.co.uk","alarab.co.uk","alarabiya.net","albayan.ae","alittihad.ae","masrawy.com","almasryalyoum.com","youm7.com","cairo24.com","alkhaleej.ae","cnn.com","france24.com","dw.com","spa.gov.sa","okaz.com.sa"],
