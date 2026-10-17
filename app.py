@@ -509,17 +509,9 @@ def _row_allowed_on_language_site(row: dict[str, Any], lang: str) -> bool:
     if _domain_needs_license(host) and not _is_headline_only_domain(host):
         return False
 
-    # Keep one shared bilingual archive, but an article from the other source language
-    # may enter this interface only after a complete title/summary/body translation exists.
-    # Headline-only publishers are not rewritten or translated by the editorial model.
-    if source_lang != lang:
-        if _is_headline_only_domain(host):
-            return False
-        translated_title = str(row.get(f"title_{lang}") or "").strip()
-        translated_summary = str(row.get(f"summary_{lang}") or "").strip()
-        translated_body = str(row.get(f"content_{lang}") or "").strip()
-        if not translated_title or not translated_summary or len(translated_body) < 180:
-            return False
+    # Keep Arabic and English reporting in one shared feed. When a complete,
+    # rights-safe translation is not available, _normalise_story displays the story
+    # coherently in its original language instead of dropping it or mixing fields.
     return True
 
 
