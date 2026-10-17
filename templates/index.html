@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#111827">
   <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
   <meta name="description" content="{% if page == 'article' and article %}{{ article.summary|striptags|truncate(155, True, '…') }}{% elif page == 'legal' %}{{ legal_body|striptags|truncate(155, True, '…') }}{% elif page == 'search' %}{{ ('نتائج البحث عن ' if lang == 'ar' else 'Search results for ') ~ (search_query or '') }}{% else %}{{ ui.hero_text }}{% endif %}">
-  {% if page == 'search' %}<meta name="robots" content="noindex,follow">{% else %}<meta name="robots" content="index,follow,max-image-preview:large">{% endif %}
+  {% if page == 'search' or (page == 'article' and article and (article.headline_only or article.source_only or (article.content|length < 180))) %}<meta name="robots" content="noindex,follow">{% else %}<meta name="robots" content="index,follow,max-image-preview:large">{% endif %}
   <meta property="og:site_name" content="{{ site_name }}">
   <meta property="og:type" content="{% if page == 'article' %}article{% else %}website{% endif %}">
   <meta property="og:title" content="{% if page == 'article' and article %}{{ article.title }} — {% elif page == 'legal' %}{{ legal_title }} — {% endif %}{{ site_name }}">
