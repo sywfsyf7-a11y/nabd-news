@@ -38,6 +38,19 @@ class NewsQualityTests(unittest.TestCase):
         }
         self.assertTrue(_stories_are_near_duplicates(first, second))
 
+    def test_similar_length_headlines_with_distinct_words_are_not_duplicates(self):
+        first = {
+            "source_url": "https://one.example/technology-policy",
+            "original_language": "en",
+            "original_title": "Government technology policy promises major renewable energy investment",
+        }
+        second = {
+            "source_url": "https://two.example/ocean-science",
+            "original_language": "en",
+            "original_title": "Scientists discover unusual deep ocean species across remote marine trenches",
+        }
+        self.assertFalse(_stories_are_near_duplicates(first, second))
+
     def test_different_topics_are_not_suppressed(self):
         first = {
             "source_url": "https://one.example/news/1",
