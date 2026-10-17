@@ -14,7 +14,7 @@ class SourcePolicyTests(unittest.TestCase):
             "",
         )
 
-    def test_combined_archive_requires_a_complete_translation_for_the_other_interface(self):
+    def test_each_interface_only_shows_stories_from_its_native_source_language(self):
         arabic_story = {
             "category": "technology",
             "original_language": "ar",
@@ -39,7 +39,7 @@ class SourcePolicyTests(unittest.TestCase):
                          "without adding unverified dates, figures, claims, or other unsupported background."),
 
         )
-        self.assertTrue(world_pulse._row_allowed_on_language_site(arabic_story_translated, "en"))
+        self.assertFalse(world_pulse._row_allowed_on_language_site(arabic_story_translated, "en"))
 
         english_story = {
             "category": "technology",
@@ -66,7 +66,7 @@ class SourcePolicyTests(unittest.TestCase):
                         "التطور الأساسي والسياق المذكور، من دون إضافة تواريخ أو أرقام أو ادعاءات غير مؤكدة. "
                         "كما يقتصر هذا العرض على ما ورد في المادة ولا يضيف خلفيات أو تفاصيل غير مسندة للمصدر."),
         )
-        self.assertTrue(world_pulse._row_allowed_on_language_site(english_story_translated, "ar"))
+        self.assertFalse(world_pulse._row_allowed_on_language_site(english_story_translated, "ar"))
 
         # Headline-only publishers cannot be rewritten/translated by the editorial model,
         # even if an old row happens to contain language fields.
@@ -81,6 +81,22 @@ class SourcePolicyTests(unittest.TestCase):
         unapproved = dict(arabic_story, source_domain="unknown.example")
         self.assertFalse(world_pulse._row_allowed_on_language_site(unapproved, "ar"))
         self.assertFalse(world_pulse._row_allowed_on_language_site(unapproved, "en"))
+
+
+    def test_requested_editorial_priorities_are_allowlisted_by_section_and_language(self):
+        for (category, lang), domains in world_pulse.PRIORITY_SOURCE_DOMAINS.items():
+            for domain in domains:
+                self.assertEqual(
+                    world_pulse._source_domain_for_category(category, lang, domain),
+                    domain,
+                    (category, lang, domain),
+                )
+        self.assertIn("aljazeera.net", world_pulse.PRIORITY_SOURCE_DOMAINS[("politics", "ar")])
+        self.assertIn("reuters.com", world_pulse.PRIORITY_SOURCE_DOMAINS[("politics", "en")])
+        self.assertIn("aitnews.com", world_pulse.PRIORITY_SOURCE_DOMAINS[("technology", "ar")])
+        self.assertIn("theverge.com", world_pulse.PRIORITY_SOURCE_DOMAINS[("technology", "en")])
+        self.assertIn("saudigamer.com", world_pulse.PRIORITY_SOURCE_DOMAINS[("gaming", "ar")])
+        self.assertIn("ign.com", world_pulse.PRIORITY_SOURCE_DOMAINS[("gaming", "en")])
 
     def test_saudi_gamer_is_in_the_arabic_gaming_source_catalog(self):
         self.assertEqual(
