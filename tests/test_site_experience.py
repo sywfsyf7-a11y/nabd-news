@@ -1393,10 +1393,13 @@ class BoundedImageProviderSearchTests(unittest.TestCase):
 
         with patch.object(world_pulse, "_DB_ARTICLES_CACHE", None):
             with patch.object(world_pulse, "_DB_ARTICLES_CACHE_AT", 0.0):
-                with patch.object(world_pulse, "_ensure_schema", return_value=True):
-                    with patch.object(world_pulse, "_connect_db", return_value=connection):
-                        with patch.object(world_pulse, "_release_db_connection"):
-                            self.assertEqual(world_pulse._db_fetch_all(), [])
+                # Isolate this SQL-shape test from a shared archive file left by earlier tests.
+                with patch.object(world_pulse, "_read_shared_archive_cache", return_value=None):
+                    with patch.object(world_pulse, "_write_shared_archive_cache"):
+                        with patch.object(world_pulse, "_ensure_schema", return_value=True):
+                            with patch.object(world_pulse, "_connect_db", return_value=connection):
+                                with patch.object(world_pulse, "_release_db_connection"):
+                                    self.assertEqual(world_pulse._db_fetch_all(), [])
 
         query = cursor.execute.call_args.args[0]
         self.assertNotIn("ROW_NUMBER()", query)

@@ -17,6 +17,8 @@
 <body><main>
   <div class="top"><div><h1>إدارة المصادر والصور</h1><p class="muted">World Pulse — مصادر الأخبار والصور. لا يمكن تجاوز بوابة الحقوق للمصادر المقيّدة من هذه الصفحة.</p></div>
     <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><a href="{{ url_for('admin_monitor') }}" style="display:inline-block;border-radius:9px;padding:9px 13px;background:#253047;color:#fff;text-decoration:none;font-weight:750">لوحة المراقبة</a>
+    <a href="{{ url_for('admin_articles') }}" style="display:inline-block;border-radius:9px;padding:9px 13px;background:#e6ebf2;color:#243047;text-decoration:none;font-weight:750">إدارة الأخبار والأرشيف</a>
+    <a href="{{ url_for('admin_audit') }}" style="display:inline-block;border-radius:9px;padding:9px 13px;background:#e6ebf2;color:#243047;text-decoration:none;font-weight:750">تدقيق الأرشيف</a>
     <form method="post" action="{{ url_for('admin_logout') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="off" type="submit">تسجيل الخروج</button></form></div>
   </div>
   {% if notice %}<p class="notice" role="status">{{ notice }}</p>{% endif %}

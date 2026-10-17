@@ -664,7 +664,8 @@ CREATE TABLE IF NOT EXISTS world_pulse_articles (
     fetched_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     read_minutes INTEGER NOT NULL DEFAULT 1,
     original_language TEXT NOT NULL DEFAULT 'en',
-    is_demo BOOLEAN NOT NULL DEFAULT FALSE
+    is_demo BOOLEAN NOT NULL DEFAULT FALSE,
+    is_hidden BOOLEAN NOT NULL DEFAULT FALSE
 );
 CREATE INDEX IF NOT EXISTS idx_world_pulse_published
     ON world_pulse_articles (published_at DESC NULLS LAST);
@@ -714,6 +715,10 @@ CREATE TABLE IF NOT EXISTS world_pulse_catalogued_images (
 CREATE INDEX IF NOT EXISTS idx_wp_catalogued_images_created
     ON world_pulse_catalogued_images (created_at DESC);
 ALTER TABLE world_pulse_articles ADD COLUMN IF NOT EXISTS source_domain TEXT NOT NULL DEFAULT '';
+ALTER TABLE world_pulse_articles ADD COLUMN IF NOT EXISTS is_hidden BOOLEAN NOT NULL DEFAULT FALSE;
+CREATE INDEX IF NOT EXISTS idx_world_pulse_hidden_live_date
+    ON world_pulse_articles (is_hidden, (COALESCE(published_at, fetched_at)) DESC)
+    WHERE is_demo = FALSE;
 """
 
 def _database_url() -> str:
@@ -1077,9 +1082,13 @@ def _content_quality_audit_issues(
     return issues
 
 
-def _run_content_quality_audit_once() -> None:
-    """Run an explicitly enabled, read-only archive/image audit at most once every 30 minutes."""
-    if os.getenv("NEWS_CONTENT_AUDIT_ONCE", "false").strip().casefold() not in {"1", "true", "yes", "on"}:
+def _run_content_quality_audit_once(*, force: bool = False) -> None:
+    """Run a read-only archive/image audit at most once every 30 minutes.
+
+    Scheduled startup audits remain opt-in. A logged-in administrator may explicitly
+    request a run even when the startup environment flag is off.
+    """
+    if not force and os.getenv("NEWS_CONTENT_AUDIT_ONCE", "false").strip().casefold() not in {"1", "true", "yes", "on"}:
         return
     if not _ensure_schema():
         logger.warning("Content audit skipped because the database schema is not ready")
@@ -1430,6 +1439,66 @@ def _invalidate_db_articles_cache() -> None:
         _DISPLAY_STORIES_CACHE.clear()
 
 
+def _remove_article_from_archive_cache(slug: str) -> None:
+    """Immediately propagate a successful soft-hide to shared and process-local display caches."""
+    global _DB_ARTICLES_CACHE, _DB_ARTICLES_CACHE_AT
+    cache_handle = None
+    try:
+        cache_handle = _archive_file_lock()
+        now = time.monotonic()
+        with _DB_ARTICLES_CACHE_LOCK:
+            local_rows = [dict(row) for row in _DB_ARTICLES_CACHE] if _DB_ARTICLES_CACHE is not None else None
+            local_age = max(0.0, now - _DB_ARTICLES_CACHE_AT) if _DB_ARTICLES_CACHE is not None else float("inf")
+        shared = _read_shared_archive_cache(max_age_seconds=_ARCHIVE_SHARED_CACHE_MAX_STALE_SECONDS)
+        if shared is not None and shared[1] < local_age:
+            source_rows = shared[0]
+        elif local_rows is not None:
+            source_rows = local_rows
+        elif shared is not None:
+            source_rows = shared[0]
+        else:
+            # A moderation action can be the first request handled by a fresh worker.
+            # Do not publish an empty "fresh" snapshot unless an archive snapshot actually
+            # existed; the next public request must be allowed to load Supabase normally.
+            with _DISPLAY_STORIES_CACHE_LOCK:
+                _DISPLAY_STORIES_CACHE.clear()
+            with _MEMORY_ARTICLES_LOCK:
+                for key in list(_MEMORY_ARTICLES):
+                    if str(_MEMORY_ARTICLES[key].get("slug") or "") == slug:
+                        _MEMORY_ARTICLES.pop(key, None)
+            return
+        visible_rows = [dict(row) for row in source_rows if str(row.get("slug") or "") != slug]
+        # Keep a fresh shared snapshot instead of deleting it: sibling workers must not
+        # fall back to their stale local copy and accidentally show the hidden story again.
+        _write_shared_archive_cache(visible_rows)
+        with _DB_ARTICLES_CACHE_LOCK:
+            _DB_ARTICLES_CACHE = visible_rows
+            _DB_ARTICLES_CACHE_AT = time.monotonic()
+        with _DISPLAY_STORIES_CACHE_LOCK:
+            _DISPLAY_STORIES_CACHE.clear()
+        with _MEMORY_ARTICLES_LOCK:
+            for key in list(_MEMORY_ARTICLES):
+                if str(_MEMORY_ARTICLES[key].get("slug") or "") == slug:
+                    _MEMORY_ARTICLES.pop(key, None)
+    except Exception as exc:
+        logger.warning("Could not prune hidden story from warm archive caches (%s)", type(exc).__name__)
+        with _DB_ARTICLES_CACHE_LOCK:
+            _DB_ARTICLES_CACHE_AT = 0.0
+        try:
+            os.unlink(_ARCHIVE_SHARED_CACHE_PATH)
+        except OSError:
+            pass
+        with _DISPLAY_STORIES_CACHE_LOCK:
+            _DISPLAY_STORIES_CACHE.clear()
+        with _MEMORY_ARTICLES_LOCK:
+            for key in list(_MEMORY_ARTICLES):
+                if str(_MEMORY_ARTICLES[key].get("slug") or "") == slug:
+                    _MEMORY_ARTICLES.pop(key, None)
+    finally:
+        if cache_handle is not None:
+            _archive_unlock(cache_handle)
+
+
 def _archive_file_lock():
     """Acquire an inter-process lock so both Gunicorn workers share one cold archive read."""
     path = _ARCHIVE_SHARED_CACHE_PATH + ".lock"
@@ -1620,6 +1689,7 @@ def _query_persistent_archive_rows() -> list[dict[str, Any]] | None:
                                read_minutes, original_language, is_demo
                         FROM world_pulse_articles
                         WHERE is_demo = FALSE
+                          AND is_hidden = FALSE
                           AND original_language = 'ar'
                           AND LENGTH(TRIM(COALESCE(title_ar, ''))) > 0
                           AND LENGTH(TRIM(COALESCE(summary_ar, ''))) > 0
@@ -1640,6 +1710,7 @@ def _query_persistent_archive_rows() -> list[dict[str, Any]] | None:
                                read_minutes, original_language, is_demo
                         FROM world_pulse_articles
                         WHERE is_demo = FALSE
+                          AND is_hidden = FALSE
                           AND original_language = 'en'
                           AND LENGTH(TRIM(COALESCE(title_en, ''))) > 0
                           AND LENGTH(TRIM(COALESCE(summary_en, ''))) > 0
@@ -1812,7 +1883,7 @@ def _db_fetch_article_by_slug(slug: str) -> dict[str, Any] | None:
                        content_ar, content_en, published_at, fetched_at,
                        read_minutes, original_language, is_demo
                 FROM world_pulse_articles
-                WHERE slug = %s AND is_demo = FALSE
+                WHERE slug = %s AND is_demo = FALSE AND is_hidden = FALSE
                 LIMIT 1
             """, (slug,))
             row = cur.fetchone()
@@ -1844,8 +1915,9 @@ def _db_fetch_related_articles(
                        summary_en, content_ar, content_en, published_at, fetched_at,
                        read_minutes, original_language, is_demo
                 FROM world_pulse_articles
-                WHERE is_demo = FALSE
-                  AND original_language = %s
+                 WHERE is_demo = FALSE
+                   AND is_hidden = FALSE
+                   AND original_language = %s
                   AND slug <> %s
                   AND COALESCE(source_url, '') <> ''
                   AND LENGTH(TRIM(COALESCE({title_col}, ''))) > 0
@@ -1898,9 +1970,10 @@ def _db_search_articles(query: str, limit: int = 60) -> list[dict[str, Any]] | N
                title_ar, title_en, summary_ar, summary_en, content_ar, content_en,
                published_at, fetched_at, read_minutes, original_language, is_demo
         FROM world_pulse_articles
-        WHERE is_demo = FALSE
-          AND (
-              (original_language = 'ar'
+         WHERE is_demo = FALSE
+           AND is_hidden = FALSE
+           AND (
+               (original_language = 'ar'
                AND LENGTH(TRIM(COALESCE(title_ar, ''))) > 0
                AND LENGTH(TRIM(COALESCE(summary_ar, ''))) > 0
                AND (LOWER(source_domain) = ANY(%s) OR LOWER(source_domain) LIKE ANY(%s)
@@ -1938,9 +2011,10 @@ def _db_fetch_articles_needing_editorial(limit: int = 4) -> list[dict[str, Any]]
                        content_ar, content_en, published_at, fetched_at,
                        read_minutes, original_language, is_demo
                 FROM world_pulse_articles
-                WHERE is_demo = FALSE
-                  AND source_url <> ''
-                  AND (COALESCE(title_ar, '') <> '' OR COALESCE(title_en, '') <> '')
+                 WHERE is_demo = FALSE
+                   AND is_hidden = FALSE
+                   AND source_url <> ''
+                   AND (COALESCE(title_ar, '') <> '' OR COALESCE(title_en, '') <> '')
                   AND (
                     LENGTH(TRIM(COALESCE(content_ar, ''))) < 250
                     OR LENGTH(TRIM(COALESCE(content_en, ''))) < 250
@@ -1971,9 +2045,10 @@ def _db_fetch_articles_needing_images(limit: int = 6) -> list[dict[str, Any]]:
                        summary_ar, summary_en, content_ar, content_en, published_at,
                        fetched_at, read_minutes, original_language, is_demo
                 FROM world_pulse_articles
-                WHERE is_demo = FALSE
-                  AND source_url <> ''
-                  AND (
+                 WHERE is_demo = FALSE
+                   AND is_hidden = FALSE
+                   AND source_url <> ''
+                   AND (
                     (
                       (
                         COALESCE(image_url, '') = ''
@@ -2181,7 +2256,7 @@ def _db_last_fetched_at() -> datetime | None:
         return cached_value
     try:
         with conn.cursor() as cur:
-            cur.execute("SELECT MAX(fetched_at) FROM world_pulse_articles WHERE is_demo = FALSE")
+            cur.execute("SELECT MAX(fetched_at) FROM world_pulse_articles WHERE is_demo = FALSE AND is_hidden = FALSE")
             row = cur.fetchone()
             value = row[0] if row else None
             if isinstance(value, datetime):
@@ -5551,8 +5626,8 @@ def _prioritise_missing_image_rows(rows: list[dict[str, Any]]) -> list[dict[str,
     return missing + present
 
 
-def _refresh_existing_article_images_job(limit: int = 8) -> None:
-    """Re-query a small batch of existing stories' image searches from the admin panel."""
+def _refresh_existing_article_images_job(limit: int = 8, slug: str | None = None) -> None:
+    """Re-query a small batch of existing stories, or one selected slug, from the admin panel."""
     global _REFRESHING
     lock_file = None
     lock_acquired = False
@@ -5579,18 +5654,25 @@ def _refresh_existing_article_images_job(limit: int = 8) -> None:
                 time.sleep(3)
 
         rows_by_url: dict[str, dict[str, Any]] = {}
-        for row in _db_fetch_all():
-            if row.get("source_url"):
-                rows_by_url[str(row["source_url"])] = dict(row)
-        for row in _MEMORY_ARTICLES.values():
-            if row.get("source_url"):
-                rows_by_url.setdefault(str(row["source_url"]), dict(row))
+        if slug:
+            selected = _admin_fetch_article_by_slug(slug)
+            if selected and selected.get("source_url"):
+                rows_by_url[str(selected["source_url"])] = dict(selected)
+        else:
+            for row in _db_fetch_all():
+                if row.get("source_url"):
+                    rows_by_url[str(row["source_url"])] = dict(row)
+            for row in _MEMORY_ARTICLES.values():
+                if row.get("source_url"):
+                    rows_by_url.setdefault(str(row["source_url"]), dict(row))
         rows = _prioritise_missing_image_rows(list(rows_by_url.values()))
 
         candidates: list[dict[str, Any]] = []
-        max_items = max(1, min(12, int(limit)))
+        max_items = 1 if slug else max(1, min(12, int(limit)))
         for row in rows:
             if not row.get("source_url") or row.get("is_demo"):
+                continue
+            if slug and str(row.get("slug") or "") != slug:
                 continue
             if not (row.get("title_ar") or row.get("title_en")):
                 continue
@@ -7434,6 +7516,247 @@ def _admin_image_rows() -> list[dict[str, Any]]:
         )
     return results
 
+ADMIN_ARTICLE_PAGE_SIZE = 20
+
+
+def _admin_fetch_article_by_slug(slug: str) -> dict[str, Any] | None:
+    """Fetch one complete archive row for the authenticated administration tools."""
+    slug = _clean_text(slug, 220)
+    if not slug or not _ensure_schema():
+        return None
+    conn = _connect_db()
+    if conn is None:
+        return None
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""
+                SELECT slug, source_url, category, source_name, source_domain, image_url,
+                       image_source, image_credit, image_credit_url, image_provider_url,
+                       image_license_url, image_checked_at, title_ar, title_en, summary_ar,
+                       summary_en, content_ar, content_en, published_at, fetched_at,
+                       read_minutes, original_language, is_demo, is_hidden
+                FROM world_pulse_articles
+                WHERE slug = %s AND is_demo = FALSE
+                LIMIT 1
+            """, (slug,))
+            row = cur.fetchone()
+            return dict(row) if row else None
+    except Exception as exc:
+        logger.warning("Admin article lookup failed (%s)", type(exc).__name__)
+        return None
+    finally:
+        _release_db_connection(conn)
+
+
+def _admin_list_articles(
+    query: str = "",
+    category: str = "all",
+    show_hidden: bool = False,
+    page: int = 1,
+    page_size: int = ADMIN_ARTICLE_PAGE_SIZE,
+) -> tuple[list[dict[str, Any]], int, str]:
+    """Return a small database-backed admin page; never load the full archive into memory."""
+    if not _ensure_schema():
+        return [], 0, "database_unavailable"
+    conn = _connect_db()
+    if conn is None:
+        return [], 0, "database_unavailable"
+    clauses = ["is_demo = FALSE"]
+    params: list[Any] = []
+    if not show_hidden:
+        clauses.append("is_hidden = FALSE")
+    if category in CATEGORY_NAMES:
+        clauses.append("category = %s")
+        params.append(category)
+    needle = _clean_text(query, 120)
+    if needle:
+        # Search is parameterized and the page size is bounded; no dynamic SQL identifiers
+        # come from user input.
+        pattern = "%" + needle.replace("%", "\\%").replace("_", "\\_") + "%"
+        clauses.append("""(
+            slug ILIKE %s OR source_url ILIKE %s OR source_name ILIKE %s
+            OR title_ar ILIKE %s OR title_en ILIKE %s
+        )""")
+        params.extend([pattern] * 5)
+    where_sql = " AND ".join(clauses)
+    limit = max(1, min(ADMIN_ARTICLE_PAGE_SIZE, int(page_size)))
+    offset = (max(1, int(page)) - 1) * limit
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(
+                "SELECT COUNT(*) AS total FROM world_pulse_articles WHERE " + where_sql,
+                params,
+            )
+            total_row = cur.fetchone()
+            total = int((total_row or {}).get("total") or 0)
+            cur.execute("""
+                SELECT slug, source_url, category, source_name, source_domain, image_url,
+                       image_source, image_credit, image_credit_url, image_provider_url,
+                       image_license_url, image_checked_at, title_ar, title_en, summary_ar,
+                       summary_en, content_ar, content_en, published_at, fetched_at,
+                       read_minutes, original_language, is_demo, is_hidden
+                FROM world_pulse_articles
+                WHERE """ + where_sql + """
+                ORDER BY COALESCE(published_at, fetched_at) DESC, fetched_at DESC
+                LIMIT %s OFFSET %s
+            """, [*params, limit, offset])
+            rows = [dict(row) for row in cur.fetchall()]
+        for row in rows:
+            row["headline_only"] = _is_headline_only_domain(str(row.get("source_domain") or ""))
+        return rows, total, ""
+    except Exception as exc:
+        logger.warning("Admin article list failed (%s)", type(exc).__name__)
+        return [], 0, "database_query_failed"
+    finally:
+        _release_db_connection(conn)
+
+
+def _admin_save_article(slug: str, values: dict[str, Any]) -> bool:
+    """Save editorial fields without changing the immutable source URL or article slug."""
+    if not _ensure_schema():
+        return False
+    conn = _connect_db()
+    if conn is None:
+        return False
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE world_pulse_articles
+                SET category = %s, title_ar = %s, title_en = %s,
+                    summary_ar = %s, summary_en = %s, content_ar = %s, content_en = %s,
+                    read_minutes = %s
+                WHERE slug = %s AND is_demo = FALSE
+            """, (
+                values["category"], values["title_ar"], values["title_en"],
+                values["summary_ar"], values["summary_en"], values["content_ar"],
+                values["content_en"], max(1, min(99, int(values.get("read_minutes", 1)))),
+                slug,
+            ))
+            changed = cur.rowcount > 0
+        conn.commit()
+        if changed:
+            _invalidate_db_articles_cache()
+        return changed
+    except Exception as exc:
+        conn.rollback()
+        logger.warning("Admin article save failed (%s)", type(exc).__name__)
+        return False
+    finally:
+        _release_db_connection(conn)
+
+
+def _admin_set_article_hidden(slug: str, hidden: bool) -> bool:
+    """Hide an article from public queries without deleting its permanent archive row."""
+    if not _ensure_schema():
+        return False
+    conn = _connect_db()
+    if conn is None:
+        return False
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE world_pulse_articles
+                SET is_hidden = %s
+                WHERE slug = %s AND is_demo = FALSE
+            """, (bool(hidden), slug))
+            changed = cur.rowcount > 0
+        conn.commit()
+        if changed:
+            if hidden:
+                _remove_article_from_archive_cache(slug)
+            else:
+                _invalidate_db_articles_cache()
+        return changed
+    except Exception as exc:
+        conn.rollback()
+        logger.warning("Admin archive moderation failed (%s)", type(exc).__name__)
+        return False
+    finally:
+        _release_db_connection(conn)
+
+
+def _admin_create_article(values: dict[str, Any]) -> str:
+    """Insert a manually reviewed bilingual story; reject duplicates instead of overwriting."""
+    if not _ensure_schema():
+        return "database_unavailable"
+    conn = _connect_db()
+    if conn is None:
+        return "database_unavailable"
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1 FROM world_pulse_articles WHERE source_url = %s LIMIT 1", (values["source_url"],))
+            if cur.fetchone():
+                return "duplicate_source"
+            cur.execute("""
+                INSERT INTO world_pulse_articles (
+                    slug, source_url, category, source_name, source_domain, image_url,
+                    image_source, image_credit, image_credit_url, image_provider_url,
+                    image_license_url, image_checked_at, title_ar, title_en, summary_ar,
+                    summary_en, content_ar, content_en, published_at, fetched_at,
+                    read_minutes, original_language, is_demo, is_hidden
+                ) VALUES (
+                    %s, %s, %s, %s, %s, '', 'none', '', '', '', '', NULL,
+                    %s, %s, %s, %s, %s, %s, NOW(), NOW(), %s, %s, FALSE, FALSE
+                )
+            """, (
+                values["slug"], values["source_url"], values["category"],
+                values["source_name"], values["source_domain"], values["title_ar"],
+                values["title_en"], values["summary_ar"], values["summary_en"],
+                values["content_ar"], values["content_en"], values["read_minutes"],
+                values["original_language"],
+            ))
+        conn.commit()
+        _invalidate_db_articles_cache()
+        return "created"
+    except Exception as exc:
+        conn.rollback()
+        logger.warning("Admin article creation failed (%s)", type(exc).__name__)
+        return "database_write_failed"
+    finally:
+        _release_db_connection(conn)
+
+
+def _admin_read_archive_audit_report() -> dict[str, Any]:
+    """Read the last read-only audit result stored in Supabase."""
+    empty = {"status": "unavailable", "updated_at": None, "report": None, "error": ""}
+    if not _ensure_schema():
+        return empty
+    conn = _connect_db()
+    if conn is None:
+        return empty
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT state_value, updated_at
+                FROM world_pulse_runtime_state
+                WHERE state_key = %s
+            """, ("content_quality_audit_v2",))
+            row = cur.fetchone()
+        if not row:
+            return {**empty, "status": "not_run"}
+        value, updated_at = str(row[0] or ""), row[1]
+        result: dict[str, Any] = {
+            "status": "not_run", "updated_at": updated_at, "report": None, "error": ""
+        }
+        if value == "running":
+            result["status"] = "running"
+        elif value.startswith("done:"):
+            try:
+                result["report"] = json.loads(value[5:])
+                result["status"] = "complete"
+            except (TypeError, ValueError):
+                result["status"] = "invalid_report"
+        elif value.startswith("failed:"):
+            result["status"] = "failed"
+            result["error"] = value[7:80]
+        return result
+    except Exception as exc:
+        logger.warning("Admin audit report read failed (%s)", type(exc).__name__)
+        return {**empty, "error": type(exc).__name__}
+    finally:
+        _release_db_connection(conn)
+
+
 def _remove_article_image(slug: str) -> bool:
     changed = False
     for row in _MEMORY_ARTICLES.values():
@@ -7515,6 +7838,285 @@ def admin_logout():
         abort(400)
     session.clear()
     return redirect(url_for("admin_login"))
+
+@app.get("/admin")
+def admin_index():
+    """Single safe entry point for the private admin area."""
+    guard = _require_admin()
+    if guard is not None:
+        return guard
+    return redirect(url_for("admin_monitor"))
+
+
+@app.route("/admin/articles", methods=["GET", "POST"])
+def admin_articles():
+    guard = _require_admin()
+    if guard is not None:
+        return guard
+
+    notice = str(session.pop("wp_admin_notice", "") or "")
+    # Preserve list filters from the query string. Editor form fields such as "category"
+    # belong to the article being edited and must not silently replace the page filter.
+    query = _clean_text(request.args.get("q") or "", 120)
+    category_filter = str(request.args.get("category") or "all")
+    if category_filter not in CATEGORY_NAMES and category_filter != "all":
+        category_filter = "all"
+    show_hidden = str(request.args.get("show_hidden") or "").casefold() in {"1", "true", "yes", "on"}
+    try:
+        page_number = max(1, int(request.args.get("page") or "1"))
+    except (TypeError, ValueError):
+        page_number = 1
+
+    if request.method == "POST":
+        if not _admin_csrf_valid():
+            abort(400)
+        action = str(request.form.get("action") or "")
+        slug = _clean_text(request.form.get("slug") or "", 220)
+
+        if action == "hide_article" or action == "restore_article":
+            if not slug:
+                abort(400)
+            hidden = action == "hide_article"
+            notice = (
+                "تم إخفاء الخبر من الموقع مع الاحتفاظ به في الأرشيف؛ يمكنك استعادته لاحقًا."
+                if hidden else
+                "تمت استعادة الخبر إلى العرض العام."
+            ) if _admin_set_article_hidden(slug, hidden) else "تعذر حفظ التغيير في قاعدة البيانات."
+            session["wp_admin_notice"] = notice
+            return redirect(url_for(
+                "admin_articles", q=query, category=category_filter,
+                show_hidden="1" if hidden else ("1" if show_hidden else "0"), page=page_number,
+            ))
+
+        if action == "retry_article_image":
+            selected = _admin_fetch_article_by_slug(slug)
+            if not selected:
+                abort(404)
+            global _REFRESHING
+            with _STATE_LOCK:
+                if _REFRESHING:
+                    notice = "هناك مهمة تحديث تعمل حاليًا. انتظر انتهاءها ثم أعد المحاولة."
+                else:
+                    _REFRESHING = True
+                    thread = threading.Thread(
+                        target=_refresh_existing_article_images_job,
+                        kwargs={"limit": 1, "slug": slug},
+                        name="world-pulse-admin-single-image-refresh",
+                        daemon=True,
+                    )
+                    thread.start()
+                    notice = "بدأت إعادة البحث عن صورة مرتبطة بعنوان الخبر. لن تُقبل صورة بلا مصدر وترخيص قابلين للتحقق."
+            session["wp_admin_notice"] = notice
+            return redirect(url_for(
+                "admin_articles", q=query, category=category_filter,
+                show_hidden="1" if show_hidden else "0", page=page_number,
+            ))
+
+        if action == "save_article":
+            if not slug:
+                abort(400)
+            existing = _admin_fetch_article_by_slug(slug)
+            if not existing:
+                abort(404)
+            new_category = str(request.form.get("category") or "")
+            if new_category not in CATEGORY_NAMES:
+                notice = "اختر قسمًا صحيحًا."
+            else:
+                source_domain = str(existing.get("source_domain") or "").casefold().removeprefix("www.")
+                if not source_domain:
+                    source_domain = (urlparse(str(existing.get("source_url") or "")).hostname or "").casefold().removeprefix("www.")
+                source_lang = str(existing.get("original_language") or "").casefold()
+                if not _source_domain_for_category(new_category, source_lang, source_domain):
+                    notice = "لا يمكن نقل الخبر إلى هذا القسم: المصدر غير معتمد لهذا القسم ولغة المصدر."
+                elif existing.get("is_hidden") and not show_hidden:
+                    notice = "الخبر مخفي. افتح قائمة الأخبار المخفية لإدارته."
+                elif _is_headline_only_domain(source_domain):
+                    native_title_key = "title_ar" if source_lang == "ar" else "title_en"
+                    native_title = _clean_text(request.form.get(native_title_key) or "", 350)
+                    if not native_title:
+                        notice = "أدخل عنوان المصدر الأصلي."
+                    else:
+                        safe_values = {
+                            "category": new_category,
+                            "title_ar": native_title if source_lang == "ar" else str(existing.get("title_ar") or ""),
+                            "title_en": native_title if source_lang == "en" else str(existing.get("title_en") or ""),
+                            "summary_ar": "يعرض نبض العالم العنوان ورابط الناشر فقط لهذا المصدر. افتح المصدر الأصلي لقراءة التفاصيل والتحديثات.",
+                            "summary_en": "Headline and source link only. Open the publisher's original page for full details, context, and updates.",
+                            "content_ar": "", "content_en": "", "read_minutes": 1,
+                        }
+                        notice = "تم حفظ العنوان والقسم. بقيت المادة في وضع العنوان والرابط فقط وفق سياسة المصدر." if _admin_save_article(slug, safe_values) else "تعذر حفظ التعديلات."
+                else:
+                    values = {
+                        "category": new_category,
+                        "title_ar": _clean_text(request.form.get("title_ar") or "", 350),
+                        "title_en": _clean_text(request.form.get("title_en") or "", 350),
+                        "summary_ar": _clean_text(request.form.get("summary_ar") or "", 1400),
+                        "summary_en": _clean_text(request.form.get("summary_en") or "", 1400),
+                        "content_ar": _clean_text(request.form.get("content_ar") or "", 8000),
+                        "content_en": _clean_text(request.form.get("content_en") or "", 8000),
+                    }
+                    missing = [label for label, key in (
+                        ("العنوان العربي", "title_ar"), ("العنوان الإنجليزي", "title_en"),
+                        ("الملخص العربي", "summary_ar"), ("الملخص الإنجليزي", "summary_en"),
+                    ) if not values[key]]
+                    if missing:
+                        notice = "أكمل حقول العنوان والملخص في اللغتين."
+                    elif _summary_repeats_title(values["title_ar"], values["summary_ar"]) or _summary_repeats_title(values["title_en"], values["summary_en"]):
+                        notice = "يجب أن يضيف الملخص معلومة مستقلة عن العنوان، لا أن يكرر صياغته."
+                    elif any(not _text_matches_language(values[field], field[-2:]) for field in ("title_ar", "summary_ar", "content_ar")) or any(not _text_matches_language(values[field], "en") for field in ("title_en", "summary_en", "content_en")):
+                        notice = "راجع اللغة في كل حقل: النص العربي في حقول العربية والإنجليزي في حقول الإنجليزية."
+                    elif len(values["content_ar"]) < 180 or len(values["content_en"]) < 180:
+                        notice = "التفاصيل في كل لغة قصيرة جدًا. أضف سياقًا أصليًا موثقًا (180 حرفًا على الأقل) أو راجع المصدر قبل الحفظ."
+                    else:
+                        values["read_minutes"] = max(1, min(99, (max(len(values["content_ar"]), len(values["content_en"])) + 899) // 900))
+                        notice = "تم حفظ التعديلات التحريرية." if _admin_save_article(slug, values) else "تعذر حفظ التعديلات في قاعدة البيانات."
+            session["wp_admin_notice"] = notice
+            return redirect(url_for(
+                "admin_articles", edit=slug, q=query, category=category_filter,
+                show_hidden="1" if show_hidden else "0", page=page_number,
+            ))
+
+        if action == "create_article":
+            source_url = _clean_text(request.form.get("source_url") or "", 500)
+            source_name = _clean_text(request.form.get("source_name") or "", 140)
+            new_category = str(request.form.get("category") or "")
+            source_lang = str(request.form.get("original_language") or "").casefold()
+            parsed_url = urlparse(source_url)
+            source_domain = (parsed_url.hostname or "").casefold().removeprefix("www.")
+            if parsed_url.scheme.casefold() != "https" or not source_domain:
+                notice = "استخدم رابط HTTPS مباشرًا للناشر الأصلي."
+            elif not source_name:
+                notice = "أدخل اسم الناشر الأصلي."
+            elif new_category not in CATEGORY_NAMES or source_lang not in {"ar", "en"}:
+                notice = "اختر قسمًا ولغة مصدر صحيحين."
+            elif not _source_domain_for_category(new_category, source_lang, source_domain):
+                notice = "هذا الناشر غير معتمد لهذا القسم ولغة المصدر. راجع سياسة المصادر أولًا."
+            elif _publisher_requires_license(source_name, (source_url,)) and not _is_headline_only_domain(source_domain):
+                notice = "هذا المصدر يتطلب ترخيصًا أو إذنًا مناسبًا قبل حفظ محتوى تحريري منه."
+            else:
+                native_title = _clean_text(request.form.get("title_ar" if source_lang == "ar" else "title_en") or "", 350)
+                if _is_headline_only_domain(source_domain):
+                    if not native_title:
+                        notice = "أدخل عنوان المصدر فقط لهذا الناشر."
+                    else:
+                        title_ar = native_title if source_lang == "ar" else ""
+                        title_en = native_title if source_lang == "en" else ""
+                        values = {
+                            "slug": _slug_for_url(source_url), "source_url": source_url,
+                            "category": new_category, "source_name": source_name,
+                            "source_domain": source_domain, "title_ar": title_ar, "title_en": title_en,
+                            "summary_ar": "يعرض نبض العالم العنوان ورابط الناشر فقط لهذا المصدر. افتح المصدر الأصلي لقراءة التفاصيل والتحديثات.",
+                            "summary_en": "Headline and source link only. Open the publisher's original page for full details, context, and updates.",
+                            "content_ar": "", "content_en": "", "read_minutes": 1,
+                            "original_language": source_lang,
+                        }
+                        status = _admin_create_article(values)
+                        notice = "أُضيف العنوان مع رابط المصدر فقط." if status == "created" else ("الرابط محفوظ من قبل؛ افتح الخبر الموجود بدل إنشاء نسخة مكررة." if status == "duplicate_source" else "تعذر حفظ الخبر في قاعدة البيانات.")
+                else:
+                    values = {
+                        "slug": _slug_for_url(source_url), "source_url": source_url,
+                        "category": new_category, "source_name": source_name,
+                        "source_domain": source_domain,
+                        "title_ar": _clean_text(request.form.get("title_ar") or "", 350),
+                        "title_en": _clean_text(request.form.get("title_en") or "", 350),
+                        "summary_ar": _clean_text(request.form.get("summary_ar") or "", 1400),
+                        "summary_en": _clean_text(request.form.get("summary_en") or "", 1400),
+                        "content_ar": _clean_text(request.form.get("content_ar") or "", 8000),
+                        "content_en": _clean_text(request.form.get("content_en") or "", 8000),
+                        "read_minutes": 1, "original_language": source_lang,
+                    }
+                    if not all(values[key] for key in ("title_ar", "title_en", "summary_ar", "summary_en")):
+                        notice = "أكمل العناوين والملخصات بالعربية والإنجليزية."
+                    elif any(not _text_matches_language(values[field], field[-2:]) for field in ("title_ar", "summary_ar", "content_ar")) or any(not _text_matches_language(values[field], "en") for field in ("title_en", "summary_en", "content_en")):
+                        notice = "راجع اللغة في كل حقل: النص العربي في حقول العربية والإنجليزي في حقول الإنجليزية."
+                    elif _summary_repeats_title(values["title_ar"], values["summary_ar"]) or _summary_repeats_title(values["title_en"], values["summary_en"]):
+                        notice = "اكتب ملخصًا مستقلًا لكل عنوان."
+                    elif len(values["content_ar"]) < 180 or len(values["content_en"]) < 180:
+                        notice = "أضف تفاصيل أصلية موثقة لا تقل عن 180 حرفًا في كل لغة. لا تنسخ نص المقال كاملًا."
+                    else:
+                        values["read_minutes"] = max(1, min(99, (max(len(values["content_ar"]), len(values["content_en"])) + 899) // 900))
+                        status = _admin_create_article(values)
+                        notice = "تمت إضافة الخبر إلى الأرشيف." if status == "created" else ("هذا الرابط محفوظ مسبقًا؛ لم ننشئ نسخة مكررة." if status == "duplicate_source" else "تعذر إضافة الخبر إلى قاعدة البيانات.")
+            session["wp_admin_notice"] = notice
+            return redirect(url_for(
+                "admin_articles", q=query, category=category_filter,
+                show_hidden="1" if show_hidden else "0", page=page_number,
+            ))
+
+        abort(400)
+
+    rows, total, db_error = _admin_list_articles(query, category_filter, show_hidden, page_number)
+    total_pages = max(1, (total + ADMIN_ARTICLE_PAGE_SIZE - 1) // ADMIN_ARTICLE_PAGE_SIZE)
+    if page_number > total_pages:
+        page_number = total_pages
+        rows, total, db_error = _admin_list_articles(query, category_filter, show_hidden, page_number)
+    edit_slug = _clean_text(request.args.get("edit") or "", 220)
+    edit_article = _admin_fetch_article_by_slug(edit_slug) if edit_slug else None
+    if edit_slug and edit_article is None and not db_error:
+        notice = notice or "لم يُعثر على الخبر في الأرشيف."
+    if edit_article:
+        edit_article["headline_only"] = _is_headline_only_domain(str(edit_article.get("source_domain") or ""))
+    return render_template(
+        "admin_articles.html",
+        rows=rows,
+        total=total,
+        query=query,
+        active_category=category_filter,
+        category_names=CATEGORY_NAMES,
+        category_keys=list(CATEGORY_NAMES.keys()),
+        show_hidden=show_hidden,
+        page=page_number,
+        total_pages=total_pages,
+        edit_article=edit_article,
+        notice=notice,
+        db_error=db_error,
+        csrf_token=session.get("wp_admin_csrf", ""),
+    )
+
+
+@app.route("/admin/audit", methods=["GET", "POST"])
+def admin_audit():
+    guard = _require_admin()
+    if guard is not None:
+        return guard
+    notice = str(session.pop("wp_admin_notice", "") or "")
+    if request.method == "POST":
+        if not _admin_csrf_valid():
+            abort(400)
+        if str(request.form.get("action") or "") != "run_audit":
+            abort(400)
+        current = _admin_read_archive_audit_report()
+        if current.get("status") == "running":
+            notice = "التدقيق يعمل بالفعل في الخلفية."
+        elif current.get("status") == "complete" and isinstance(current.get("updated_at"), datetime):
+            updated = current["updated_at"]
+            if updated.tzinfo is None:
+                updated = updated.replace(tzinfo=timezone.utc)
+            if (datetime.now(timezone.utc) - updated.astimezone(timezone.utc)).total_seconds() < 30 * 60:
+                notice = "اكتمل تدقيق حديث بالفعل. لتخفيف الضغط على Supabase، يمكن إعادة التدقيق مرة كل 30 دقيقة."
+            else:
+                threading.Thread(
+                    target=_run_content_quality_audit_once, kwargs={"force": True},
+                    name="world-pulse-admin-archive-audit", daemon=True,
+                ).start()
+                notice = "بدأ تدقيق الأرشيف والصور في الخلفية. حدّث الصفحة بعد قليل لرؤية التقرير."
+        else:
+            threading.Thread(
+                target=_run_content_quality_audit_once, kwargs={"force": True},
+                name="world-pulse-admin-archive-audit", daemon=True,
+            ).start()
+            notice = "بدأ تدقيق الأرشيف والصور في الخلفية. حدّث الصفحة بعد قليل لرؤية التقرير."
+        session["wp_admin_notice"] = notice
+        return redirect(url_for("admin_audit"))
+
+    report = _admin_read_archive_audit_report()
+    return render_template(
+        "admin_audit.html",
+        csrf_token=session.get("wp_admin_csrf", ""),
+        report_state=report,
+        notice=notice,
+    )
+
 
 @app.route("/admin/monitor", methods=["GET", "POST"])
 def admin_monitor():

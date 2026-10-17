@@ -55,6 +55,8 @@
       <p>نبض العالم — حالة قاعدة البيانات، تحديث الأخبار، واختبارات الصور.</p>
     </div>
     <div class="actions">
+      <a class="button secondary" href="{{ url_for('admin_articles') }}">إدارة الأخبار والأرشيف</a>
+      <a class="button secondary" href="{{ url_for('admin_audit') }}">تدقيق الأرشيف</a>
       <a class="button secondary" href="{{ url_for('admin_sources') }}">إدارة المصادر والصور</a>
       <form method="post" action="{{ url_for('admin_logout') }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
