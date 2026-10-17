@@ -1054,6 +1054,7 @@ class SiteExperienceTests(unittest.TestCase):
                 "image_credit_url": "https://commons.wikimedia.org/wiki/Old_first",
                 "image_provider_url": "https://commons.wikimedia.org/wiki/Old_first",
                 "image_license_url": "https://creativecommons.org/licenses/by/4.0/",
+                "image_relevance_verified": True,
                 "image_checked_at": stale_checked,
             },
             {
@@ -1065,6 +1066,7 @@ class SiteExperienceTests(unittest.TestCase):
                 "image_credit_url": "https://photos.example.org/old-second",
                 "image_provider_url": "https://photos.example.org/old-second",
                 "image_license_url": "https://creativecommons.org/licenses/by/4.0/",
+                "image_relevance_verified": True,
                 "image_checked_at": stale_checked,
             },
         ]
@@ -1800,6 +1802,7 @@ class BoundedImageProviderSearchTests(unittest.TestCase):
             "image_credit_url": "https://commons.wikimedia.org/wiki/File:new.jpg",
             "image_provider_url": "https://commons.wikimedia.org/wiki/File:new.jpg",
             "image_license_url": "https://creativecommons.org/licenses/by/4.0/",
+            "image_relevance_verified": True,
             "image_checked_at": datetime.now(timezone.utc),
         }
         cache_time = time.monotonic() - 1.0
@@ -1982,6 +1985,91 @@ class CataloguedImageMemoryCacheTests(unittest.TestCase):
         self.assertEqual(connect.call_count, 3)
         self.assertLessEqual(world_pulse._CATALOGUED_IMAGE_MEMORY_CACHE_BYTES, 10)
 
+
+
+    def test_unverified_legacy_photo_is_replaced_with_topic_illustration(self):
+        row = {
+            "slug": "legacy-photo-unverified",
+            "source_url": "https://www.theverge.com/2026/10/17/legacy-photo-unverified",
+            "source_name": "The Verge",
+            "source_domain": "theverge.com",
+            "category": "technology",
+            "original_language": "en",
+            "title_en": "Oil tankers face new maritime blockade near Iran",
+            "summary_en": "Officials described changes to tanker routes and shipping restrictions near Iran.",
+            "content_en": "Officials described changes to tanker routes and shipping restrictions near Iran. The source says that the situation could affect shipping schedules and energy markets.",
+            "image_url": "https://images.example.test/irrelevant-portrait.jpg",
+            "image_source": "openverse_licensed",
+            "image_credit": "Photographer Name",
+            "image_credit_url": "https://openverse.org/image/example",
+            "image_provider_url": "https://openverse.org/image/example",
+            "image_license_url": "https://creativecommons.org/licenses/by/4.0/",
+            "image_relevance_verified": False,
+        }
+
+        story = world_pulse._normalise_story(row, "en")
+
+        self.assertNotEqual(story["image_url"], row["image_url"])
+        self.assertTrue(story["image_url"].startswith("/media/editorial.svg?"))
+        self.assertEqual(story["image_source"], "editorial_generated")
+
+    def test_topic_verified_licensed_photo_remains_visible(self):
+        row = {
+            "slug": "verified-photo",
+            "source_url": "https://www.theverge.com/2026/10/17/verified-photo",
+            "source_name": "The Verge",
+            "source_domain": "theverge.com",
+            "category": "technology",
+            "original_language": "en",
+            "title_en": "Satellite images show a tanker route",
+            "summary_en": "New satellite images show changes to a tanker route.",
+            "content_en": "New satellite images show changes to a tanker route. The publisher's report describes the shipping changes and their possible impact.",
+            "image_url": "https://images.example.test/tanker-route.jpg",
+            "image_source": "openverse_licensed",
+            "image_credit": "Photographer Name",
+            "image_credit_url": "https://openverse.org/image/tanker-route",
+            "image_provider_url": "https://openverse.org/image/tanker-route",
+            "image_license_url": "https://creativecommons.org/licenses/by/4.0/",
+            "image_relevance_verified": True,
+        }
+
+        story = world_pulse._normalise_story(row, "en")
+
+        self.assertEqual(story["image_url"], row["image_url"])
+        self.assertEqual(story["image_source"], "openverse_licensed")
+
+    def test_article_route_recovers_a_permalink_derived_from_source_url(self):
+        source_url = "https://www.theverge.com/2026/10/17/derived-permalink"
+        slug = world_pulse._slug_for_url(source_url)
+        row = {
+            "slug": "",
+            "source_url": source_url,
+            "source_name": "The Verge",
+            "source_domain": "theverge.com",
+            "category": "technology",
+            "original_language": "en",
+            "title_en": "Satellite imagery shows a new tanker route",
+            "title_ar": "",
+            "summary_en": "Satellite imagery shows a change in a shipping route near an important maritime passage.",
+            "summary_ar": "",
+            "content_en": "Satellite imagery shows a change in a shipping route near an important maritime passage. The available source excerpt says the development may affect transit planning and shipping schedules.",
+            "content_ar": "",
+            "image_url": "",
+            "image_source": "none",
+            "image_relevance_verified": False,
+            "is_demo": False,
+        }
+
+        with patch.object(world_pulse, "current_language", return_value="en"):
+            with patch.object(world_pulse, "_DISPLAY_STORIES_CACHE", {}):
+                with patch.object(world_pulse, "_db_fetch_article_by_slug", return_value=None):
+                    with patch.object(world_pulse, "_all_live_articles", return_value=[row]):
+                        with patch.object(world_pulse, "_db_fetch_related_articles", return_value=[]):
+                            with patch.object(world_pulse, "render_template", return_value="article recovered"):
+                                response = world_pulse.app.test_client().get(f"/article/{slug}?lang=en")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_data(as_text=True), "article recovered")
 
 if __name__ == "__main__":
     unittest.main()
