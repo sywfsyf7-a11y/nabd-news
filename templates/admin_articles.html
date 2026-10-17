@@ -44,8 +44,10 @@
     .theme-toggle{display:inline-flex;align-items:center;gap:7px;border:1px solid #cbd5e1;border-radius:10px;padding:9px 12px;background:#fff;color:#243047;font:inherit;font-weight:750;cursor:pointer}
     html[data-admin-theme="dark"] .theme-toggle{background:#243247;color:#f1f5f9;border-color:#45566f}
   </style>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/admin-studio.css') }}">
 </head>
 <body><main>
+<header class="studio-header"><a class="studio-brand" href="{{ url_for('admin_monitor') }}"><span class="studio-logo">WP</span><span>World Pulse Studio<small style="display:block;font-size:.76rem;font-weight:500;color:#9aabc2">استوديو نبض العالم</small></span></a><nav class="studio-links" aria-label="أقسام الإدارة"><a href="{{ url_for('admin_monitor') }}">نظرة عامة</a><a href="{{ url_for('admin_articles') }}">المحتوى والأخبار</a><a href="{{ url_for('admin_sources') }}">المصادر والصور</a><a href="{{ url_for('admin_audit') }}">تدقيق الأرشيف</a><a href="{{ url_for('index') }}">عرض الموقع</a></nav></header>
   <header class="top">
     <div><h1>إدارة الأخبار والأرشيف</h1><p class="muted">التعديل والإضافة والإخفاء والاستعادة وإعادة البحث عن صورة الخبر؛ الحذف هنا قابل للعكس ولا يمسح السجل الدائم.</p></div>
     <div class="nav">
