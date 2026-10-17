@@ -256,7 +256,7 @@ CATEGORY_SOURCE_DOMAINS = {
     },
     "science": {
         "ar": ["ngalarabiya.com","aljazeera.net","alarabiya.net","dw.com","france24.com","euronews.com","cnn.com","aa.com.tr","alhurra.com","petra.gov.jo","wam.ae","almamlakatv.com","arabic.rt.com","spa.gov.sa"],
-        "en": ["nasa.gov","space.com","scientificamerican.com","livescience.com","phys.org","sciencenews.org","eurekalert.org","noaa.gov","usgs.gov","nsf.gov","energy.gov","nih.gov","esa.int","nature.com","newscientist.com","sciencedaily.com","science.org","eos.org","cnn.com","apnews.com","nationalgeographic.com","sciencealert.com","theconversation.com"],
+        "en": ["jpl.nasa.gov","nasa.gov","space.com","scientificamerican.com","livescience.com","phys.org","sciencenews.org","eurekalert.org","noaa.gov","usgs.gov","nsf.gov","energy.gov","nih.gov","esa.int","nature.com","newscientist.com","sciencedaily.com","science.org","eos.org","cnn.com","apnews.com","nationalgeographic.com","sciencealert.com","theconversation.com"],
     },
     "culture": {
         "ar": ["alqafilah.com","thifaf.com","aljazeera.net","alaraby.co.uk","alarab.co.uk","alarabiya.net","albayan.ae","alittihad.ae","masrawy.com","almasryalyoum.com","youm7.com","cairo24.com","alkhaleej.ae","cnn.com","france24.com","dw.com","spa.gov.sa","okaz.com.sa"],
@@ -278,7 +278,7 @@ PRIORITY_SOURCE_DOMAINS = {
     ("politics", "en"): ("saudigazette.com.sa", "thenationalnews.com", "arabnews.com"),
     ("economy", "en"): ("saudigazette.com.sa", "arabianbusiness.com", "thenationalnews.com"),
     ("technology", "en"): ("theverge.com", "arstechnica.com", "9to5google.com"),
-    ("science", "en"): ("nasa.gov", "noaa.gov", "science.org"),
+    ("science", "en"): ("nasa.gov", "jpl.nasa.gov", "noaa.gov", "science.org"),
 }
 
 # Direct official institutional RSS feeds complement Google News discovery. They run only on
@@ -294,7 +294,7 @@ DIRECT_RSS_FEEDS = (
         "name": "NOAA", "url": "https://www.noaa.gov/rss.xml",
     },
     {
-        "category": "science", "lang": "en", "domain": "nasa.gov",
+        "category": "science", "lang": "en", "domain": "jpl.nasa.gov",
         "name": "NASA Jet Propulsion Laboratory", "url": "https://www.jpl.nasa.gov/feeds/news/",
     },
 )
@@ -3513,6 +3513,21 @@ def _parse_direct_rss_feed(
             })
         logger.info("Direct RSS source checked: source=%s accepted=%d", source_name, len(items))
         return category, lang, items
+    except (URLError, TimeoutError) as exc:
+        # Some official feeds reject automated requests even when their published RSS
+        # endpoint is valid. Fall back only to a Google News query restricted to this
+        # exact allowlisted publisher domain; never broaden the query or scrape the site.
+        http_status = getattr(exc, "code", None) or ""
+        logger.warning(
+            "Direct RSS source unavailable: source=%s error=%s http_status=%s; trying allowlisted Google News fallback",
+            source_name, type(exc).__name__, http_status,
+        )
+        fallback = _parse_feed_task(category, lang, (expected_domain,))
+        logger.info(
+            "Direct RSS fallback completed: source=%s accepted=%d",
+            source_name, len(fallback[2]),
+        )
+        return fallback
     except Exception as exc:
         logger.warning(
             "Direct RSS source unavailable: source=%s error=%s",
