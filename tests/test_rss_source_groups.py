@@ -109,7 +109,7 @@ class RSSPublisherGroupTests(unittest.TestCase):
         self.assertEqual({group[1] for group in direct_feeds}, {"nasa.gov", "noaa.gov", "jpl.nasa.gov"})
         for category, lang, priority_domains in (
             ("gaming", "ar", ("saudigamer.com", "arabhardware.net", "arabgamenews.com")),
-            ("world", "ar", ("aljazeera.net", "almamlakatv.com", "petra.gov.jo")),
+            ("world", "ar", ("aljazeera.net", "bbc.com", "france24.com", "dw.com")),
         ):
             pair_groups = [group for c, l, group in calls if (c, l) == (category, lang)]
             self.assertIn(priority_domains, pair_groups)
