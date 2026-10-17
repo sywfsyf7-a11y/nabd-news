@@ -846,9 +846,7 @@ class SiteExperienceTests(unittest.TestCase):
                                                                 world_pulse._refresh_news_job()
         self.assertEqual(events, ["save", "images"])
         image_update.assert_called_once()
-        image_backfill.assert_called_once_with(
-            limit=min(world_pulse.IMAGE_REVALIDATION_BATCH_SIZE, world_pulse.MAX_IMAGE_LOOKUPS_PER_REFRESH)
-        )
+        image_backfill.assert_not_called()
         stored_in_memory = world_pulse._MEMORY_ARTICLES[raw["source_url"]]
         self.assertEqual(stored_in_memory["image_url"], image_candidate["image_url"])
         self.assertEqual(world_pulse._LAST_REFRESH_STATE, "success")

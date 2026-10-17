@@ -5645,22 +5645,9 @@ def _refresh_news_job() -> None:
                 type(image_exc).__name__,
             )
 
-        # Revalidate older archive images only during the less frequent discovery cycle.
-        # Fresh-story images take priority on five-minute publishing ticks; keeping archive
-        # repair off ordinary ticks prevents provider lookups from competing with page requests.
-        if discovery_due and MAX_IMAGE_LOOKUPS_PER_REFRESH > 0:
-            revalidation_limit = min(IMAGE_REVALIDATION_BATCH_SIZE, MAX_IMAGE_LOOKUPS_PER_REFRESH)
-            try:
-                revalidated = _backfill_missing_article_images(limit=revalidation_limit)
-                logger.info(
-                    "Scheduled image revalidation after publishing tick: batch_limit=%d reusable_images=%d",
-                    revalidation_limit, revalidated,
-                )
-            except Exception as repair_exc:
-                logger.warning(
-                    "Scheduled image revalidation skipped (%s)",
-                    type(repair_exc).__name__,
-                )
+        # Do not run a second archive-image search after publishing a fresh story.
+        # Older images are revalidated on ticks with no fresh article, so a slow provider
+        # cannot compete with new-story rendering and page requests.
 
         _LAST_REFRESH_SUCCESS = time.monotonic()
         _LAST_REFRESH_AT = datetime.now(timezone.utc)
