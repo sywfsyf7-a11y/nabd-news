@@ -58,7 +58,7 @@ jobs:
   wake-and-check:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 20
     steps:
       - name: Wait until the exact main-branch commit is live on Render
         env:
@@ -89,9 +89,13 @@ jobs:
             echo "Render did not serve the expected commit within the verification window."
             exit 1
           fi
-          curl --fail --silent --show-error --location \
-            --connect-timeout 10 --max-time 60 \
-            "$SITE_URL/?lang=en" --output /tmp/home-en.html
+          # Capture the first cold homepage request separately. On a free instance,
+          # DB/schema warm-up can be much slower than subsequent cached requests.
+          cold_homepage_seconds="$(curl --fail --silent --show-error --location \
+            --connect-timeout 10 --max-time 180 --write-out '%{time_total}' \
+            "$SITE_URL/?lang=en" --output /tmp/home-en.html)"
+          echo "cold_start_homepage_en_seconds=$cold_homepage_seconds"
+          python -c 'import sys; s=float(sys.argv[1]); print("WARNING: cold homepage exceeded 8 seconds" if s > 8 else "cold homepage within 8 seconds")' "$cold_homepage_seconds"
           curl --fail --silent --show-error --location \
             --connect-timeout 10 --max-time 60 \
             "$SITE_URL/?lang=ar" --output /tmp/home-ar.html
