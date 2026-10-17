@@ -269,9 +269,8 @@ class SiteExperienceTests(unittest.TestCase):
                 with patch.object(world_pulse, "_db_fetch_article_by_slug", return_value=stored):
                     response = world_pulse.app.test_client().get("/article/old-international-story?lang=ar")
 
-        self.assertEqual(response.status_code, 200)
-        self.assertIn("An English-only technology headline", response.get_data(as_text=True))
-        self.assertIn(source_url, response.get_data(as_text=True))
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers.get("Location"), source_url)
 
     def test_headline_only_article_stays_native_language_and_is_not_translated(self):
         row = {
@@ -1883,12 +1882,10 @@ class ProductionAuditRegressionTests(unittest.TestCase):
                                             "/article/legacy-publisher-story?lang=ar"
                                         )
 
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.get_data(as_text=True), "archive story rendered")
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers.get("Location"), archived["source_url"])
         lookup.assert_called_once_with("legacy-publisher-story")
-        self.assertEqual(render.call_args.kwargs["article"]["slug"], "legacy-publisher-story")
-        self.assertEqual(render.call_args.kwargs["article"]["display_language"], "en")
-        self.assertTrue(render.call_args.kwargs["article"]["translation_fallback"])
+        render.assert_not_called()
 
     def test_saved_archive_permalink_rejects_mismatched_host_and_hidden_rows(self):
         base = {

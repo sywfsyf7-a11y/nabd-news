@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 import app as world_pulse
 
@@ -30,6 +31,8 @@ class SourcePolicyTests(unittest.TestCase):
         # Both interfaces show both native source languages in the same category feed.
         self.assertTrue(world_pulse._row_allowed_on_language_site(arabic_story, "ar"))
         self.assertTrue(world_pulse._row_allowed_on_language_site(arabic_story, "en"))
+        self.assertTrue(world_pulse._story_allowed_in_display_language(arabic_story, "ar"))
+        self.assertFalse(world_pulse._story_allowed_in_display_language(arabic_story, "en"))
         arabic_fallback = world_pulse._normalise_story(dict(arabic_story), "en")
         self.assertEqual(arabic_fallback["display_language"], "ar")
         self.assertTrue(arabic_fallback["translation_fallback"])
@@ -45,6 +48,7 @@ class SourcePolicyTests(unittest.TestCase):
             ),
         )
         self.assertTrue(world_pulse._row_allowed_on_language_site(arabic_story_translated, "en"))
+        self.assertTrue(world_pulse._story_allowed_in_display_language(arabic_story_translated, "en"))
         translated = world_pulse._normalise_story(arabic_story_translated, "en")
         self.assertEqual(translated["display_language"], "en")
         self.assertFalse(translated["translation_fallback"])
@@ -67,6 +71,8 @@ class SourcePolicyTests(unittest.TestCase):
         }
         self.assertTrue(world_pulse._row_allowed_on_language_site(english_story, "en"))
         self.assertTrue(world_pulse._row_allowed_on_language_site(english_story, "ar"))
+        self.assertTrue(world_pulse._story_allowed_in_display_language(english_story, "en"))
+        self.assertFalse(world_pulse._story_allowed_in_display_language(english_story, "ar"))
         english_fallback = world_pulse._normalise_story(dict(english_story), "ar")
         self.assertEqual(english_fallback["display_language"], "en")
         self.assertTrue(english_fallback["translation_fallback"])
@@ -82,6 +88,7 @@ class SourcePolicyTests(unittest.TestCase):
             ),
         )
         self.assertTrue(world_pulse._row_allowed_on_language_site(english_story_translated, "ar"))
+        self.assertTrue(world_pulse._story_allowed_in_display_language(english_story_translated, "ar"))
         arabic_translation = world_pulse._normalise_story(english_story_translated, "ar")
         self.assertEqual(arabic_translation["display_language"], "ar")
         self.assertFalse(arabic_translation["translation_fallback"])
@@ -95,6 +102,8 @@ class SourcePolicyTests(unittest.TestCase):
             title_en="International report",
         )
         self.assertTrue(world_pulse._row_allowed_on_language_site(headline_only, "ar"))
+        self.assertFalse(world_pulse._story_allowed_in_display_language(headline_only, "ar"))
+        self.assertTrue(world_pulse._story_allowed_in_display_language(headline_only, "en"))
         headline_display = world_pulse._normalise_story(headline_only, "ar")
         self.assertEqual(headline_display["display_language"], "en")
         self.assertTrue(headline_display["headline_only"])
@@ -103,6 +112,85 @@ class SourcePolicyTests(unittest.TestCase):
         unapproved = dict(arabic_story, source_domain="unknown.example")
         self.assertFalse(world_pulse._row_allowed_on_language_site(unapproved, "ar"))
         self.assertFalse(world_pulse._row_allowed_on_language_site(unapproved, "en"))
+
+
+    def test_combined_display_pool_never_shows_wrong_language_without_complete_translation(self):
+        arabic_body = (
+            "يوضح المصدر التطور الأساسي والسياق المتاح بشأن الموضوع. وتعرض هذه المادة المعلومات "
+            "المؤكدة من الناشر فقط، ولا تضيف أرقاماً أو تواريخ أو تصريحات أو خلفيات غير موثقة. "
+            "وإذا لم تتوفر تفاصيل إضافية موثوقة، يبقى الملخص مقتصراً على ما أمكن التحقق منه."
+        )
+        english_body = (
+            "The source describes the core development and the available context. This brief keeps "
+            "to information supported by the publisher and adds no unverified figures, dates, quotes, "
+            "or background. Where additional reliable details are unavailable, the summary stays "
+            "limited to what can be verified from the supplied source material."
+        )
+        rows = [
+            {
+                "slug": "ar-translated", "source_url": "https://aitnews.com/story-a",
+                "source_name": "AIT News", "source_domain": "aitnews.com",
+                "category": "technology", "original_language": "ar",
+                "title_ar": "أداة تقنية تطلق مزايا جديدة للمستخدمين",
+                "summary_ar": "يوضح المصدر أبرز المزايا الجديدة التي أطلقتها الأداة التقنية.",
+                "content_ar": arabic_body,
+                "title_en": "Technology tool launches new user features",
+                "summary_en": "The report describes new features introduced by a technology tool.",
+                "content_en": english_body,
+            },
+            {
+                "slug": "ar-only", "source_url": "https://saudigamer.com/story-b",
+                "source_name": "Saudi Gamer", "source_domain": "saudigamer.com",
+                "category": "gaming", "original_language": "ar",
+                "title_ar": "تفاصيل لعبة جديدة من سعودي جيمر",
+                "summary_ar": "يتناول الخبر إعلاناً جديداً في عالم الألعاب.",
+                "content_ar": arabic_body,
+                "title_en": "", "summary_en": "", "content_en": "",
+            },
+            {
+                "slug": "en-translated", "source_url": "https://www.theverge.com/story-c",
+                "source_name": "The Verge", "source_domain": "theverge.com",
+                "category": "technology", "original_language": "en",
+                "title_en": "A global platform announces a system update",
+                "summary_en": "The report describes a new system update announced by a global platform.",
+                "content_en": english_body,
+                "title_ar": "منصة عالمية تعلن تحديثاً جديداً للنظام",
+                "summary_ar": "يعرض التقرير تفاصيل تحديث النظام الذي أعلنت عنه المنصة العالمية.",
+                "content_ar": arabic_body,
+            },
+            {
+                "slug": "en-only", "source_url": "https://www.ign.com/story-d",
+                "source_name": "IGN", "source_domain": "ign.com",
+                "category": "gaming", "original_language": "en",
+                "title_en": "A new game update is announced",
+                "summary_en": "The publisher shared details of an upcoming game update.",
+                "content_en": english_body,
+                "title_ar": "", "summary_ar": "", "content_ar": "",
+            },
+            {
+                "slug": "bbc-headline", "source_url": "https://www.bbc.com/news/story-e",
+                "source_name": "BBC News", "source_domain": "bbc.com",
+                "category": "world", "original_language": "en",
+                "title_en": "International report from the BBC",
+                "summary_en": "Publisher headline and source link only.",
+                "content_en": "",
+                "title_ar": "تقرير دولي من بي بي سي",
+                "summary_ar": "عنوان ورابط المصدر فقط.",
+                "content_ar": "",
+            },
+        ]
+
+        with patch.object(world_pulse, "_all_live_articles", return_value=rows):
+            with patch.object(world_pulse, "_display_category", side_effect=lambda row, lang: row["category"]):
+                arabic = world_pulse._build_display_stories("ar")
+                english = world_pulse._build_display_stories("en")
+
+        arabic_slugs = {story["slug"] for story in arabic}
+        english_slugs = {story["slug"] for story in english}
+        self.assertEqual(arabic_slugs, {"ar-translated", "ar-only", "en-translated"})
+        self.assertEqual(english_slugs, {"ar-translated", "en-translated", "en-only", "bbc-headline"})
+        self.assertTrue(all(world_pulse._text_matches_language(story["title"], "ar") for story in arabic))
+        self.assertTrue(all(world_pulse._text_matches_language(story["title"], "en") for story in english))
 
 
     def test_requested_editorial_priorities_are_allowlisted_by_section_and_language(self):
