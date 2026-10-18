@@ -240,13 +240,10 @@ class AdminArchiveManagementTests(unittest.TestCase):
         )
 
 
-    def test_admin_upload_route_reads_images_larger_than_two_mib(self):
+    def test_admin_upload_route_rejects_images_over_1000_kb(self):
         import io
-        from PIL import Image
 
-        buffer = io.BytesIO()
-        Image.new("RGB", (400, 240), "navy").save(buffer, format="JPEG")
-        large_image = buffer.getvalue() + (b"x" * (3 * 1024 * 1024))
+        oversized_image = b"x" * (world_pulse.MAX_IMAGE_UPLOAD_BYTES + 1)
         client = world_pulse.app.test_client()
         self._logged_in_session(client)
         article = {
@@ -266,22 +263,21 @@ class AdminArchiveManagementTests(unittest.TestCase):
                         "image_credit": "Example photographer",
                         "image_credit_url": "https://images.example/photo",
                         "image_license_url": "https://creativecommons.org/licenses/by/4.0/",
-                        "image_file": (io.BytesIO(large_image), "large-photo.jpg"),
+                        "image_file": (io.BytesIO(oversized_image), "oversized-photo.jpg"),
                     }, content_type="multipart/form-data")
 
-        self.assertEqual(response.status_code, 302)
-        save_image.assert_called_once()
-        self.assertGreater(len(save_image.call_args.args[1]), 2 * 1024 * 1024)
-        self.assertEqual(save_image.call_args.args[1], large_image)
+        self.assertEqual(response.status_code, 413)
+        save_image.assert_not_called()
 
-    def test_persistent_upload_optimizes_valid_source_larger_than_two_mib(self):
+    def test_persistent_upload_saves_valid_image_under_1000_kb(self):
         import io
         from PIL import Image
         from unittest.mock import MagicMock
 
         buffer = io.BytesIO()
-        Image.new("RGB", (400, 240), "navy").save(buffer, format="JPEG")
-        large_image = buffer.getvalue() + (b"x" * (3 * 1024 * 1024))
+        Image.new("RGB", (400, 240), "navy").save(buffer, format="JPEG", quality=85)
+        valid_image = buffer.getvalue()
+        self.assertLessEqual(len(valid_image), world_pulse.MAX_IMAGE_UPLOAD_BYTES)
         connection = MagicMock()
         cursor = connection.cursor.return_value.__enter__.return_value
         cursor.fetchone.return_value = (1,)
@@ -292,7 +288,7 @@ class AdminArchiveManagementTests(unittest.TestCase):
                 with patch.object(world_pulse, "_cache_catalogued_image_bytes"):
                     with patch.object(world_pulse, "_invalidate_db_articles_cache"):
                         result = world_pulse._admin_store_uploaded_image(
-                            "story-photo", large_image, "Example photographer",
+                            "story-photo", valid_image, "Example photographer",
                             "https://images.example/photo",
                             "https://creativecommons.org/licenses/by/4.0/",
                         )
