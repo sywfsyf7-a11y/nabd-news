@@ -55,86 +55,13 @@
       <a class="button dark" href="{{ url_for('admin_monitor') }}">لوحة المراقبة</a>
       <a class="button secondary" href="{{ url_for('admin_sources') }}">المصادر والصور</a>
       <a class="button secondary" href="{{ url_for('admin_audit') }}">تدقيق الأرشيف</a>
-      <form method="post" action="{{ url_for('admin_logout') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="secondary" type="submit">تسجيل الخروج</button></form>
-    </div>
-  </header>
-  {% if notice %}<div class="notice" role="status">{{ notice }}</div>{% endif %}
-  {% if db_error %}<div class="notice error" role="alert">تعذر قراءة الأرشيف الآن. رمز التشخيص: {{ db_error }}. لم نُجرِ أي تغيير على الخبر.</div>{% endif %}
-
-  <section class="card">
-    <div class="section-head"><h2>العثور على خبر</h2><span class="pill">عدد النتائج: {{ total }}</span></div>
-    <form method="get" class="toolbar">
-      <div><label for="q">بحث بالعنوان أو الناشر أو الرابط</label><input id="q" name="q" type="search" maxlength="120" value="{{ query }}" placeholder="مثال: النفط، NASA، عنوان الخبر"></div>
-      <div><label for="category">القسم</label><select id="category" name="category"><option value="all" {% if active_category == 'all' %}selected{% endif %}>كل الأقسام</option>{% for key in category_keys %}<option value="{{ key }}" {% if active_category == key %}selected{% endif %}>{{ category_names[key]['ar'] }} / {{ category_names[key]['en'] }}</option>{% endfor %}</select></div>
-      <div class="actions"><input type="hidden" name="page" value="1"><button type="submit">بحث</button><a class="button secondary" href="{{ url_for('admin_articles') }}">مسح الفلاتر</a></div>
-    </form>
-    <form method="get" style="margin-top:12px"><input type="hidden" name="q" value="{{ query }}"><input type="hidden" name="category" value="{{ active_category }}"><input type="hidden" name="page" value="1"><input type="hidden" name="show_hidden" value="{{ '0' if show_hidden else '1' }}"><button class="secondary" type="submit">{{ 'إخفاء الأخبار المخفية من القائمة' if show_hidden else 'عرض الأخبار المخفية' }}</button></form>
-  </section>
-
-  {% if edit_article %}
-  <section class="card" id="editor">
-    <div class="section-head"><h2>تعديل: {{ edit_article.title_ar or edit_article.title_en or edit_article.slug }}</h2><a class="button secondary" href="{{ url_for('admin_articles', q=query, category=active_category, show_hidden='1' if show_hidden else '0', page=page) }}">إغلاق المحرر</a></div>
-    <p class="muted">الرابط الأصلي لا يتغير من هذه الشاشة حفاظًا على سجل المصدر والروابط القديمة. اختر قسمًا يطابق قائمة المصدر المعتمدة. الحفظ يغيّر نصوص النشر فقط.</p>
-    <div class="meta"><span>المصدر: {{ edit_article.source_name or edit_article.source_domain }}</span><span>لغة المصدر: {{ 'العربية' if edit_article.original_language == 'ar' else 'English' }}</span><span>الرابط: <a href="{{ edit_article.source_url }}" target="_blank" rel="noopener noreferrer">فتح المصدر الأصلي</a></span></div>
-    {% if edit_article.headline_only %}<div class="notice warning">هذا الناشر في وضع «العنوان والرابط فقط». يمكنك تصحيح العنوان والقسم؛ لا تسمح السياسة بنشر ملخص أو تفاصيل معاد صياغتها من محتواه في هذا الوضع.</div>{% endif %}
-    <form method="post" action="{{ url_for('admin_articles', q=query, category=active_category, show_hidden='1' if show_hidden else '0', page=page, edit=edit_article.slug) }}">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="action" value="save_article"><input type="hidden" name="slug" value="{{ edit_article.slug }}">
-      <div><label for="edit-category">القسم</label><select id="edit-category" name="category" required>{% for key in category_keys %}<option value="{{ key }}" {% if edit_article.category == key %}selected{% endif %}>{{ category_names[key]['ar'] }} / {{ category_names[key]['en'] }}</option>{% endfor %}</select></div>
-      {% if edit_article.headline_only %}
-        <label for="native-headline">{{ 'العنوان العربي الأصلي' if edit_article.original_language == 'ar' else 'Original English headline' }}</label>
-        <input id="native-headline" name="{{ 'title_ar' if edit_article.original_language == 'ar' else 'title_en' }}" maxlength="350" required value="{{ edit_article.title_ar if edit_article.original_language == 'ar' else edit_article.title_en }}">
-      {% else %}
-        <div class="fields">
-          <div><label for="title_ar">العنوان العربي</label><input id="title_ar" name="title_ar" maxlength="350" required value="{{ edit_article.title_ar }}"></div>
-          <div><label for="title_en">العنوان الإنجليزي</label><input id="title_en" name="title_en" maxlength="350" required dir="ltr" value="{{ edit_article.title_en }}"></div>
-          <div><label for="summary_ar">الملخص التنفيذي العربي</label><textarea id="summary_ar" name="summary_ar" maxlength="1400" required>{{ edit_article.summary_ar }}</textarea></div>
-          <div><label for="summary_en">Executive summary (English)</label><textarea id="summary_en" name="summary_en" maxlength="1400" required dir="ltr">{{ edit_article.summary_en }}</textarea></div>
-          <div><label for="content_ar">تفاصيل الخبر بالعربية</label><textarea id="content_ar" name="content_ar" maxlength="8000" required>{{ edit_article.content_ar }}</textarea></div>
-          <div><label for="content_en">Story details (English)</label><textarea id="content_en" name="content_en" maxlength="8000" required dir="ltr">{{ edit_article.content_en }}</textarea></div>
-        </div>
-      {% endif %}
-      <div class="actions" style="margin-top:14px"><button type="submit">حفظ التعديلات</button><a class="button secondary" href="{{ url_for('article', slug=edit_article.slug, lang=edit_article.original_language) }}" target="_blank" rel="noopener noreferrer">معاينة الخبر</a></div>
-    </form>
-
-    <div class="section-head" style="margin-top:26px"><h3>الصورة الرئيسية للخبر</h3><span class="pill">حفظ دائم في Supabase</span></div>
-    <p class="muted">استخدم البحث التلقائي للعثور على صورة حقيقية مرتبطة بالخبر من مكتبات تسمح بإعادة الاستخدام. يتحقق النظام من صلة الصورة وبيانات الترخيص ويحفظ النسخة المحسّنة في Supabase. لا تحتاج إلى إدخال معلومات الحقوق يدويًا.</p>
-    {% if edit_article.image_url and (edit_article.image_source == 'gemini_generated' or (edit_article.image_source in ['wikimedia_relevant','openverse_licensed','loc_open_access','nasa_images','artic_open_access','met_open_access','cleveland_museum_open_access','wellcome_open_access','presskit_approved','admin_verified'] and edit_article.image_credit_url and edit_article.image_license_url)) %}
-      <div class="notice" style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">
-        <img src="{{ public_image_url(edit_article.image_url) }}" alt="معاينة الصورة الحالية" loading="lazy" decoding="async" style="width:180px;max-height:120px;object-fit:cover;border-radius:10px">
-        <div>
-          <strong>الصورة الحالية: {{ edit_article.image_provider_display or edit_article.image_source }}</strong>
-          <p class="muted">الإسناد: {{ edit_article.image_credit or 'رسم توضيحي مولّد بالذكاء الاصطناعي' }}</p>
-          <p>{% if edit_article.image_credit_url %}<a href="{{ edit_article.image_credit_url }}" target="_blank" rel="noopener noreferrer">صفحة الصورة</a>{% endif %}{% if edit_article.image_license_url %}{% if edit_article.image_credit_url %} · {% endif %}<a href="{{ edit_article.image_license_url }}" target="_blank" rel="noopener noreferrer">الترخيص</a>{% endif %}{% if edit_article.image_provider_url %}{% if edit_article.image_credit_url or edit_article.image_license_url %} · {% endif %}<a href="{{ edit_article.image_provider_url }}" target="_blank" rel="noopener noreferrer">معلومات المصدر</a>{% endif %}</p>
-        </div>
-      </div>
-    {% else %}
-      <div class="notice warning">لا توجد صورة رئيسية معتمدة ببيانات حقوق مكتملة. لن نعرض صورة عشوائية باعتبارها صورة الخبر.</div>
-    {% endif %}
-    <form method="post" action="{{ url_for('admin_articles', q=query, category=active_category, show_hidden='1' if show_hidden else '0', page=page, edit=edit_article.slug) }}" style="margin-top:14px">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="action" value="retry_article_image"><input type="hidden" name="slug" value="{{ edit_article.slug }}">
-      <div class="notice" style="margin-bottom:10px">
-        <strong>البحث الذكي عن صورة حقيقية مناسبة ومرخّصة</strong>
-        <p class="muted" style="margin:6px 0 0">سيبحث النظام باستخدام عنوان الخبر وقسمه وسياقه في مكتبات الصور المفتوحة، ثم يتحقق من صلة الصورة بالخبر وبيانات الترخيص ويحفظ نسخة محسّنة في Supabase. لا ينشئ صورة بالذكاء الاصطناعي، ولا يستخدم صورة عشوائية. إذا لم يجد تطابقًا موثوقًا، سيبقي الرسم المحلي التوضيحي بدل صورة مضللة.</p>
-      </div>
-      <button type="submit">ابحث تلقائيًا عن صورة مرخّصة</button>
-    </form>
-
-    <form method="post" action="{{ url_for('admin_articles', q=query, category=active_category, show_hidden='1' if show_hidden else '0', page=page, edit=edit_article.slug) }}" style="margin-top:12px" onsubmit="return confirm('سينشئ الذكاء الاصطناعي رسمًا توضيحيًا باستخدام عنوان الخبر وقسمه وسياقه المحفوظ. لن تحتاج إلى كتابة وصف أو تفاصيل للصورة. هل تريد المتابعة؟');">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="action" value="generate_ai_article_image"><input type="hidden" name="slug" value="{{ edit_article.slug }}">
-      <div class="notice" style="margin-bottom:10px">
-        <strong>إنشاء صورة تلقائيًا بالذكاء الاصطناعي</strong>
-        <p class="muted" style="margin:6px 0 0">لا تحتاج لإدخال أي تفاصيل أو كتابة وصف. سيستخدم النظام عنوان الخبر وقسمه والملخص والتفاصيل المحفوظة لإنشاء رسم توضيحي مرتبط بالموضوع، ثم يحفظه في Supabase. سيُوسم بوضوح كصورة مولّدة بالذكاء الاصطناعي وليس كصورة صحفية حقيقية. الحد اليومي: {{ admin_gemini_image_generation_limit }} صور.</p>
-      </div>
-      <button type="submit">إنشاء وحفظ صورة بالذكاء الاصطناعي</button>
-    </form>
-
-    <details style="margin-top:12px">
-      <summary>رفع صورة يدويًا (صورة مرخّصة أو صورة مولّدة بالذكاء الاصطناعي)</summary>
-      <p class="muted">احتفظ بخيار الصورة المرخّصة كما هو، أو اختر رفع صورة أنت أنشأتها بالذكاء الاصطناعي. الخيار الثاني لا يطلب رابط ترخيص لطرف ثالث، لكنه يتطلب تأكيدًا صريحًا بأن الصورة مولّدة بالذكاء الاصطناعي وليست منسوخة من ناشر أو مصوّر.</p>
+  <details style="margin-top:12px">
+      <summary>رفع صورة حقيقية مرخّصة يدويًا</summary>
+       <p class="muted">ارفع صورة يسمح ترخيصها بإعادة الاستخدام، وأدخل اسم صاحب الصورة ورابط الصورة الأصلي ورابط الترخيص الدقيق.</p>
       <form id="manual-image-upload-form" method="post" enctype="multipart/form-data" action="{{ url_for('admin_articles', q=query, category=active_category, show_hidden='1' if show_hidden else '0', page=page, edit=edit_article.slug) }}" style="margin-top:14px">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="action" value="save_article_image"><input type="hidden" name="slug" value="{{ edit_article.slug }}">
         <div class="fields">
-          <div class="wide"><label for="upload_image_mode">نوع الصورة المرفوعة</label><select id="upload_image_mode" name="upload_image_mode"><option value="licensed" selected>صورة حقيقية — أتحقق من الترخيص وأضيف بيانات المصدر</option><option value="ai_generated">صورة أنشأتها بالذكاء الاصطناعي</option></select></div>
+          <div class="wide"><label for="upload_image_mode">نوع الصورة المرفوعة</label><select id="upload_image_mode" name="upload_image_mode"><option value="licensed" selected>صورة حقيقية — أتحقق من الترخيص وأضيف بيانات المصدر</option></select></div>
           <div class="wide"><label for="image_file">ملف الصورة (JPG أو PNG أو WebP)</label><input id="image_file" name="image_file" type="file" accept="image/jpeg,image/png,image/webp" required><small class="muted">سيُحفظ إصدار محسّن ومناسب للويب في Supabase لتقليل وقت التحميل.</small></div>
           <div class="licensed-image-fields"><label for="image_credit">اسم المصوّر أو الجهة المالكة</label><input id="image_credit" name="image_credit" maxlength="180" value="{{ edit_article.image_credit or '' }}" placeholder="مثال: NASA / اسم المصوّر"></div>
           <div class="licensed-image-fields"><label for="image_credit_url">رابط صفحة الصورة الأصلية</label><input id="image_credit_url" name="image_credit_url" type="url" maxlength="1000" dir="ltr" value="{{ edit_article.image_credit_url or '' }}" placeholder="https://…"></div>
