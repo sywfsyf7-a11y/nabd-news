@@ -296,7 +296,7 @@ class AdminArchiveManagementTests(unittest.TestCase):
 
         self.assertEqual(result, "saved")
         connection.commit.assert_called_once()
-        self.assertEqual(cursor.execute.call_count, 2)
+        self.assertEqual(cursor.execute.call_count, 3)
 
 
 if __name__ == "__main__":
