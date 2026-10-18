@@ -54,12 +54,21 @@ except ImportError:
 # Application configuration
 # ---------------------------------------------------------------------------
 
+# Image uploads are no longer restricted to 2 MiB. Keep a generous, configurable
+# per-file safety ceiling so a malformed request cannot consume unbounded memory.
+MAX_IMAGE_UPLOAD_BYTES = max(
+    2 * 1024 * 1024,
+    min(100 * 1024 * 1024, int(os.getenv("MAX_IMAGE_UPLOAD_BYTES", str(50 * 1024 * 1024)))),
+)
+
 app = Flask(__name__)
 app.secret_key = os.getenv("FLASK_SECRET_KEY") or secrets.token_hex(32)
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
     SESSION_COOKIE_SECURE=os.getenv("SESSION_COOKIE_SECURE", "false").lower() == "true",
+    # Keep all other endpoints small by default; the protected admin upload gets
+    # an endpoint-specific limit in remember_language() below.
     MAX_CONTENT_LENGTH=3 * 1024 * 1024,
 )
 
@@ -135,6 +144,11 @@ IMAGE_PROVIDER_GROUP_TIMEOUT_SECONDS = min(
     15, max(IMAGE_SEARCH_TIMEOUT_SECONDS + 5, IMAGE_SEARCH_TIMEOUT_SECONDS * 3)
 )
 IMAGE_DOWNLOAD_TIMEOUT_SECONDS = max(5, min(20, int(os.getenv("IMAGE_DOWNLOAD_TIMEOUT_SECONDS", "10"))))
+# Large originals are accepted, then resized and encoded for fast page delivery.
+MAX_SOURCE_IMAGE_BYTES = max(
+    6 * 1024 * 1024,
+    min(50 * 1024 * 1024, int(os.getenv("MAX_SOURCE_IMAGE_BYTES", str(20 * 1024 * 1024)))),
+)
 MAX_IMAGE_LOOKUPS_PER_REFRESH = max(0, min(32, int(os.getenv("MAX_IMAGE_LOOKUPS_PER_REFRESH", "4"))))
 # Gradually repair older archived stories without running large, long-lived image batches.
 IMAGE_REVALIDATION_BATCH_SIZE = max(1, min(4, int(os.getenv("IMAGE_REVALIDATION_BATCH_SIZE", "2"))))
@@ -678,7 +692,13 @@ _DISPLAY_STORIES_CACHE_LOCK = threading.Lock()
 _CATALOGUED_IMAGE_MEMORY_CACHE_MAX_BYTES = max(
     1_048_576, min(64 * 1024 * 1024, int(os.getenv("CATALOGUED_IMAGE_MEMORY_CACHE_MAX_BYTES", "16777216")))
 )
-_CATALOGUED_IMAGE_MEMORY_CACHE_MAX_ITEM_BYTES = 3 * 1024 * 1024
+_CATALOGUED_IMAGE_MEMORY_CACHE_MAX_ITEM_BYTES = max(
+    1 * 1024 * 1024,
+    min(
+        _CATALOGUED_IMAGE_MEMORY_CACHE_MAX_BYTES,
+        int(os.getenv("CATALOGUED_IMAGE_MEMORY_CACHE_MAX_ITEM_BYTES", str(8 * 1024 * 1024))),
+    ),
+)
 _CATALOGUED_IMAGE_MEMORY_CACHE: OrderedDict[str, tuple[bytes, str]] = OrderedDict()
 _CATALOGUED_IMAGE_MEMORY_CACHE_BYTES = 0
 _CATALOGUED_IMAGE_MEMORY_CACHE_LOCK = threading.RLock()
@@ -3528,13 +3548,16 @@ def _cache_reusable_image(result: dict[str, Any]) -> dict[str, Any]:
             },
         )
         with urlopen(request_obj, timeout=IMAGE_DOWNLOAD_TIMEOUT_SECONDS) as response:
-            image_bytes = response.read(6 * 1024 * 1024 + 1)
+            image_bytes = response.read(MAX_SOURCE_IMAGE_BYTES + 1)
     except Exception as exc:
         logger.debug("Licensed image download failed (source=%s error=%s)", source, type(exc).__name__)
         return result
 
-    if not image_bytes or len(image_bytes) > 6 * 1024 * 1024:
-        logger.info("Licensed image not cached because it is empty or larger than 6 MiB (source=%s)", source)
+    if not image_bytes or len(image_bytes) > MAX_SOURCE_IMAGE_BYTES:
+        logger.info(
+            "Licensed image not cached because it is empty or exceeds the configured source-image limit (source=%s bytes=%d)",
+            source, len(image_bytes),
+        )
         return result
     try:
         # Verify dimensions and decode successfully before storing bytes from any remote provider.
@@ -3560,8 +3583,7 @@ def _cache_reusable_image(result: dict[str, Any]) -> dict[str, Any]:
             optimized.save(optimized_buffer, format="JPEG", quality=82, optimize=True, progressive=True)
             image_bytes = optimized_buffer.getvalue()
             mime_type = "image/jpeg"
-        if not image_bytes or len(image_bytes) > 2 * 1024 * 1024:
-            logger.info("Licensed image not cached because optimized payload exceeds 2 MiB (source=%s)", source)
+        if not image_bytes:
             return result
     except Exception as exc:
         logger.debug("Licensed image bytes failed verification/optimization (source=%s error=%s)", source, type(exc).__name__)
@@ -6991,6 +7013,10 @@ def _format_date(value: Any, lang: str) -> str:
 @app.before_request
 def remember_language() -> None:
     _ensure_background_scheduler()
+    # Admin uploads accept large files without loosening request limits on public endpoints.
+    # Flask 3.1 supports a per-request max_content_length value.
+    if request.endpoint == "admin_articles" and request.method == "POST":
+        request.max_content_length = MAX_IMAGE_UPLOAD_BYTES + 2 * 1024 * 1024
     requested = request.args.get("lang", "").lower()
     if requested in ("ar", "en"):
         session["lang"] = requested
@@ -7846,7 +7872,7 @@ def _admin_store_uploaded_image(
     credit = _clean_text(credit, 180)
     source_page_url = _clean_text(source_page_url, 1000)
     license_url = _clean_text(license_url, 1000)
-    if not slug or not credit or not image_bytes or len(image_bytes) > 2 * 1024 * 1024:
+    if not slug or not credit or not image_bytes or len(image_bytes) > MAX_IMAGE_UPLOAD_BYTES:
         return "invalid_image"
     try:
         with Image.open(io.BytesIO(image_bytes)) as opened:
@@ -7872,7 +7898,7 @@ def _admin_store_uploaded_image(
         logger.info("Admin image upload rejected during decode (%s)", type(exc).__name__)
         return "invalid_image"
 
-    if not normalized_bytes or len(normalized_bytes) > 2 * 1024 * 1024:
+    if not normalized_bytes:
         return "invalid_image"
     for value in (source_page_url, license_url):
         parsed = urlparse(value)
@@ -8189,7 +8215,7 @@ def admin_articles():
                 notice = "أدخل رابط الترخيص الدقيق للصورة."
             else:
                 upload = request.files.get("image_file")
-                image_bytes = upload.read(2 * 1024 * 1024 + 1) if upload else b""
+                image_bytes = upload.read(MAX_IMAGE_UPLOAD_BYTES + 1) if upload else b""
                 result = _admin_store_uploaded_image(
                     slug,
                     image_bytes,
@@ -8199,7 +8225,7 @@ def admin_articles():
                 )
                 notice = {
                     "saved": "تم حفظ الصورة بصورة محسّنة في Supabase مع بيانات المصدر والترخيص. ستبقى الصورة مرتبطة بهذا الخبر.",
-                    "invalid_image": "تعذر قبول الصورة. ارفع JPG أو PNG أو WebP سليمة ولا يتجاوز حجمها 2 ميغابايت.",
+                    "invalid_image": "تعذر قبول الصورة. ارفع JPG أو PNG أو WebP سليمة وضمن الحد الأعلى المسموح للرفع.",
                     "invalid_dimensions": "أبعاد الصورة صغيرة جدًا أو كبيرة بصورة غير آمنة؛ استخدم صورة لا تقل عن 300×180 بكسل.",
                     "invalid_rights_url": "يجب أن تكون صفحة الصورة ورابط الترخيص رابطَي HTTPS صالحين.",
                     "restricted_license": "هذا الترخيص يبدو غير تجاري أو يمنع الاشتقاق. لا تستخدمه لهذا الموقع دون إذن مختلف.",
