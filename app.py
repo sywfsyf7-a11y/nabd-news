@@ -785,6 +785,15 @@ CREATE TABLE IF NOT EXISTS world_pulse_generated_images (
 );
 CREATE INDEX IF NOT EXISTS idx_wp_generated_images_created
     ON world_pulse_generated_images (created_at DESC);
+-- Keep generated artwork separate from the primary image and its photo licence.
+CREATE TABLE IF NOT EXISTS world_pulse_article_ai_illustrations (
+    slug TEXT PRIMARY KEY,
+    image_id TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_wp_article_ai_illustrations_updated
+    ON world_pulse_article_ai_illustrations (updated_at DESC);
 CREATE TABLE IF NOT EXISTS world_pulse_catalogued_images (
     image_id TEXT PRIMARY KEY,
     source_url TEXT NOT NULL UNIQUE,
@@ -1762,12 +1771,15 @@ def _query_persistent_archive_rows() -> list[dict[str, Any]] | None:
             cur.execute("""
                 SELECT * FROM (
                     (
-                        SELECT slug, source_url, category, source_name, source_domain, image_url,
+                        SELECT world_pulse_articles.slug, source_url, category, source_name, source_domain, image_url,
                                image_source, image_credit, image_credit_url, image_provider_url, image_license_url, image_checked_at, image_relevance_verified,
+                               CASE WHEN ai_illustration.image_id IS NOT NULL THEN '/media/generated/' || ai_illustration.image_id ELSE '' END AS ai_image_url,
+                               ai_illustration.updated_at AS ai_image_updated_at,
                                title_ar, title_en, summary_ar, summary_en,
                                content_ar, content_en, published_at, fetched_at,
                                read_minutes, original_language, is_demo
                         FROM world_pulse_articles
+                        LEFT JOIN world_pulse_article_ai_illustrations AS ai_illustration ON ai_illustration.slug = world_pulse_articles.slug
                         WHERE is_demo = FALSE
                           AND is_hidden = FALSE
                           AND original_language = 'ar'
@@ -1783,12 +1795,15 @@ def _query_persistent_archive_rows() -> list[dict[str, Any]] | None:
                     )
                     UNION ALL
                     (
-                        SELECT slug, source_url, category, source_name, source_domain, image_url,
+                        SELECT world_pulse_articles.slug, source_url, category, source_name, source_domain, image_url,
                                image_source, image_credit, image_credit_url, image_provider_url, image_license_url, image_checked_at, image_relevance_verified,
+                               CASE WHEN ai_illustration.image_id IS NOT NULL THEN '/media/generated/' || ai_illustration.image_id ELSE '' END AS ai_image_url,
+                               ai_illustration.updated_at AS ai_image_updated_at,
                                title_ar, title_en, summary_ar, summary_en,
                                content_ar, content_en, published_at, fetched_at,
                                read_minutes, original_language, is_demo
                         FROM world_pulse_articles
+                        LEFT JOIN world_pulse_article_ai_illustrations AS ai_illustration ON ai_illustration.slug = world_pulse_articles.slug
                         WHERE is_demo = FALSE
                           AND is_hidden = FALSE
                           AND original_language = 'en'
@@ -1957,13 +1972,16 @@ def _db_fetch_article_by_slug(slug: str) -> dict[str, Any] | None:
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute("""
-                SELECT slug, source_url, category, source_name, source_domain, image_url,
+                SELECT world_pulse_articles.slug, source_url, category, source_name, source_domain, image_url,
                        image_source, image_credit, image_credit_url, image_provider_url, image_license_url, image_checked_at, image_relevance_verified,
+                       CASE WHEN ai_illustration.image_id IS NOT NULL THEN '/media/generated/' || ai_illustration.image_id ELSE '' END AS ai_image_url,
+                       ai_illustration.updated_at AS ai_image_updated_at,
                        title_ar, title_en, summary_ar, summary_en,
                        content_ar, content_en, published_at, fetched_at,
                        read_minutes, original_language, is_demo
                 FROM world_pulse_articles
-                WHERE slug = %s AND is_demo = FALSE AND is_hidden = FALSE
+                LEFT JOIN world_pulse_article_ai_illustrations AS ai_illustration ON ai_illustration.slug = world_pulse_articles.slug
+                WHERE world_pulse_articles.slug = %s AND is_demo = FALSE AND is_hidden = FALSE
                 LIMIT 1
             """, (slug,))
             row = cur.fetchone()
@@ -7775,8 +7793,11 @@ def _admin_fetch_article_by_slug(slug: str) -> dict[str, Any] | None:
                        image_license_url, image_checked_at, title_ar, title_en, summary_ar,
                        summary_en, content_ar, content_en, published_at, fetched_at,
                        read_minutes, original_language, is_demo, is_hidden
+                       CASE WHEN ai_illustration.image_id IS NOT NULL THEN '/media/generated/' || ai_illustration.image_id ELSE '' END AS ai_image_url,
+                       ai_illustration.updated_at AS ai_image_updated_at
                 FROM world_pulse_articles
-                WHERE slug = %s AND is_demo = FALSE
+                LEFT JOIN world_pulse_article_ai_illustrations AS ai_illustration ON ai_illustration.slug = world_pulse_articles.slug
+                WHERE world_pulse_articles.slug = %s AND is_demo = FALSE
                 LIMIT 1
             """, (slug,))
             row = cur.fetchone()
@@ -7834,7 +7855,10 @@ def _admin_list_articles(
                        image_source, image_credit, image_credit_url, image_provider_url,
                        image_license_url, image_checked_at, title_ar, title_en, summary_ar,
                        summary_en, content_ar, content_en, published_at, fetched_at,
-                       read_minutes, original_language, is_demo, is_hidden
+                       read_minutes, original_language, is_demo, is_hidden,
+                       (SELECT '/media/generated/' || ai_illustration.image_id
+                          FROM world_pulse_article_ai_illustrations AS ai_illustration
+                         WHERE ai_illustration.slug = world_pulse_articles.slug) AS ai_image_url
                 FROM world_pulse_articles
                 WHERE """ + where_sql + """
                 ORDER BY COALESCE(published_at, fetched_at) DESC, fetched_at DESC
@@ -7987,8 +8011,75 @@ def _admin_store_uploaded_image(
         _release_db_connection(conn)
 
 
+def _admin_attach_ai_illustration(slug: str, image_url: str) -> bool:
+    """Associate server-stored AI artwork with a story without changing the primary photo."""
+    slug = _clean_text(slug, 220)
+    match = re.fullmatch(r"/media/generated/([a-f0-9]{32})", str(image_url or ""))
+    if not slug or not match or not _ensure_schema():
+        return False
+    image_id = match.group(1)
+    conn = _connect_db()
+    if conn is None:
+        return False
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT 1 FROM world_pulse_articles WHERE slug = %s AND is_demo = FALSE LIMIT 1",
+                (slug,),
+            )
+            if not cur.fetchone():
+                conn.rollback()
+                return False
+            cur.execute(
+                "SELECT 1 FROM world_pulse_generated_images WHERE image_id = %s LIMIT 1",
+                (image_id,),
+            )
+            if not cur.fetchone():
+                conn.rollback()
+                return False
+            cur.execute("""
+                INSERT INTO world_pulse_article_ai_illustrations (slug, image_id, created_at, updated_at)
+                VALUES (%s, %s, NOW(), NOW())
+                ON CONFLICT (slug) DO UPDATE
+                SET image_id = EXCLUDED.image_id, updated_at = NOW()
+            """, (slug, image_id))
+        conn.commit()
+        _invalidate_db_articles_cache()
+        return True
+    except Exception as exc:
+        conn.rollback()
+        logger.warning("Could not associate AI illustration with article (%s)", type(exc).__name__)
+        return False
+    finally:
+        _release_db_connection(conn)
+
+
+def _admin_remove_ai_illustration(slug: str) -> bool:
+    """Unlink an AI illustration while preserving the source story and generated-media record."""
+    slug = _clean_text(slug, 220)
+    if not slug or not _ensure_schema():
+        return False
+    conn = _connect_db()
+    if conn is None:
+        return False
+    try:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM world_pulse_article_ai_illustrations WHERE slug = %s", (slug,))
+            changed = cur.rowcount > 0
+        conn.commit()
+        if changed:
+            _invalidate_db_articles_cache()
+        return changed
+    except Exception as exc:
+        conn.rollback()
+        logger.warning("Could not unlink AI illustration from article (%s)", type(exc).__name__)
+        return False
+    finally:
+        _release_db_connection(conn)
+
+
 def _admin_generate_and_save_article_image(slug: str) -> str:
-    """Create one contextual AI illustration for an existing saved story and persist its association."""
+    """Generate a contextual AI illustration and store it separately from the primary photo."""
     if not ADMIN_GEMINI_IMAGE_GENERATION_ENABLED or MAX_ADMIN_GEMINI_IMAGES_PER_24H <= 0:
         return "disabled"
     if not GEMINI_API_KEY or genai is None or types is None:
@@ -8007,9 +8098,7 @@ def _admin_generate_and_save_article_image(slug: str) -> str:
     generated = _generate_gemini_article_image(raw, manual_admin=True)
     if not generated:
         return "generation_failed"
-    generated["image_relevance_verified"] = True
-    updated = _db_update_article_images([{**raw, **generated, "image_relevance_verified": True}])
-    if not updated:
+    if not _admin_attach_ai_illustration(slug, str(generated.get("image_url") or "")):
         return "database_write_failed"
     return "saved"
 
