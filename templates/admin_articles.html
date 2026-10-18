@@ -160,7 +160,7 @@
       <article class="story">
         {% if row.image_url and (row.image_source == 'gemini_generated' or (row.image_source in ['wikimedia_relevant','openverse_licensed','loc_open_access','nasa_images','artic_open_access','met_open_access','cleveland_museum_open_access','wellcome_open_access','presskit_approved','admin_verified'] and row.image_credit_url and row.image_license_url)) %}
           <img class="thumb" src="{{ public_image_url(row.image_url) }}" alt="" loading="lazy" decoding="async">
-        {% elif row.ai_image_url and not row.image_url %}
+        {% elif row.ai_image_url %}
           <img class="thumb" src="{{ row.ai_image_url }}" alt="رسم توضيحي بالذكاء الاصطناعي" loading="lazy" decoding="async">
         {% else %}
           <img class="thumb" src="{{ url_for('static', filename='images/fallback-ar.svg' if row.original_language == 'ar' else 'images/fallback-en.svg') }}" alt="" loading="lazy" decoding="async">
