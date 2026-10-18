@@ -7848,14 +7848,6 @@ def _admin_store_uploaded_image(
     license_url = _clean_text(license_url, 1000)
     if not slug or not credit or not image_bytes or len(image_bytes) > 2 * 1024 * 1024:
         return "invalid_image"
-    for value in (source_page_url, license_url):
-        parsed = urlparse(value)
-        if parsed.scheme.casefold() != "https" or not parsed.hostname or parsed.username or parsed.password:
-            return "invalid_rights_url"
-    license_path = urlparse(license_url).path.casefold()
-    if any(marker in license_path for marker in ("/by-nc", "/by-nd", "/licenses/nc", "/licenses/nd")):
-        return "restricted_license"
-
     try:
         with Image.open(io.BytesIO(image_bytes)) as opened:
             if str(opened.format or "").upper() not in {"JPEG", "PNG", "WEBP"}:
@@ -7882,6 +7874,13 @@ def _admin_store_uploaded_image(
 
     if not normalized_bytes or len(normalized_bytes) > 2 * 1024 * 1024:
         return "invalid_image"
+    for value in (source_page_url, license_url):
+        parsed = urlparse(value)
+        if parsed.scheme.casefold() != "https" or not parsed.hostname or parsed.username or parsed.password:
+            return "invalid_rights_url"
+    license_path = urlparse(license_url).path.casefold()
+    if any(marker in license_path for marker in ("/by-nc", "/by-nd", "/licenses/nc", "/licenses/nd")):
+        return "restricted_license"
 
     image_digest = hashlib.sha256(normalized_bytes).hexdigest()
     image_source_key = f"admin-upload:{slug}:{image_digest}"
