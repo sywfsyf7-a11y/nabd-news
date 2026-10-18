@@ -2072,8 +2072,8 @@ class CataloguedImageMemoryCacheTests(unittest.TestCase):
         self.assertEqual(response.get_data(as_text=True), "article recovered")
 
 
-class AdminAutomaticLicensedImageWorkflowTests(unittest.TestCase):
-    def test_admin_offers_auto_licensed_image_search_not_ai_image_generation(self):
+class AdminImageWorkflowTests(unittest.TestCase):
+    def test_admin_offers_both_licensed_photo_search_and_one_click_ai_illustration(self):
         template_path = os.path.join(
             os.path.dirname(world_pulse.__file__), "templates", "admin_articles.html"
         )
@@ -2085,9 +2085,10 @@ class AdminAutomaticLicensedImageWorkflowTests(unittest.TestCase):
         self.assertIn('name="action" value="retry_article_image"', template)
         self.assertIn('value="auto" selected>البحث التلقائي عن صورة حقيقية مرخّصة', template)
         self.assertIn("رفع صورة يدويًا (اختياري", template)
-        self.assertNotIn("إنشاء وحفظ صورة توضيحية بالذكاء الاصطناعي", template)
-        self.assertNotIn('name="action" value="generate_ai_article_image"', template)
-        self.assertNotIn('<option value="ai"', template)
+        self.assertIn("إنشاء صورة تلقائيًا بالذكاء الاصطناعي", template)
+        self.assertIn('name="action" value="generate_ai_article_image"', template)
+        self.assertIn('<option value="ai">', template)
+        self.assertIn("لن تحتاج إلى كتابة وصف أو تفاصيل للصورة", template)
 
     def test_admin_image_search_path_explicitly_disables_image_generation(self):
         source_path = os.path.join(os.path.dirname(world_pulse.__file__), "app.py")

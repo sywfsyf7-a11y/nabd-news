@@ -110,20 +110,22 @@ class AdminAiImageTests(unittest.TestCase):
         self.assertEqual(saved_row["image_url"], generated["image_url"])
         self.assertTrue(saved_row["image_relevance_verified"])
 
-    def test_admin_template_offers_auto_licensed_photo_search_not_ai_generation(self):
+    def test_admin_template_offers_one_click_ai_image_without_prompt_fields(self):
         source, _filename, _uptodate = world_pulse.app.jinja_env.loader.get_source(
             world_pulse.app.jinja_env, "admin_articles.html"
         )
         self.assertIn('name="action" value="retry_article_image"', source)
         self.assertIn("البحث الذكي عن صورة حقيقية مناسبة ومرخّصة", source)
+        self.assertIn('name="action" value="generate_ai_article_image"', source)
+        self.assertIn("إنشاء صورة تلقائيًا بالذكاء الاصطناعي", source)
+        self.assertIn("لن تحتاج إلى كتابة وصف أو تفاصيل للصورة", source)
         self.assertIn('name="create_image_mode"', source)
         self.assertIn('value="auto" selected', source)
+        self.assertIn('value="ai"', source)
         self.assertIn('value="none"', source)
         self.assertIn("رفع صورة يدويًا (اختياري", source)
-        self.assertNotIn('name="action" value="generate_ai_article_image"', source)
-        self.assertNotIn('value="ai"', source)
-        self.assertNotIn('name="create_image_file"', source)
-        self.assertNotIn("admin_gemini_image_generation_limit", source)
+        self.assertIn("admin_gemini_image_generation_limit", source)
+        self.assertNotIn('name="image_prompt"', source)
 
 
 if __name__ == "__main__":

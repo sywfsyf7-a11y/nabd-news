@@ -119,6 +119,15 @@
       <button type="submit">ابحث تلقائيًا عن صورة مرخّصة</button>
     </form>
 
+    <form method="post" action="{{ url_for('admin_articles', q=query, category=active_category, show_hidden='1' if show_hidden else '0', page=page, edit=edit_article.slug) }}" style="margin-top:12px" onsubmit="return confirm('سينشئ الذكاء الاصطناعي رسمًا توضيحيًا باستخدام عنوان الخبر وقسمه وسياقه المحفوظ. لن تحتاج إلى كتابة وصف أو تفاصيل للصورة. هل تريد المتابعة؟');">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="action" value="generate_ai_article_image"><input type="hidden" name="slug" value="{{ edit_article.slug }}">
+      <div class="notice" style="margin-bottom:10px">
+        <strong>إنشاء صورة تلقائيًا بالذكاء الاصطناعي</strong>
+        <p class="muted" style="margin:6px 0 0">لا تحتاج لإدخال أي تفاصيل أو كتابة وصف. سيستخدم النظام عنوان الخبر وقسمه والملخص والتفاصيل المحفوظة لإنشاء رسم توضيحي مرتبط بالموضوع، ثم يحفظه في Supabase. سيُوسم بوضوح كصورة مولّدة بالذكاء الاصطناعي وليس كصورة صحفية حقيقية. الحد اليومي: {{ admin_gemini_image_generation_limit }} صور.</p>
+      </div>
+      <button type="submit">إنشاء وحفظ صورة بالذكاء الاصطناعي</button>
+    </form>
+
     <details style="margin-top:12px">
       <summary>رفع صورة يدويًا (اختياري — لا حاجة لذلك عند استخدام البحث التلقائي)</summary>
       <p class="muted">اترك هذا القسم مغلقًا لاستخدام البحث التلقائي. الرفع اليدوي مخصص فقط لصورة لديك صلاحية إعادة نشرها، ويحتاج بيانات الحقوق.</p>
@@ -205,10 +214,11 @@
         </div>
         <details id="create-image-options" class="notice" style="margin-top:16px">
           <summary><strong>الصورة الرئيسية للخبر (اختياري)</strong></summary>
-          <p class="muted">لا تحتاج إلى رفع صورة أو إدخال بيانات حقوق يدويًا. بعد حفظ الخبر سيبحث الموقع تلقائيًا عن صورة حقيقية مرتبطة بالعنوان والقسم، ويتحقق من الترخيص ويحفظ بيانات المصدر والصورة في Supabase. لا تُنشأ صورة بالذكاء الاصطناعي.</p>
+          <p class="muted">اختر البحث عن صورة حقيقية مرتبطة بالخبر من مصادر تسمح بإعادة الاستخدام، أو أنشئ رسمًا توضيحيًا بالذكاء الاصطناعي من بيانات الخبر المحفوظة دون كتابة وصف إضافي. الرسوم المولدة تُوسم بوضوح ولا تُعرض على أنها صور صحفية حقيقية.</p>
           <label for="create-image-mode">طريقة الصورة</label>
           <select id="create-image-mode" name="create_image_mode">
             <option value="auto" selected>البحث التلقائي عن صورة حقيقية مرخّصة</option>
+            <option value="ai">إنشاء رسم توضيحي بالذكاء الاصطناعي (دون تفاصيل إضافية)</option>
             <option value="none">لا تبحث عن صورة الآن</option>
           </select>
         </details>
