@@ -7893,6 +7893,7 @@ def _admin_store_uploaded_image(
     credit: str,
     source_page_url: str,
     license_url: str,
+    ai_generated: bool = False,
 ) -> str:
     """Validate an uploaded reuse-cleared image and store it durably in Supabase.
 
@@ -7932,6 +7933,52 @@ def _admin_store_uploaded_image(
 
     if not normalized_bytes:
         return "invalid_image"
+
+    # An administrator-supplied AI illustration is stored as first-party media.
+    # It does not require a third-party photo licence, but the admin must explicitly
+    # attest that the file was AI-generated. It is still labelled as AI media.
+    if ai_generated:
+        if len(normalized_bytes) > 8 * 1024 * 1024:
+            return "image_too_large"
+        image_id = _store_gemini_generated_image(
+            normalized_bytes, "admin-uploaded AI-generated illustration"
+        )
+        if not image_id:
+            return "database_unavailable"
+        conn = _connect_db()
+        if conn is None:
+            return "database_unavailable"
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT 1 FROM world_pulse_articles WHERE slug = %s AND is_demo = FALSE LIMIT 1",
+                    (slug,),
+                )
+                if not cur.fetchone():
+                    conn.rollback()
+                    return "article_not_found"
+                cur.execute("""
+                    UPDATE world_pulse_articles
+                    SET image_url = %s, image_source = 'gemini_generated',
+                        image_credit = %s, image_credit_url = '',
+                        image_provider_url = 'https://ai.google.dev/gemini-api/docs/image-generation',
+                        image_license_url = '', image_checked_at = NOW(),
+                        image_relevance_verified = TRUE
+                    WHERE slug = %s AND is_demo = FALSE
+                """, ("/media/generated/" + image_id, "AI-generated illustration uploaded by site administrator", slug))
+                if cur.rowcount <= 0:
+                    conn.rollback()
+                    return "article_not_found"
+            conn.commit()
+            _invalidate_db_articles_cache()
+            return "saved_ai"
+        except Exception as exc:
+            conn.rollback()
+            logger.warning("Admin AI image association failed (%s)", type(exc).__name__)
+            return "database_unavailable"
+        finally:
+            _release_db_connection(conn)
+
     for value in (source_page_url, license_url):
         parsed = urlparse(value)
         if parsed.scheme.casefold() != "https" or not parsed.hostname or parsed.username or parsed.password:
@@ -8266,13 +8313,17 @@ def admin_articles():
             selected = _admin_fetch_article_by_slug(slug)
             if not selected:
                 abort(404)
-            if str(request.form.get("rights_confirmed") or "") != "yes":
+            upload_mode = str(request.form.get("upload_image_mode") or "licensed").casefold()
+            ai_upload = upload_mode == "ai_generated"
+            if ai_upload and str(request.form.get("ai_generated_confirmed") or "") != "yes":
+                notice = "أكد أن الصورة المرفوعة مولّدة بالذكاء الاصطناعي وليست صورة منقولة عن ناشر أو مصوّر."
+            elif not ai_upload and str(request.form.get("rights_confirmed") or "") != "yes":
                 notice = "أكد أنك راجعت ترخيص الصورة وأنه يسمح بإعادة الاستخدام على الموقع."
-            elif not _clean_text(request.form.get("image_credit") or "", 180):
+            elif not ai_upload and not _clean_text(request.form.get("image_credit") or "", 180):
                 notice = "أدخل اسم المصوّر أو الجهة المالكة للصورة."
-            elif not _clean_text(request.form.get("image_credit_url") or "", 1000):
+            elif not ai_upload and not _clean_text(request.form.get("image_credit_url") or "", 1000):
                 notice = "أدخل رابط صفحة الصورة الأصلية التي تعرض بياناتها."
-            elif not _clean_text(request.form.get("image_license_url") or "", 1000):
+            elif not ai_upload and not _clean_text(request.form.get("image_license_url") or "", 1000):
                 notice = "أدخل رابط الترخيص الدقيق للصورة."
             else:
                 upload = request.files.get("image_file")
@@ -8283,11 +8334,14 @@ def admin_articles():
                     request.form.get("image_credit") or "",
                     request.form.get("image_credit_url") or "",
                     request.form.get("image_license_url") or "",
+                    ai_generated=ai_upload,
                 )
                 notice = {
                     "saved": "تم حفظ الصورة بصورة محسّنة في Supabase مع بيانات المصدر والترخيص. ستبقى الصورة مرتبطة بهذا الخبر.",
+                    "saved_ai": "تم حفظ الصورة المولّدة بالذكاء الاصطناعي في Supabase وربطها بالخبر، مع وسمها بوضوح كرسم توضيحي مولّد.",
                     "invalid_image": "تعذر قبول الصورة. ارفع JPG أو PNG أو WebP سليمة وضمن الحد الأعلى المسموح للرفع.",
                     "invalid_dimensions": "أبعاد الصورة صغيرة جدًا أو كبيرة بصورة غير آمنة؛ استخدم صورة لا تقل عن 300×180 بكسل.",
+                    "image_too_large": "حجم الصورة بعد التحسين يتجاوز الحد المسموح للتخزين؛ جرّب صورة أصغر.",
                     "invalid_rights_url": "يجب أن تكون صفحة الصورة ورابط الترخيص رابطَي HTTPS صالحين.",
                     "restricted_license": "هذا الترخيص يبدو غير تجاري أو يمنع الاشتقاق. لا تستخدمه لهذا الموقع دون إذن مختلف.",
                     "article_not_found": "لم يُعثر على الخبر في الأرشيف.",

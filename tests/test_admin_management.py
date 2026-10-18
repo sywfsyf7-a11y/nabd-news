@@ -158,7 +158,9 @@ class AdminArchiveManagementTests(unittest.TestCase):
         self.assertIn('name="image_credit_url"', html)
         self.assertIn('name="image_license_url"', html)
         self.assertIn('name="rights_confirmed"', html)
-        self.assertIn('حفظ الصورة وبيانات الحقوق', html)
+        self.assertIn('حفظ الصورة وربطها بالخبر', html)
+        self.assertIn('name="upload_image_mode"', html)
+        self.assertIn('value="ai_generated"', html)
 
     def test_admin_image_upload_action_requires_csrf(self):
         import io
@@ -216,6 +218,7 @@ class AdminArchiveManagementTests(unittest.TestCase):
             "Example photographer",
             "https://images.example/photo",
             "https://creativecommons.org/licenses/by/4.0/",
+            ai_generated=False,
         )
         with client.session_transaction() as sess:
             self.assertIn("تم حفظ الصورة بصورة محسّنة", sess["wp_admin_notice"])
