@@ -236,5 +236,68 @@ class AdminArchiveManagementTests(unittest.TestCase):
             "invalid_image",
         )
 
+
+    def test_admin_upload_route_reads_images_larger_than_two_mib(self):
+        import io
+        from PIL import Image
+
+        buffer = io.BytesIO()
+        Image.new("RGB", (400, 240), "navy").save(buffer, format="JPEG")
+        large_image = buffer.getvalue() + (b"x" * (3 * 1024 * 1024))
+        client = world_pulse.app.test_client()
+        self._logged_in_session(client)
+        article = {
+            "slug": "story-photo", "title_ar": "عنوان", "title_en": "Headline",
+            "original_language": "ar", "source_url": "https://publisher.example/story",
+            "source_name": "Example", "source_domain": "publisher.example",
+            "category": "world", "is_hidden": False, "headline_only": False,
+        }
+        with patch.object(world_pulse, "_admin_enabled", return_value=True):
+            with patch.object(world_pulse, "_admin_fetch_article_by_slug", return_value=article):
+                with patch.object(world_pulse, "_admin_store_uploaded_image", return_value="saved") as save_image:
+                    response = client.post("/admin/articles?edit=story-photo", data={
+                        "csrf_token": "test-csrf-token",
+                        "action": "save_article_image",
+                        "slug": "story-photo",
+                        "rights_confirmed": "yes",
+                        "image_credit": "Example photographer",
+                        "image_credit_url": "https://images.example/photo",
+                        "image_license_url": "https://creativecommons.org/licenses/by/4.0/",
+                        "image_file": (io.BytesIO(large_image), "large-photo.jpg"),
+                    }, content_type="multipart/form-data")
+
+        self.assertEqual(response.status_code, 302)
+        save_image.assert_called_once()
+        self.assertGreater(len(save_image.call_args.args[1]), 2 * 1024 * 1024)
+        self.assertEqual(save_image.call_args.args[1], large_image)
+
+    def test_persistent_upload_optimizes_valid_source_larger_than_two_mib(self):
+        import io
+        from PIL import Image
+        from unittest.mock import MagicMock
+
+        buffer = io.BytesIO()
+        Image.new("RGB", (400, 240), "navy").save(buffer, format="JPEG")
+        large_image = buffer.getvalue() + (b"x" * (3 * 1024 * 1024))
+        connection = MagicMock()
+        cursor = connection.cursor.return_value.__enter__.return_value
+        cursor.fetchone.return_value = (1,)
+        cursor.rowcount = 1
+
+        with patch.object(world_pulse, "_ensure_schema", return_value=True):
+            with patch.object(world_pulse, "_connect_db", return_value=connection):
+                with patch.object(world_pulse, "_cache_catalogued_image_bytes"):
+                    with patch.object(world_pulse, "_invalidate_db_articles_cache"):
+                        result = world_pulse._admin_store_uploaded_image(
+                            "story-photo", large_image, "Example photographer",
+                            "https://images.example/photo",
+                            "https://creativecommons.org/licenses/by/4.0/",
+                        )
+
+        self.assertEqual(result, "saved")
+        connection.commit.assert_called_once()
+        self.assertEqual(cursor.execute.call_count, 2)
+
+
 if __name__ == "__main__":
     unittest.main()
