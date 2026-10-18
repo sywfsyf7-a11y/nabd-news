@@ -37,9 +37,9 @@ class AdminArchiveManagementTests(unittest.TestCase):
             "movies": {"ar": "أفلام", "en": "Movies", "is_custom": True}
         }):
             names = world_pulse._all_category_names()
-        self.assertEqual(names["movies"], {"ar": "أفلام", "en": "Movies"})
-        self.assertIn("movies", names)
-        self.assertTrue(world_pulse._is_custom_category("movies"))
+            self.assertEqual(names["movies"], {"ar": "أفلام", "en": "Movies"})
+            self.assertIn("movies", names)
+            self.assertTrue(world_pulse._is_custom_category("movies"))
 
     def test_admin_archive_shows_custom_section_creation_form(self):
         client = world_pulse.app.test_client()
