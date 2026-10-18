@@ -441,6 +441,119 @@ def _source_domain_for_category(category: str, lang: str, host: str) -> str:
             return domain
     return ""
 
+
+_CUSTOM_CATEGORY_CACHE_TTL_SECONDS = 120
+_CUSTOM_CATEGORY_CACHE: dict[str, dict[str, Any]] | None = None
+_CUSTOM_CATEGORY_CACHE_AT = 0.0
+_CUSTOM_CATEGORY_CACHE_LOCK = threading.Lock()
+
+
+def _get_custom_categories(*, force_refresh: bool = False) -> dict[str, dict[str, Any]]:
+    """Read admin-created categories from Supabase, using a short cache on each worker."""
+    global _CUSTOM_CATEGORY_CACHE, _CUSTOM_CATEGORY_CACHE_AT
+    now = time.monotonic()
+    with _CUSTOM_CATEGORY_CACHE_LOCK:
+        if (
+            not force_refresh
+            and _CUSTOM_CATEGORY_CACHE is not None
+            and now - _CUSTOM_CATEGORY_CACHE_AT < _CUSTOM_CATEGORY_CACHE_TTL_SECONDS
+        ):
+            return {key: dict(value) for key, value in _CUSTOM_CATEGORY_CACHE.items()}
+        cached = {key: dict(value) for key, value in (_CUSTOM_CATEGORY_CACHE or {}).items()}
+
+    if not _ensure_schema():
+        return cached
+    conn = _connect_db()
+    if conn is None:
+        return cached
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""
+                SELECT category_key, name_ar, name_en, is_active
+                FROM world_pulse_custom_categories
+                WHERE is_active = TRUE
+                ORDER BY created_at ASC, category_key ASC
+            """)
+            rows = {
+                str(row["category_key"]): {
+                    "ar": str(row.get("name_ar") or ""),
+                    "en": str(row.get("name_en") or ""),
+                    "is_custom": True,
+                    "is_active": bool(row.get("is_active", True)),
+                }
+                for row in cur.fetchall()
+                if row.get("category_key") and row.get("name_ar") and row.get("name_en")
+            }
+        with _CUSTOM_CATEGORY_CACHE_LOCK:
+            _CUSTOM_CATEGORY_CACHE = rows
+            _CUSTOM_CATEGORY_CACHE_AT = time.monotonic()
+        return {key: dict(value) for key, value in rows.items()}
+    except Exception as exc:
+        logger.warning("Could not read custom category registry (%s)", type(exc).__name__)
+        return cached
+    finally:
+        _release_db_connection(conn)
+
+
+def _all_category_names() -> dict[str, dict[str, str]]:
+    """Combine built-in categories with persistent custom categories."""
+    combined = {key: dict(value) for key, value in CATEGORY_NAMES.items()}
+    for key, value in _get_custom_categories().items():
+        if key not in combined:
+            combined[key] = {"ar": value["ar"], "en": value["en"]}
+    return combined
+
+
+def _is_custom_category(category: str) -> bool:
+    return category not in CATEGORY_NAMES and category in _get_custom_categories()
+
+
+def _admin_create_custom_category(name_ar: str, name_en: str, key_hint: str = "") -> str:
+    """Create one persistent public section; never alter the built-in category definitions."""
+    arabic_label = _clean_text(name_ar, 70)
+    english_label = _clean_text(name_en, 70)
+    raw_key = _clean_text(key_hint, 70) or english_label
+    category_key = re.sub(r"[^a-z0-9]+", "-", raw_key.casefold()).strip("-")
+    if (
+        not arabic_label or not english_label
+        or not _text_matches_language(arabic_label, "ar")
+        or not _text_matches_language(english_label, "en")
+    ):
+        return "invalid_labels"
+    if not re.fullmatch(r"[a-z][a-z0-9-]{1,39}", category_key):
+        return "invalid_key"
+    if category_key in CATEGORY_NAMES:
+        return "reserved_key"
+    if not _ensure_schema():
+        return "database_unavailable"
+    conn = _connect_db()
+    if conn is None:
+        return "database_unavailable"
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO world_pulse_custom_categories (category_key, name_ar, name_en, is_active)
+                VALUES (%s, %s, %s, TRUE)
+                ON CONFLICT (category_key) DO NOTHING
+            """, (category_key, arabic_label, english_label))
+            created = cur.rowcount > 0
+        conn.commit()
+        if not created:
+            return "duplicate_key"
+        global _CUSTOM_CATEGORY_CACHE, _CUSTOM_CATEGORY_CACHE_AT
+        with _CUSTOM_CATEGORY_CACHE_LOCK:
+            _CUSTOM_CATEGORY_CACHE = None
+            _CUSTOM_CATEGORY_CACHE_AT = 0.0
+        with _DISPLAY_STORIES_CACHE_LOCK:
+            _DISPLAY_STORIES_CACHE.clear()
+        return "created"
+    except Exception as exc:
+        conn.rollback()
+        logger.warning("Admin custom category creation failed (%s)", type(exc).__name__)
+        return "database_write_failed"
+    finally:
+        _release_db_connection(conn)
+
 _SOURCE_NAME_ALIASES = {
     "aljazeera.com": ("al jazeera", "al-jazeera", "aljazeera", "الجزيرة"),
     "aljazeera.net": ("al jazeera", "al-jazeera", "aljazeera", "الجزيرة"),
@@ -510,11 +623,11 @@ def _infer_source_domain_from_name(category: str, lang: str, source_name: str) -
     return ""
 
 def _display_category(row: dict[str, Any], lang: str) -> str:
-    """Correct category using the publisher's original-language allowlist."""
+    """Correct built-in category assignments while preserving admin-created sections."""
     current = str(row.get("category") or "world")
-    if current not in CATEGORY_NAMES:
+    if current not in _all_category_names():
         current = "world"
-    if lang not in {"ar", "en"}:
+    if lang not in {"ar", "en"} or _is_custom_category(current):
         return current
     source_lang = str(row.get("original_language") or "").casefold()
     if source_lang not in {"ar", "en"}:
@@ -566,9 +679,17 @@ def _row_allowed_on_language_site(row: dict[str, Any], lang: str) -> bool:
 
     category = str(row.get("category") or "world")
     host = str(row.get("source_domain") or "").casefold().removeprefix("www.")
+    source_url = str(row.get("source_url") or "")
+    source_name = str(row.get("source_name") or "")
     if not host:
-        host = _infer_source_domain_from_name(category, source_lang, str(row.get("source_name") or ""))
-    if not host or not _source_domain_for_category(category, source_lang, host):
+        host = _infer_source_domain_from_name(category, source_lang, source_name)
+    if not host:
+        return False
+    if _is_custom_category(category):
+        # Custom sections are manually curated; the existing publisher rights gate still applies.
+        if _publisher_requires_license(source_name, (source_url,)) and not _is_headline_only_domain(host):
+            return False
+    elif not _source_domain_for_category(category, source_lang, host):
         return False
     if _domain_needs_license(host) and not _is_headline_only_domain(host):
         return False
@@ -744,6 +865,13 @@ CREATE TABLE IF NOT EXISTS world_pulse_controls (
     control_key TEXT PRIMARY KEY,
     enabled BOOLEAN NOT NULL DEFAULT TRUE,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS world_pulse_custom_categories (
+    category_key TEXT PRIMARY KEY,
+    name_ar TEXT NOT NULL,
+    name_en TEXT NOT NULL,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE TABLE IF NOT EXISTS world_pulse_runtime_state (
     state_key TEXT PRIMARY KEY,
@@ -1001,7 +1129,7 @@ def _content_quality_audit_issues(
         return ["demo_record"]
     if source_language not in {"ar", "en"}:
         issues.append("invalid_original_language")
-    if category not in CATEGORY_NAMES:
+    if category not in _all_category_names():
         issues.append("invalid_category")
 
     try:
@@ -6834,7 +6962,8 @@ def _normalise_story(row: dict[str, Any], lang: str) -> dict[str, Any]:
     story["details_from_source_excerpt"] = bool(
         not story["headline_only"] and not story["ai_enriched"] and raw_content.strip()
     )
-    story["category_label"] = CATEGORY_NAMES.get(story.get("category", "world"), CATEGORY_NAMES["world"])[lang]
+    category_names = _all_category_names()
+    story["category_label"] = category_names.get(story.get("category", "world"), category_names["world"])[lang]
     story["published_label"] = _format_date(story.get("published_at"), lang)
     story["read_minutes"] = max(1, int(story.get("read_minutes") or 1))
     return story
@@ -6857,6 +6986,7 @@ def _all_live_articles() -> list[dict[str, Any]]:
 
 def _build_display_stories(lang: str) -> list[dict[str, Any]]:
     live: list[dict[str, Any]] = []
+    category_names = _all_category_names()
     for original in _all_live_articles():
         source_lang = str(original.get("original_language") or "").casefold()
         has_display_title = bool(original.get(f"title_{lang}") or original.get(f"title_{source_lang}"))
@@ -6873,7 +7003,7 @@ def _build_display_stories(lang: str) -> list[dict[str, Any]]:
         if corrected_category != original.get("category"):
             row = dict(original)
             row["category"] = corrected_category
-        if row.get("category") not in CATEGORY_NAMES or not _story_allowed_in_display_language(row, lang):
+        if row.get("category") not in category_names or not _story_allowed_in_display_language(row, lang):
             continue
         live.append(row)
     live.sort(
@@ -7013,8 +7143,8 @@ def inject_shared_template_data() -> dict[str, Any]:
         "ui": UI_TEXT[lang],
         "site_name": SITE_NAME_AR if lang == "ar" else SITE_NAME_EN,
         "site_name_other": SITE_NAME_EN if lang == "ar" else SITE_NAME_AR,
-        "categories": [{"key": key, "label": value[lang]} for key, value in CATEGORY_NAMES.items()],
-        "category_names": CATEGORY_NAMES,
+        "categories": [{"key": key, "label": value[lang]} for key, value in _all_category_names().items()],
+        "category_names": _all_category_names(),
         "category_images": CATEGORY_IMAGES,
         "news_refresh_interval": NEWS_REFRESH_MINUTES,
         "contact_email": CONTACT_EMAIL,
@@ -7029,7 +7159,7 @@ HOME_STORIES_PER_PAGE = max(12, min(36, int(os.getenv("HOME_STORIES_PER_PAGE", "
 def index():
     lang = current_language()
     category = request.args.get("category", "all").lower()
-    if category not in CATEGORY_NAMES and category != "all":
+    if category not in _all_category_names() and category != "all":
         category = "all"
     all_stories = _get_display_stories(lang)
     filtered_stories = all_stories if category == "all" else [story for story in all_stories if story["category"] == category]
@@ -7749,7 +7879,7 @@ def _admin_list_articles(
     params: list[Any] = []
     if not show_hidden:
         clauses.append("is_hidden = FALSE")
-    if category in CATEGORY_NAMES:
+    if category in _all_category_names():
         clauses.append("category = %s")
         params.append(category)
     needle = _clean_text(query, 120)
@@ -8144,7 +8274,7 @@ def admin_articles():
     # belong to the article being edited and must not silently replace the page filter.
     query = _clean_text(request.args.get("q") or "", 120)
     category_filter = str(request.args.get("category") or "all")
-    if category_filter not in CATEGORY_NAMES and category_filter != "all":
+    if category_filter not in _all_category_names() and category_filter != "all":
         category_filter = "all"
     show_hidden = str(request.args.get("show_hidden") or "").casefold() in {"1", "true", "yes", "on"}
     try:
@@ -8257,14 +8387,14 @@ def admin_articles():
             if not existing:
                 abort(404)
             new_category = str(request.form.get("category") or "")
-            if new_category not in CATEGORY_NAMES:
+            if new_category not in _all_category_names():
                 notice = "اختر قسمًا صحيحًا."
             else:
                 source_domain = str(existing.get("source_domain") or "").casefold().removeprefix("www.")
                 if not source_domain:
                     source_domain = (urlparse(str(existing.get("source_url") or "")).hostname or "").casefold().removeprefix("www.")
                 source_lang = str(existing.get("original_language") or "").casefold()
-                if not _source_domain_for_category(new_category, source_lang, source_domain):
+                if not _is_custom_category(new_category) and not _source_domain_for_category(new_category, source_lang, source_domain):
                     notice = "لا يمكن نقل الخبر إلى هذا القسم: المصدر غير معتمد لهذا القسم ولغة المصدر."
                 elif existing.get("is_hidden") and not show_hidden:
                     notice = "الخبر مخفي. افتح قائمة الأخبار المخفية لإدارته."
@@ -8314,6 +8444,26 @@ def admin_articles():
                 show_hidden="1" if show_hidden else "0", page=page_number,
             ))
 
+        if action == "create_category":
+            name_ar = _clean_text(request.form.get("name_ar") or "", 70)
+            name_en = _clean_text(request.form.get("name_en") or "", 70)
+            key_hint = _clean_text(request.form.get("category_key") or "", 70)
+            result = _admin_create_custom_category(name_ar, name_en, key_hint)
+            notice = {
+                "created": "تم إنشاء القسم وحفظه في Supabase. سيظهر في قائمة الأقسام وفي نموذج إضافة الخبر.",
+                "invalid_labels": "اكتب اسم القسم بالعربية وبالإنجليزية كلٌّ في حقله الصحيح.",
+                "invalid_key": "مفتاح القسم يجب أن يبدأ بحرف إنجليزي ويحتوي على أحرف أو أرقام أو شرطات فقط، وبطول 2–40 حرفًا.",
+                "reserved_key": "هذا المفتاح محجوز لقسم أساسي موجود.",
+                "duplicate_key": "يوجد قسم بهذا المفتاح بالفعل.",
+                "database_unavailable": "تعذر الاتصال بقاعدة البيانات؛ لم يتم إنشاء القسم.",
+                "database_write_failed": "تعذر حفظ القسم في قاعدة البيانات.",
+            }.get(result, "تعذر إنشاء القسم.")
+            session["wp_admin_notice"] = notice
+            return redirect(url_for(
+                "admin_articles", q=query, category=category_filter,
+                show_hidden="1" if show_hidden else "0", page=page_number,
+            ))
+
         if action == "create_article":
             source_url = _clean_text(request.form.get("source_url") or "", 500)
             source_name = _clean_text(request.form.get("source_name") or "", 140)
@@ -8325,9 +8475,9 @@ def admin_articles():
                 notice = "استخدم رابط HTTPS مباشرًا للناشر الأصلي."
             elif not source_name:
                 notice = "أدخل اسم الناشر الأصلي."
-            elif new_category not in CATEGORY_NAMES or source_lang not in {"ar", "en"}:
+            elif new_category not in _all_category_names() or source_lang not in {"ar", "en"}:
                 notice = "اختر قسمًا ولغة مصدر صحيحين."
-            elif not _source_domain_for_category(new_category, source_lang, source_domain):
+            elif not _is_custom_category(new_category) and not _source_domain_for_category(new_category, source_lang, source_domain):
                 notice = "هذا الناشر غير معتمد لهذا القسم ولغة المصدر. راجع سياسة المصادر أولًا."
             elif _publisher_requires_license(source_name, (source_url,)) and not _is_headline_only_domain(source_domain):
                 notice = "هذا المصدر يتطلب ترخيصًا أو إذنًا مناسبًا قبل حفظ محتوى تحريري منه."
@@ -8400,8 +8550,8 @@ def admin_articles():
         total=total,
         query=query,
         active_category=category_filter,
-        category_names=CATEGORY_NAMES,
-        category_keys=list(CATEGORY_NAMES.keys()),
+        category_names=_all_category_names(),
+        category_keys=list(_all_category_names().keys()),
         show_hidden=show_hidden,
         page=page_number,
         total_pages=total_pages,
