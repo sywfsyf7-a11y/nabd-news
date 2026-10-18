@@ -118,6 +118,9 @@ GEMINI_FALLBACK_MODEL = os.getenv("GEMINI_FALLBACK_MODEL", "gemini-3.8-flash").s
 GEMINI_FALLBACK_MODEL_2 = os.getenv("GEMINI_FALLBACK_MODEL_2", "gemini-3.1-flash-lite").strip()
 GEMINI_IMAGE_MODEL = os.getenv("GEMINI_IMAGE_MODEL", "gemini-nano-banana-2.1").strip()
 GEMINI_IMAGE_GENERATION_ENABLED = os.getenv("GEMINI_IMAGE_GENERATION_ENABLED", "false").lower() not in {"0", "false", "no"}
+# Manual admin generation is an explicitly requested action; it does not enable scheduled AI image generation.
+ADMIN_GEMINI_IMAGE_GENERATION_ENABLED = os.getenv("ADMIN_GEMINI_IMAGE_GENERATION_ENABLED", "true").lower() not in {"0", "false", "no"}
+MAX_ADMIN_GEMINI_IMAGES_PER_24H = max(0, min(30, int(os.getenv("MAX_ADMIN_GEMINI_IMAGES_PER_24H", "8"))))
 MAX_GEMINI_IMAGES_PER_REFRESH = max(0, min(4, int(os.getenv("MAX_GEMINI_IMAGES_PER_REFRESH", "1"))))
 MAX_GEMINI_IMAGES_PER_24H = max(0, min(100, int(os.getenv("MAX_GEMINI_IMAGES_PER_24H", "4"))))
 GEMINI_429_COOLDOWN_MINUTES = max(5, min(1440, int(os.getenv("GEMINI_429_COOLDOWN_MINUTES", "60"))))
@@ -158,22 +161,25 @@ IMAGE_CACHE_MAX_AGE_SECONDS = max(3600, int(os.getenv("IMAGE_CACHE_MAX_AGE_HOURS
 TRUSTED_REUSABLE_IMAGE_SOURCES = {
     "wikimedia_relevant", "openverse_licensed", "loc_open_access", "nasa_images",
     "artic_open_access", "met_open_access", "cleveland_museum_open_access",
-    "wellcome_open_access", "presskit_approved", "admin_verified"
+    "wellcome_open_access", "presskit_approved", "admin_verified", "gemini_generated"
 }
 
 
 def _image_license_verified(row: dict[str, Any]) -> bool:
-    """Only display third-party images when a human-auditable license URL is stored."""
+    """Validate a rights-cleared third-party photo or a first-party stored AI illustration."""
     image_url = str(row.get("image_url") or "").strip()
-    license_url = str(row.get("image_license_url") or "").strip()
     source = str(row.get("image_source") or "").strip()
+    if source == "gemini_generated":
+        # AI-generated illustrations are first-party media, not third-party licensed photos.
+        # Only accept immutable image ids served from the server's Supabase-backed route.
+        return bool(re.fullmatch(r"/media/generated/[a-f0-9]{32}", image_url))
+    license_url = str(row.get("image_license_url") or "").strip()
     remote_url = image_url.startswith("https://")
     cached_url = bool(re.fullmatch(r"/media/catalogued/[a-f0-9]{40}", image_url))
     return bool(
         (remote_url or cached_url)
         and source in TRUSTED_REUSABLE_IMAGE_SOURCES
         and license_url.startswith("https://")
-        and source != "gemini_generated"
     )
 
 CATEGORY_NAMES = {
@@ -3793,10 +3799,10 @@ EDITORIAL ACCURACY AND RIGHTS:
 - Avoid graphic injury, gore, sensational depictions and deceptive photorealism.
 - Output only the finished image, no explanation or prompt text."""
     
-def _generate_gemini_article_image(raw: dict[str, Any]) -> dict[str, Any]:
+def _generate_gemini_article_image(raw: dict[str, Any], *, manual_admin: bool = False) -> dict[str, Any]:
     global _GEMINI_RATE_LIMIT_UNTIL, _GEMINI_TRANSIENT_ERROR_UNTIL
     if (
-        not GEMINI_IMAGE_GENERATION_ENABLED
+        (not ADMIN_GEMINI_IMAGE_GENERATION_ENABLED if manual_admin else not GEMINI_IMAGE_GENERATION_ENABLED)
         or not GEMINI_API_KEY
         or genai is None
         or types is None
@@ -3851,7 +3857,8 @@ def _generate_gemini_article_image(raw: dict[str, Any]) -> dict[str, Any]:
             buffer = io.BytesIO()
             optimized.save(buffer, format="JPEG", quality=88, optimize=True, progressive=True)
             stored_bytes = buffer.getvalue()
-        image_id = _store_gemini_generated_image(stored_bytes, prompt)
+        storage_prompt = ("admin-manual: " if manual_admin else "automatic: ") + prompt
+        image_id = _store_gemini_generated_image(stored_bytes, storage_prompt)
         if not image_id:
             raise RuntimeError("Persistent storage for generated images is unavailable")
         return {
@@ -7934,7 +7941,8 @@ def _admin_store_uploaded_image(
                 UPDATE world_pulse_articles
                 SET image_url = %s, image_source = 'admin_verified',
                     image_credit = %s, image_credit_url = %s, image_provider_url = %s,
-                    image_license_url = %s, image_checked_at = NOW()
+                    image_license_url = %s, image_checked_at = NOW(),
+                    image_relevance_verified = TRUE
                 WHERE slug = %s AND is_demo = FALSE
             """, (
                 "/media/catalogued/" + image_id, credit, source_page_url,
@@ -8087,7 +8095,8 @@ def _remove_article_image(slug: str) -> bool:
         with conn.cursor() as cur:
             cur.execute("""UPDATE world_pulse_articles SET
                 image_url = '', image_source = 'none', image_credit = '', image_credit_url = '',
-                image_provider_url = '', image_license_url = '', image_checked_at = NOW()
+                image_provider_url = '', image_license_url = '', image_checked_at = NOW(),
+                image_relevance_verified = FALSE
                 WHERE slug = %s AND is_demo = FALSE""", (slug,))
             changed = changed or cur.rowcount > 0
         conn.commit()
