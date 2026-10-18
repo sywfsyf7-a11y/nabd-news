@@ -8557,6 +8557,7 @@ def admin_articles():
         notice=notice,
         db_error=db_error,
         csrf_token=session.get("wp_admin_csrf", ""),
+        admin_gemini_image_generation_limit=MAX_ADMIN_GEMINI_IMAGES_PER_24H,
     )
 
 
