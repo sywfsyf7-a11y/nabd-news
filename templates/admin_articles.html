@@ -129,19 +129,47 @@
     </form>
 
     <details style="margin-top:12px">
-      <summary>رفع صورة يدويًا (اختياري — لا حاجة لذلك عند استخدام البحث التلقائي)</summary>
-      <p class="muted">اترك هذا القسم مغلقًا لاستخدام البحث التلقائي. الرفع اليدوي مخصص فقط لصورة لديك صلاحية إعادة نشرها، ويحتاج بيانات الحقوق.</p>
-      <form method="post" enctype="multipart/form-data" action="{{ url_for('admin_articles', q=query, category=active_category, show_hidden='1' if show_hidden else '0', page=page, edit=edit_article.slug) }}" style="margin-top:14px">
+      <summary>رفع صورة يدويًا (صورة مرخّصة أو صورة مولّدة بالذكاء الاصطناعي)</summary>
+      <p class="muted">احتفظ بخيار الصورة المرخّصة كما هو، أو اختر رفع صورة أنت أنشأتها بالذكاء الاصطناعي. الخيار الثاني لا يطلب رابط ترخيص لطرف ثالث، لكنه يتطلب تأكيدًا صريحًا بأن الصورة مولّدة بالذكاء الاصطناعي وليست منسوخة من ناشر أو مصوّر.</p>
+      <form id="manual-image-upload-form" method="post" enctype="multipart/form-data" action="{{ url_for('admin_articles', q=query, category=active_category, show_hidden='1' if show_hidden else '0', page=page, edit=edit_article.slug) }}" style="margin-top:14px">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="action" value="save_article_image"><input type="hidden" name="slug" value="{{ edit_article.slug }}">
         <div class="fields">
-          <div class="wide"><label for="image_file">ملف الصورة (JPG أو PNG أو WebP)</label><input id="image_file" name="image_file" type="file" accept="image/jpeg,image/png,image/webp" required><small class="muted">سيُحفظ إصدار محسّن ومناسب للويب لتقليل وقت التحميل.</small></div>
-          <div><label for="image_credit">اسم المصوّر أو الجهة المالكة</label><input id="image_credit" name="image_credit" maxlength="180" required value="{{ edit_article.image_credit or '' }}" placeholder="مثال: NASA / اسم المصوّر"></div>
-          <div><label for="image_credit_url">رابط صفحة الصورة الأصلية</label><input id="image_credit_url" name="image_credit_url" type="url" maxlength="1000" dir="ltr" required value="{{ edit_article.image_credit_url or '' }}" placeholder="https://…"></div>
-          <div class="wide"><label for="image_license_url">رابط الترخيص المحدد</label><input id="image_license_url" name="image_license_url" type="url" maxlength="1000" dir="ltr" required value="{{ edit_article.image_license_url or '' }}" placeholder="https://creativecommons.org/licenses/by/4.0/"></div>
+          <div class="wide"><label for="upload_image_mode">نوع الصورة المرفوعة</label><select id="upload_image_mode" name="upload_image_mode"><option value="licensed" selected>صورة حقيقية — أتحقق من الترخيص وأضيف بيانات المصدر</option><option value="ai_generated">صورة أنشأتها بالذكاء الاصطناعي</option></select></div>
+          <div class="wide"><label for="image_file">ملف الصورة (JPG أو PNG أو WebP)</label><input id="image_file" name="image_file" type="file" accept="image/jpeg,image/png,image/webp" required><small class="muted">سيُحفظ إصدار محسّن ومناسب للويب في Supabase لتقليل وقت التحميل.</small></div>
+          <div class="licensed-image-fields"><label for="image_credit">اسم المصوّر أو الجهة المالكة</label><input id="image_credit" name="image_credit" maxlength="180" value="{{ edit_article.image_credit or '' }}" placeholder="مثال: NASA / اسم المصوّر"></div>
+          <div class="licensed-image-fields"><label for="image_credit_url">رابط صفحة الصورة الأصلية</label><input id="image_credit_url" name="image_credit_url" type="url" maxlength="1000" dir="ltr" value="{{ edit_article.image_credit_url or '' }}" placeholder="https://…"></div>
+          <div class="licensed-image-fields wide"><label for="image_license_url">رابط الترخيص المحدد</label><input id="image_license_url" name="image_license_url" type="url" maxlength="1000" dir="ltr" value="{{ edit_article.image_license_url or '' }}" placeholder="https://creativecommons.org/licenses/by/4.0/"></div>
         </div>
-        <label style="display:flex;align-items:flex-start;gap:10px;margin-top:14px"><input type="checkbox" name="rights_confirmed" value="yes" required style="width:auto;margin-top:4px"><span>أؤكد أنني راجعت صفحة الصورة وشروط الترخيص، وأن الاستخدام التحريري على هذا الموقع مسموح به، وأن بيانات الإسناد أعلاه صحيحة.</span></label>
-        <div class="actions" style="margin-top:14px"><button type="submit">حفظ الصورة وبيانات الحقوق</button></div>
+        <div id="licensed-image-confirmation"><label style="display:flex;align-items:flex-start;gap:10px;margin-top:14px"><input type="checkbox" name="rights_confirmed" value="yes" style="width:auto;margin-top:4px"><span>أؤكد أنني راجعت صفحة الصورة وشروط الترخيص، وأن الاستخدام التحريري على هذا الموقع مسموح به، وأن بيانات الإسناد أعلاه صحيحة.</span></label></div>
+        <div id="ai-image-confirmation" hidden><label style="display:flex;align-items:flex-start;gap:10px;margin-top:14px"><input type="checkbox" name="ai_generated_confirmed" value="yes" style="width:auto;margin-top:4px"><span>أؤكد أن هذه الصورة مولّدة بالذكاء الاصطناعي، وليست صورة حقيقية منقولة من موقع أو مصوّر. سأعرضها كرسم توضيحي مولّد.</span></label></div>
+        <div class="actions" style="margin-top:14px"><button type="submit">حفظ الصورة وربطها بالخبر</button></div>
       </form>
+      <script>
+      (() => {
+        const mode = document.getElementById("upload_image_mode");
+        const licensed = document.getElementById("licensed-image-confirmation");
+        const ai = document.getElementById("ai-image-confirmation");
+        const licensedFields = document.querySelectorAll(".licensed-image-fields");
+        const credit = document.getElementById("image_credit");
+        const creditUrl = document.getElementById("image_credit_url");
+        const licenseUrl = document.getElementById("image_license_url");
+        const rights = document.querySelector('[name="rights_confirmed"]');
+        const aiRights = document.querySelector('[name="ai_generated_confirmed"]');
+        const sync = () => {
+          const isAi = mode.value === "ai_generated";
+          licensed.hidden = isAi;
+          ai.hidden = !isAi;
+          licensedFields.forEach(el => el.hidden = isAi);
+          [credit, creditUrl, licenseUrl].forEach(el => { el.required = !isAi; el.disabled = isAi; });
+          rights.required = !isAi;
+          rights.disabled = isAi;
+          aiRights.required = isAi;
+          aiRights.disabled = !isAi;
+        };
+        mode.addEventListener("change", sync);
+        sync();
+      })();
+      </script>
     </details>
 
     {% if edit_article.image_url and (edit_article.image_source == 'gemini_generated' or edit_article.image_source in ['wikimedia_relevant','openverse_licensed','loc_open_access','nasa_images','artic_open_access','met_open_access','cleveland_museum_open_access','wellcome_open_access','presskit_approved','admin_verified']) %}
