@@ -32,6 +32,62 @@ class AdminArchiveManagementTests(unittest.TestCase):
         self.assertIn("إدارة الأخبار والأرشيف", response.get_data(as_text=True))
         self.assertIn("إضافة خبر جديد", response.get_data(as_text=True))
 
+    def test_custom_sections_are_included_in_the_category_registry(self):
+        with patch.object(world_pulse, "_get_custom_categories", return_value={
+            "movies": {"ar": "أفلام", "en": "Movies", "is_custom": True}
+        }):
+            names = world_pulse._all_category_names()
+        self.assertEqual(names["movies"], {"ar": "أفلام", "en": "Movies"})
+        self.assertIn("movies", names)
+        self.assertTrue(world_pulse._is_custom_category("movies"))
+
+    def test_admin_archive_shows_custom_section_creation_form(self):
+        client = world_pulse.app.test_client()
+        self._logged_in_session(client)
+        with patch.object(world_pulse, "_admin_enabled", return_value=True):
+            with patch.object(world_pulse, "_admin_list_articles", return_value=([], 0, "")):
+                with patch.object(world_pulse, "_get_custom_categories", return_value={}):
+                    response = client.get("/admin/articles")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("إضافة قسم جديد للموقع", html)
+        self.assertIn('name="action" value="create_category"', html)
+        self.assertIn('name="name_ar"', html)
+        self.assertIn('name="name_en"', html)
+
+    def test_custom_category_post_requires_csrf_and_persists_through_helper(self):
+        client = world_pulse.app.test_client()
+        self._logged_in_session(client)
+        with patch.object(world_pulse, "_admin_enabled", return_value=True):
+            with patch.object(world_pulse, "_admin_create_custom_category", return_value="created") as create:
+                response = client.post("/admin/articles", data={
+                    "csrf_token": "test-csrf-token",
+                    "action": "create_category",
+                    "name_ar": "أفلام",
+                    "name_en": "Movies",
+                    "category_key": "movies",
+                })
+        self.assertEqual(response.status_code, 302)
+        create.assert_called_once_with("أفلام", "Movies", "movies")
+        with client.session_transaction() as sess:
+            self.assertIn("تم إنشاء القسم", sess["wp_admin_notice"])
+
+    def test_custom_category_stories_can_be_rendered_with_source_and_language_checks(self):
+        row = {
+            "category": "movies",
+            "original_language": "ar",
+            "source_domain": "film-news.example",
+            "source_name": "Film News",
+            "source_url": "https://film-news.example/story",
+            "title_ar": "خبر جديد عن السينما",
+            "summary_ar": "أعلنت الجهة المنظمة موعدًا جديدًا لعرض الفيلم في المهرجان.",
+            "content_ar": "تتضمن المادة تفاصيل موثقة عن العرض والموعد والجهة المنظمة، مع إحالة القارئ إلى المصدر الأصلي للمزيد من المعلومات.",
+        }
+        with patch.object(world_pulse, "_get_custom_categories", return_value={
+            "movies": {"ar": "أفلام", "en": "Movies", "is_custom": True}
+        }):
+            self.assertTrue(world_pulse._row_allowed_on_language_site(row, "ar"))
+
     def test_admin_post_requires_csrf_before_archive_mutation(self):
         client = world_pulse.app.test_client()
         self._logged_in_session(client)
