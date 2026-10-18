@@ -8313,6 +8313,30 @@ def admin_articles():
                 show_hidden="1" if show_hidden else "0", page=page_number,
             ))
 
+        if action == "generate_ai_article_image":
+            if not slug:
+                abort(400)
+            selected = _admin_fetch_article_by_slug(slug)
+            if not selected:
+                abort(404)
+            result = _admin_generate_and_save_article_image(slug)
+            notice = {
+                "saved": "تم إنشاء رسم توضيحي مرتبط بعنوان الخبر وسياقه وحفظه في Supabase. وُسم بوضوح كرسم مولّد بالذكاء الاصطناعي.",
+                "disabled": "توليد الصور بالذكاء الاصطناعي غير مفعّل حاليًا من إعدادات الخادم.",
+                "not_configured": "تعذر إنشاء الصورة: تأكد من إعداد مفتاح Gemini على Render.",
+                "database_unavailable": "تعذر التحقق من حد توليد الصور أو الاتصال بقاعدة البيانات؛ لم يتم إعلان نجاح العملية.",
+                "daily_limit": f"وصلت إلى الحد اليومي لتوليد الصور ({MAX_ADMIN_GEMINI_IMAGES_PER_24H} صور خلال 24 ساعة).",
+                "article_not_found": "لم يُعثر على الخبر في الأرشيف.",
+                "missing_headline": "أضف عنوانًا للخبر قبل إنشاء الصورة.",
+                "database_write_failed": "تم توليد الصورة لكن تعذر ربطها بالخبر في قاعدة البيانات؛ بقيت الصورة السابقة كما هي.",
+                "generation_failed": "تعذر توليد الصورة الآن، ربما بسبب حصة Gemini أو مهلة الاتصال. بقيت الصورة السابقة كما هي.",
+            }.get(result, "تعذر إنشاء الصورة. بقي الخبر والصورة الحالية كما هما.")
+            session["wp_admin_notice"] = notice
+            return redirect(url_for(
+                "admin_articles", edit=slug, q=query, category=category_filter,
+                show_hidden="1" if show_hidden else "0", page=page_number,
+            ))
+
         if action == "retry_article_image":
             selected = _admin_fetch_article_by_slug(slug)
             if not selected:
@@ -8464,13 +8488,13 @@ def admin_articles():
                         create_status = _admin_create_article(values)
                         notice = "تمت إضافة الخبر إلى الأرشيف." if create_status == "created" else ("هذا الرابط محفوظ مسبقًا؛ لم ننشئ نسخة مكررة." if create_status == "duplicate_source" else "تعذر إضافة الخبر إلى قاعدة البيانات.")
 
-            # Image choice is automatic licensed-image discovery, never image generation.
+            # Image work is optional. AI image generation uses the already-saved story
+            # as context; no separate image prompt/details are required from the editor.
             if create_status == "created":
                 image_mode = str(request.form.get("create_image_mode") or "none").casefold()
                 created_slug = str(values.get("slug") or _slug_for_url(source_url))
                 if image_mode == "auto":
-                    # Queue behind the active news job when necessary; the shared lock
-                    # prevents concurrent refresh work and the worker does not call Gemini.
+                    # Queue behind the active news job when necessary; no Gemini calls here.
                     with _STATE_LOCK:
                         _REFRESHING = True
                     thread = threading.Thread(
@@ -8481,6 +8505,13 @@ def admin_articles():
                     )
                     thread.start()
                     notice = "تم حفظ الخبر. بدأ البحث تلقائيًا عن صورة حقيقية مرتبطة بالموضوع ومرخّصة؛ قد ينتظر البحث انتهاء مهمة أخبار جارية."
+                elif image_mode == "ai":
+                    image_result = _admin_generate_and_save_article_image(created_slug)
+                    notice = (
+                        "تم حفظ الخبر وإنشاء رسم توضيحي بالذكاء الاصطناعي وربطه به في Supabase."
+                        if image_result == "saved"
+                        else "تم حفظ الخبر، لكن تعذر إنشاء الصورة (%s). افتح الخبر وحاول مجددًا؛ لا حاجة لإدخال وصف للصورة." % image_result
+                    )
 
             session["wp_admin_notice"] = notice
             return redirect(url_for(
