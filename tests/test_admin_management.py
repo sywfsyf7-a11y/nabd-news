@@ -266,7 +266,9 @@ class AdminArchiveManagementTests(unittest.TestCase):
                         "image_file": (io.BytesIO(oversized_image), "oversized-photo.jpg"),
                     }, content_type="multipart/form-data")
 
-        self.assertEqual(response.status_code, 413)
+        # The route handles a file just over the configured image limit as a
+        # normal validation failure and redirects back to the editor with a notice.
+        self.assertEqual(response.status_code, 302)
         save_image.assert_not_called()
 
     def test_persistent_upload_saves_valid_image_under_1000_kb(self):
