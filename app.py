@@ -54,11 +54,12 @@ except ImportError:
 # Application configuration
 # ---------------------------------------------------------------------------
 
-# Image uploads are no longer restricted to 2 MiB. Keep a generous, configurable
-# per-file safety ceiling so a malformed request cannot consume unbounded memory.
+# Limit each administrator-uploaded image to 1000 KB (decimal, 1,000,000 bytes).
+# Keep a configurable lower limit for deployments, but never allow an environment
+# setting to silently raise the limit above the documented 1000 KB.
 MAX_IMAGE_UPLOAD_BYTES = max(
-    2 * 1024 * 1024,
-    min(100 * 1024 * 1024, int(os.getenv("MAX_IMAGE_UPLOAD_BYTES", str(50 * 1024 * 1024)))),
+    1,
+    min(1_000_000, int(os.getenv("MAX_IMAGE_UPLOAD_BYTES", "1000000"))),
 )
 
 app = Flask(__name__)

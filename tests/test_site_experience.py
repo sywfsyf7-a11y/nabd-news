@@ -12,6 +12,16 @@ import app as world_pulse
 
 
 class SiteExperienceTests(unittest.TestCase):
+    def test_admin_image_upload_limit_is_1000_kb(self):
+        self.assertEqual(world_pulse.MAX_IMAGE_UPLOAD_BYTES, 1_000_000)
+        result = world_pulse._admin_store_uploaded_image(
+            "example-story",
+            b"x" * (world_pulse.MAX_IMAGE_UPLOAD_BYTES + 1),
+            "Example photographer",
+            "https://example.com/image",
+            "https://example.com/license",
+        )
+        self.assertEqual(result, "invalid_image")
     def test_in_process_article_working_set_is_bounded_and_keeps_recent_stories(self):
         base = datetime(2026, 10, 1, tzinfo=timezone.utc)
         rows = [
