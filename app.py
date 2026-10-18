@@ -7905,16 +7905,24 @@ def _admin_store_uploaded_image(
     credit = _clean_text(credit, 180)
     source_page_url = _clean_text(source_page_url, 1000)
     license_url = _clean_text(license_url, 1000)
-    if not slug or not credit or not image_bytes or len(image_bytes) > MAX_IMAGE_UPLOAD_BYTES:
+    # AI-generated uploads intentionally have no third-party photographer or licence
+    # fields. Requiring a credit here rejected every such upload before image decoding.
+    if not slug or not image_bytes:
         return "invalid_image"
+    if len(image_bytes) > MAX_IMAGE_UPLOAD_BYTES:
+        return "image_too_large"
     try:
         with Image.open(io.BytesIO(image_bytes)) as opened:
-            if str(opened.format or "").upper() not in {"JPEG", "PNG", "WEBP"}:
-                return "invalid_image"
+            image_format = str(opened.format or "").upper()
+            if image_format not in {"JPEG", "PNG", "WEBP"}:
+                logger.info("Admin image upload rejected: unsupported format=%s", image_format or "unknown")
+                return "unsupported_image_format"
             width, height = opened.size
             if width < 300 or height < 180 or width * height > 30_000_000:
                 return "invalid_dimensions"
-            opened.verify()
+            # Decode all pixels before re-opening for normalization. Re-encoding below
+            # strips metadata and produces a canonical safe JPEG for public delivery.
+            opened.load()
         with Image.open(io.BytesIO(image_bytes)) as opened:
             oriented = ImageOps.exif_transpose(opened)
             if "A" in oriented.getbands() or "transparency" in oriented.info:
@@ -7927,12 +7935,14 @@ def _admin_store_uploaded_image(
             buffer = io.BytesIO()
             optimized.save(buffer, format="JPEG", quality=82, optimize=True, progressive=True)
             normalized_bytes = buffer.getvalue()
-    except (OSError, ValueError, Image.DecompressionBombError) as exc:
+    except (OSError, ValueError, SyntaxError, Image.DecompressionBombError) as exc:
         logger.info("Admin image upload rejected during decode (%s)", type(exc).__name__)
         return "invalid_image"
 
     if not normalized_bytes:
         return "invalid_image"
+    if not ai_generated and not credit:
+        return "missing_image_credit"
 
     # An administrator-supplied AI illustration is stored as first-party media.
     # It does not require a third-party photo licence, but the admin must explicitly
@@ -8339,9 +8349,11 @@ def admin_articles():
                 notice = {
                     "saved": "تم حفظ الصورة بصورة محسّنة في Supabase مع بيانات المصدر والترخيص. ستبقى الصورة مرتبطة بهذا الخبر.",
                     "saved_ai": "تم حفظ الصورة المولّدة بالذكاء الاصطناعي في Supabase وربطها بالخبر، مع وسمها بوضوح كرسم توضيحي مولّد.",
-                    "invalid_image": "تعذر قبول الصورة. ارفع JPG أو PNG أو WebP سليمة وضمن الحد الأعلى المسموح للرفع.",
+                    "invalid_image": "تعذر قراءة ملف الصورة. جرّب فتحها ثم حفظها من جديد بصيغة JPG أو PNG أو WebP.",
+                    "unsupported_image_format": "صيغة الصورة غير مدعومة. استخدم JPG أو PNG أو WebP.",
+                    "missing_image_credit": "أدخل اسم المصوّر أو الجهة المالكة للصورة المرخّصة.",
                     "invalid_dimensions": "أبعاد الصورة صغيرة جدًا أو كبيرة بصورة غير آمنة؛ استخدم صورة لا تقل عن 300×180 بكسل.",
-                    "image_too_large": "حجم الصورة بعد التحسين يتجاوز الحد المسموح للتخزين؛ جرّب صورة أصغر.",
+                    "image_too_large": "ملف الصورة أكبر من حد الرفع المسموح. جرّب صورة أصغر.",
                     "invalid_rights_url": "يجب أن تكون صفحة الصورة ورابط الترخيص رابطَي HTTPS صالحين.",
                     "restricted_license": "هذا الترخيص يبدو غير تجاري أو يمنع الاشتقاق. لا تستخدمه لهذا الموقع دون إذن مختلف.",
                     "article_not_found": "لم يُعثر على الخبر في الأرشيف.",

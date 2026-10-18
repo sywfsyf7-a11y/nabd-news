@@ -132,5 +132,53 @@ class AdminAiImageTests(unittest.TestCase):
         self.assertNotIn('name="image_prompt"', source)
 
 
+
+    def test_ai_generated_upload_does_not_require_third_party_photo_credit(self):
+        import io
+        from unittest.mock import MagicMock
+        from PIL import Image
+
+        buffer = io.BytesIO()
+        Image.new("RGB", (640, 360), (40, 80, 120)).save(buffer, format="PNG")
+        image_bytes = buffer.getvalue()
+
+        connection = MagicMock()
+        cursor = connection.cursor.return_value.__enter__.return_value
+        cursor.fetchone.return_value = (1,)
+        cursor.rowcount = 1
+
+        with patch.object(world_pulse, "_store_gemini_generated_image", return_value="a" * 32) as store:
+            with patch.object(world_pulse, "_connect_db", return_value=connection):
+                with patch.object(world_pulse, "_invalidate_db_articles_cache"):
+                    result = world_pulse._admin_store_uploaded_image(
+                        "story-one",
+                        image_bytes,
+                        credit="",
+                        source_page_url="",
+                        license_url="",
+                        ai_generated=True,
+                    )
+
+        self.assertEqual(result, "saved_ai")
+        store.assert_called_once()
+        connection.commit.assert_called_once()
+        cursor.execute.assert_any_call(
+            "SELECT 1 FROM world_pulse_articles WHERE slug = %s AND is_demo = FALSE LIMIT 1",
+            ("story-one",),
+        )
+
+    def test_uploaded_file_larger_than_limit_has_distinct_error(self):
+        with patch.object(world_pulse, "MAX_IMAGE_UPLOAD_BYTES", 32):
+            result = world_pulse._admin_store_uploaded_image(
+                "story-one",
+                b"x" * 33,
+                credit="",
+                source_page_url="",
+                license_url="",
+                ai_generated=True,
+            )
+
+        self.assertEqual(result, "image_too_large")
+
 if __name__ == "__main__":
     unittest.main()
