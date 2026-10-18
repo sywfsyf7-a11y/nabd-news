@@ -7805,7 +7805,7 @@ def _admin_fetch_article_by_slug(slug: str) -> dict[str, Any] | None:
                        image_source, image_credit, image_credit_url, image_provider_url,
                        image_license_url, image_checked_at, title_ar, title_en, summary_ar,
                        summary_en, content_ar, content_en, published_at, fetched_at,
-                       read_minutes, original_language, is_demo, is_hidden
+                       read_minutes, original_language, is_demo, is_hidden,
                        CASE WHEN ai_illustration.image_id IS NOT NULL THEN '/media/generated/' || ai_illustration.image_id ELSE '' END AS ai_image_url,
                        ai_illustration.updated_at AS ai_image_updated_at
                 FROM world_pulse_articles
