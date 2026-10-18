@@ -220,7 +220,7 @@ class AdminArchiveManagementTests(unittest.TestCase):
         with client.session_transaction() as sess:
             self.assertIn("تم حفظ الصورة بصورة محسّنة", sess["wp_admin_notice"])
 
-    def test_persistent_image_upload_rejects_unverified_and_noncommercial_rights(self):
+    def test_persistent_image_upload_rejects_missing_credit_and_bad_image_data(self):
         self.assertEqual(
             world_pulse._admin_store_uploaded_image(
                 "story", b"not-an-image", "", "https://images.example/item",
