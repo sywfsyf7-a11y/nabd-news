@@ -7801,7 +7801,7 @@ def _admin_fetch_article_by_slug(slug: str) -> dict[str, Any] | None:
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute("""
-                SELECT slug, source_url, category, source_name, source_domain, image_url,
+                SELECT world_pulse_articles.slug, source_url, category, source_name, source_domain, image_url,
                        image_source, image_credit, image_credit_url, image_provider_url,
                        image_license_url, image_checked_at, title_ar, title_en, summary_ar,
                        summary_en, content_ar, content_en, published_at, fetched_at,
