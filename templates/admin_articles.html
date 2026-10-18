@@ -95,6 +95,34 @@
       {% endif %}
       <div class="actions" style="margin-top:14px"><button type="submit">حفظ التعديلات</button><a class="button secondary" href="{{ url_for('article', slug=edit_article.slug, lang=edit_article.original_language) }}" target="_blank" rel="noopener noreferrer">معاينة الخبر</a></div>
     </form>
+
+    <div class="section-head" style="margin-top:26px"><h3>الصورة الرئيسية للخبر</h3><span class="pill">حفظ دائم في Supabase</span></div>
+    <p class="muted">ارفع صورة تملك حق إعادة نشرها أو يسمح ترخيصها بذلك. تُحوَّل الصورة إلى JPEG محسّن وتُخزَّن في Supabase، مع حفظ اسم صاحبها ورابط صفحة الصورة والترخيص. ذكر المصدر وحده لا يمنح حق الاستخدام، ولا ترفع صورة محمية لمجرد أنها مرتبطة بموضوع عام.</p>
+    {% if edit_article.image_url and edit_article.image_source in ['wikimedia_relevant','openverse_licensed','loc_open_access','nasa_images','artic_open_access','met_open_access','cleveland_museum_open_access','wellcome_open_access','presskit_approved','admin_verified'] and edit_article.image_credit_url and edit_article.image_license_url %}
+      <div class="notice" style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">
+        <img src="{{ public_image_url(edit_article.image_url) }}" alt="معاينة الصورة الحالية" loading="lazy" decoding="async" style="width:180px;max-height:120px;object-fit:cover;border-radius:10px">
+        <div><strong>الصورة الحالية: {{ edit_article.image_provider_display or edit_article.image_source }}</strong><p class="muted">الإسناد: {{ edit_article.image_credit or 'غير مدخل' }}</p><p><a href="{{ edit_article.image_credit_url }}" target="_blank" rel="noopener noreferrer">صفحة الصورة</a> · <a href="{{ edit_article.image_license_url }}" target="_blank" rel="noopener noreferrer">الترخيص</a></p></div>
+      </div>
+    {% else %}
+      <div class="notice warning">لا توجد صورة رئيسية معتمدة ببيانات حقوق مكتملة. لن نعرض صورة عشوائية باعتبارها صورة الخبر.</div>
+    {% endif %}
+    <form method="post" enctype="multipart/form-data" action="{{ url_for('admin_articles', q=query, category=active_category, show_hidden='1' if show_hidden else '0', page=page, edit=edit_article.slug) }}" style="margin-top:14px">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="action" value="save_article_image"><input type="hidden" name="slug" value="{{ edit_article.slug }}">
+      <div class="fields">
+        <div class="wide"><label for="image_file">ملف الصورة (JPG أو PNG أو WebP)</label><input id="image_file" name="image_file" type="file" accept="image/jpeg,image/png,image/webp" required><small class="muted">حد الملف 2 ميغابايت. ستُحفظ نسخة محسّنة، وليس الملف الأصلي الكبير.</small></div>
+        <div><label for="image_credit">اسم المصوّر أو الجهة المالكة</label><input id="image_credit" name="image_credit" maxlength="180" required value="{{ edit_article.image_credit or '' }}" placeholder="مثال: NASA / اسم المصوّر"></div>
+        <div><label for="image_credit_url">رابط صفحة الصورة الأصلية</label><input id="image_credit_url" name="image_credit_url" type="url" maxlength="1000" dir="ltr" required value="{{ edit_article.image_credit_url or '' }}" placeholder="https://…"></div>
+        <div class="wide"><label for="image_license_url">رابط الترخيص المحدد</label><input id="image_license_url" name="image_license_url" type="url" maxlength="1000" dir="ltr" required value="{{ edit_article.image_license_url or '' }}" placeholder="https://creativecommons.org/licenses/by/4.0/"></div>
+      </div>
+      <label style="display:flex;align-items:flex-start;gap:10px;margin-top:14px"><input type="checkbox" name="rights_confirmed" value="yes" required style="width:auto;margin-top:4px"><span>أؤكد أنني راجعت صفحة الصورة وشروط الترخيص، وأن الاستخدام التحريري على هذا الموقع مسموح به، وأن بيانات الإسناد أعلاه صحيحة.</span></label>
+      <div class="actions" style="margin-top:14px"><button type="submit">حفظ الصورة وبيانات الحقوق</button></div>
+    </form>
+    {% if edit_article.image_url and edit_article.image_source in ['wikimedia_relevant','openverse_licensed','loc_open_access','nasa_images','artic_open_access','met_open_access','cleveland_museum_open_access','wellcome_open_access','presskit_approved','admin_verified'] %}
+      <form method="post" action="{{ url_for('admin_articles', q=query, category=active_category, show_hidden='1' if show_hidden else '0', page=page, edit=edit_article.slug) }}" onsubmit="return confirm('ستُزال الصورة من الخبر فقط، وسيبقى الخبر محفوظًا في الأرشيف. هل تريد المتابعة؟');" style="margin-top:10px">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="action" value="remove_article_image"><input type="hidden" name="slug" value="{{ edit_article.slug }}">
+        <button class="secondary" type="submit">إزالة الصورة الحالية</button>
+      </form>
+    {% endif %}
   </section>
   {% endif %}
 
