@@ -169,6 +169,22 @@
 
   <section class="card">
     <details>
+      <summary>إضافة قسم جديد للموقع</summary>
+      <p class="muted">أنشئ قسمًا عربيًا وإنجليزيًا مثل «أفلام / Movies». سيُحفظ القسم في Supabase ويظهر في شريط الأقسام وقائمة إضافة الخبر. إنشاء القسم لا ينسخ أخبارًا تلقائيًا إليه؛ أضف الأخبار المعتمدة يدويًا من النموذج التالي.</p>
+      <form method="post" action="{{ url_for('admin_articles', q=query, category=active_category, show_hidden='1' if show_hidden else '0', page=page) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="action" value="create_category">
+        <div class="fields">
+          <div><label for="new-category-ar">اسم القسم بالعربية</label><input id="new-category-ar" name="name_ar" maxlength="70" required placeholder="مثال: أفلام"></div>
+          <div><label for="new-category-en">Section name in English</label><input id="new-category-en" name="name_en" maxlength="70" required dir="ltr" placeholder="Example: Movies"></div>
+          <div><label for="new-category-key">مفتاح القسم (اختياري)</label><input id="new-category-key" name="category_key" maxlength="70" dir="ltr" placeholder="movies"><p class="muted">إذا تركته فارغًا، سيُنشأ من الاسم الإنجليزي تلقائيًا.</p></div>
+        </div>
+        <button style="margin-top:14px" type="submit">إنشاء القسم وحفظه</button>
+      </form>
+    </details>
+  </section>
+
+  <section class="card">
+    <details>
       <summary>إضافة خبر جديد إلى الأرشيف</summary>
       <p class="muted">أضف مادة أصلية من إعدادك واستشهد بالرابط الأصلي. لا تنسخ المقال كاملًا ولا تستخدم صور الناشر من دون إذن. يجب أن يكون الناشر معتمدًا للقسم ولغة المصدر، وتُحجب المصادر ذات قيود الحقوق عند إدخال تفاصيل تحريرية. إذا لم تُحفظ صورة مرخصة، سيستخدم الموقع الرسم التوضيحي المحلي الخاص بالموضوع.</p>
       <form method="post" action="{{ url_for('admin_articles', q=query, category=active_category, show_hidden='1' if show_hidden else '0', page=page) }}">
