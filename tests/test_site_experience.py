@@ -2071,5 +2071,40 @@ class CataloguedImageMemoryCacheTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.get_data(as_text=True), "article recovered")
 
+
+class AdminAutomaticLicensedImageWorkflowTests(unittest.TestCase):
+    def test_admin_offers_auto_licensed_image_search_not_ai_image_generation(self):
+        template_path = os.path.join(
+            os.path.dirname(world_pulse.__file__), "templates", "admin_articles.html"
+        )
+        with open(template_path, encoding="utf-8") as handle:
+            template = handle.read()
+
+        self.assertIn("البحث الذكي عن صورة حقيقية مناسبة ومرخّصة", template)
+        self.assertIn("ابحث تلقائيًا عن صورة مرخّصة", template)
+        self.assertIn('name="action" value="retry_article_image"', template)
+        self.assertIn('value="auto" selected>البحث التلقائي عن صورة حقيقية مرخّصة', template)
+        self.assertIn("رفع صورة يدويًا (اختياري", template)
+        self.assertNotIn("إنشاء وحفظ صورة توضيحية بالذكاء الاصطناعي", template)
+        self.assertNotIn('name="action" value="generate_ai_article_image"', template)
+        self.assertNotIn('<option value="ai"', template)
+
+    def test_admin_image_search_path_explicitly_disables_image_generation(self):
+        source_path = os.path.join(os.path.dirname(world_pulse.__file__), "app.py")
+        with open(source_path, encoding="utf-8") as handle:
+            source = handle.read()
+        helper_start = source.index("def _refresh_existing_article_images_job")
+        helper_end = source.index("NEWS_QUEUE_STATE_KEY", helper_start)
+        helper = source[helper_start:helper_end]
+
+        self.assertIn("_enrich_article_images(candidates, force_refresh=True, allow_ai_generation=False)", helper)
+        template_path = os.path.join(
+            os.path.dirname(world_pulse.__file__), "templates", "admin_articles.html"
+        )
+        with open(template_path, encoding="utf-8") as handle:
+            template = handle.read()
+        self.assertIn('name="action" value="retry_article_image"', template)
+
+
 if __name__ == "__main__":
     unittest.main()
