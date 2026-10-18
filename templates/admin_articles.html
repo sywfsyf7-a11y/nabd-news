@@ -111,7 +111,7 @@
       <div class="notice warning">لا توجد صورة رئيسية معتمدة ببيانات حقوق مكتملة. لن نعرض صورة عشوائية باعتبارها صورة الخبر.</div>
     {% endif %}
     <form method="post" action="{{ url_for('admin_articles', q=query, category=active_category, show_hidden='1' if show_hidden else '0', page=page, edit=edit_article.slug) }}" style="margin-top:14px">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="action" value="find_licensed_article_image"><input type="hidden" name="slug" value="{{ edit_article.slug }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="action" value="retry_article_image"><input type="hidden" name="slug" value="{{ edit_article.slug }}">
       <div class="notice" style="margin-bottom:10px">
         <strong>البحث الذكي عن صورة حقيقية مناسبة ومرخّصة</strong>
         <p class="muted" style="margin:6px 0 0">سيبحث النظام باستخدام عنوان الخبر وقسمه وسياقه في مكتبات الصور المفتوحة، ثم يتحقق من صلة الصورة بالخبر وبيانات الترخيص ويحفظ نسخة محسّنة في Supabase. لا ينشئ صورة بالذكاء الاصطناعي، ولا يستخدم صورة عشوائية. إذا لم يجد تطابقًا موثوقًا، سيبقي الرسم المحلي التوضيحي بدل صورة مضللة.</p>
