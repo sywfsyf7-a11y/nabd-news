@@ -73,28 +73,12 @@
       </form>
       <script>
       (() => {
-        const mode = document.getElementById("upload_image_mode");
-        const licensed = document.getElementById("licensed-image-confirmation");
-        const ai = document.getElementById("ai-image-confirmation");
-        const licensedFields = document.querySelectorAll(".licensed-image-fields");
         const credit = document.getElementById("image_credit");
         const creditUrl = document.getElementById("image_credit_url");
         const licenseUrl = document.getElementById("image_license_url");
         const rights = document.querySelector('[name="rights_confirmed"]');
-        const aiRights = document.querySelector('[name="ai_generated_confirmed"]');
-        const sync = () => {
-          const isAi = mode.value === "ai_generated";
-          licensed.hidden = isAi;
-          ai.hidden = !isAi;
-          licensedFields.forEach(el => el.hidden = isAi);
-          [credit, creditUrl, licenseUrl].forEach(el => { el.required = !isAi; el.disabled = isAi; });
-          rights.required = !isAi;
-          rights.disabled = isAi;
-          aiRights.required = isAi;
-          aiRights.disabled = !isAi;
-        };
-        mode.addEventListener("change", sync);
-        sync();
+        [credit, creditUrl, licenseUrl].forEach(el => { el.required = true; });
+        rights.required = true;
       })();
       </script>
     </details>
