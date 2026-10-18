@@ -123,7 +123,11 @@ class AdminAiImageTests(unittest.TestCase):
         self.assertIn('value="auto" selected', source)
         self.assertIn('value="ai"', source)
         self.assertIn('value="none"', source)
-        self.assertIn("رفع صورة يدويًا (اختياري", source)
+        self.assertIn("رفع صورة يدويًا (صورة مرخّصة أو صورة مولّدة بالذكاء الاصطناعي)", source)
+        self.assertIn('name="upload_image_mode"', source)
+        self.assertIn('value="ai_generated"', source)
+        self.assertIn('name="ai_generated_confirmed"', source)
+        self.assertIn("أؤكد أن هذه الصورة مولّدة بالذكاء الاصطناعي", source)
         self.assertIn("admin_gemini_image_generation_limit", source)
         self.assertNotIn('name="image_prompt"', source)
 
