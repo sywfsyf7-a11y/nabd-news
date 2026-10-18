@@ -60,7 +60,7 @@ app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
     SESSION_COOKIE_SECURE=os.getenv("SESSION_COOKIE_SECURE", "false").lower() == "true",
-    MAX_CONTENT_LENGTH=1 * 1024 * 1024,
+    MAX_CONTENT_LENGTH=3 * 1024 * 1024,
 )
 
 logging.basicConfig(
@@ -144,7 +144,7 @@ IMAGE_CACHE_MAX_AGE_SECONDS = max(3600, int(os.getenv("IMAGE_CACHE_MAX_AGE_HOURS
 TRUSTED_REUSABLE_IMAGE_SOURCES = {
     "wikimedia_relevant", "openverse_licensed", "loc_open_access", "nasa_images",
     "artic_open_access", "met_open_access", "cleveland_museum_open_access",
-    "wellcome_open_access", "presskit_approved"
+    "wellcome_open_access", "presskit_approved", "admin_verified"
 }
 
 
@@ -6618,6 +6618,8 @@ def _normalise_summary_body(summary: str, content: str) -> str:
 
 def _image_license_label(license_url: str, source: str = "") -> str:
     value = (license_url or "").casefold()
+    if source == "admin_verified":
+        return "Admin supplied licence URL — verify item terms"
     if "publicdomain/zero/1.0" in value:
         return "CC0 1.0"
     if "publicdomain/mark/1.0" in value:
@@ -6652,6 +6654,7 @@ def _image_license_label(license_url: str, source: str = "") -> str:
 
 def _image_provider_label(source: str) -> str:
     return {
+        "admin_verified": "Manually uploaded — rights details supplied by admin",
         "wikimedia_relevant": "Wikimedia Commons",
         "openverse_licensed": "Openverse · openly licensed media",
         "loc_open_access": "Library of Congress (item marked reusable)",
@@ -7826,6 +7829,108 @@ def _admin_save_article(slug: str, values: dict[str, Any]) -> bool:
         _release_db_connection(conn)
 
 
+def _admin_store_uploaded_image(
+    slug: str,
+    image_bytes: bytes,
+    credit: str,
+    source_page_url: str,
+    license_url: str,
+) -> str:
+    """Validate an uploaded reuse-cleared image and store it durably in Supabase.
+
+    Upload is not a copyright bypass: the administrator must confirm the licence,
+    supply the item/source page and exact licence URL, and remains responsible for
+    those assertions. Uploaded bytes are decoded and re-encoded before public serving.
+    """
+    slug = _clean_text(slug, 220)
+    credit = _clean_text(credit, 180)
+    source_page_url = _clean_text(source_page_url, 1000)
+    license_url = _clean_text(license_url, 1000)
+    if not slug or not credit or not image_bytes or len(image_bytes) > 2 * 1024 * 1024:
+        return "invalid_image"
+    for value in (source_page_url, license_url):
+        parsed = urlparse(value)
+        if parsed.scheme.casefold() != "https" or not parsed.hostname or parsed.username or parsed.password:
+            return "invalid_rights_url"
+    license_path = urlparse(license_url).path.casefold()
+    if any(marker in license_path for marker in ("/by-nc", "/by-nd", "/licenses/nc", "/licenses/nd")):
+        return "restricted_license"
+
+    try:
+        with Image.open(io.BytesIO(image_bytes)) as opened:
+            if str(opened.format or "").upper() not in {"JPEG", "PNG", "WEBP"}:
+                return "invalid_image"
+            width, height = opened.size
+            if width < 300 or height < 180 or width * height > 30_000_000:
+                return "invalid_dimensions"
+            opened.verify()
+        with Image.open(io.BytesIO(image_bytes)) as opened:
+            oriented = ImageOps.exif_transpose(opened)
+            if "A" in oriented.getbands() or "transparency" in oriented.info:
+                rgba = oriented.convert("RGBA")
+                optimized = Image.new("RGB", rgba.size, "#ffffff")
+                optimized.paste(rgba, mask=rgba.getchannel("A"))
+            else:
+                optimized = oriented.convert("RGB")
+            optimized.thumbnail((1600, 1200), Image.Resampling.LANCZOS)
+            buffer = io.BytesIO()
+            optimized.save(buffer, format="JPEG", quality=82, optimize=True, progressive=True)
+            normalized_bytes = buffer.getvalue()
+    except (OSError, ValueError, Image.DecompressionBombError) as exc:
+        logger.info("Admin image upload rejected during decode (%s)", type(exc).__name__)
+        return "invalid_image"
+
+    if not normalized_bytes or len(normalized_bytes) > 2 * 1024 * 1024:
+        return "invalid_image"
+
+    image_digest = hashlib.sha256(normalized_bytes).hexdigest()
+    image_source_key = f"admin-upload:{slug}:{image_digest}"
+    image_id = hashlib.sha256(image_source_key.encode("utf-8")).hexdigest()[:40]
+    if not _ensure_schema():
+        return "database_unavailable"
+    conn = _connect_db()
+    if conn is None:
+        return "database_unavailable"
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT 1 FROM world_pulse_articles WHERE slug = %s AND is_demo = FALSE LIMIT 1",
+                (slug,),
+            )
+            if not cur.fetchone():
+                conn.rollback()
+                return "article_not_found"
+            cur.execute("""
+                INSERT INTO world_pulse_catalogued_images (image_id, source_url, mime_type, image_data)
+                VALUES (%s, %s, 'image/jpeg', %s)
+                ON CONFLICT (source_url) DO NOTHING
+            """, (image_id, image_source_key, normalized_bytes))
+            cur.execute("""
+                UPDATE world_pulse_articles
+                SET image_url = %s, image_source = 'admin_verified',
+                    image_credit = %s, image_credit_url = %s, image_provider_url = %s,
+                    image_license_url = %s, image_checked_at = NOW()
+                WHERE slug = %s AND is_demo = FALSE
+            """, (
+                "/media/catalogued/" + image_id, credit, source_page_url,
+                source_page_url, license_url, slug,
+            ))
+            changed = cur.rowcount > 0
+            if not changed:
+                conn.rollback()
+                return "article_not_found"
+        conn.commit()
+        _cache_catalogued_image_bytes(image_id, (normalized_bytes, "image/jpeg"))
+        _invalidate_db_articles_cache()
+        return "saved"
+    except Exception as exc:
+        conn.rollback()
+        logger.warning("Admin uploaded image could not be persisted (%s)", type(exc).__name__)
+        return "database_unavailable"
+    finally:
+        _release_db_connection(conn)
+
+
 def _admin_set_article_hidden(slug: str, hidden: bool) -> bool:
     """Hide an article from public queries without deleting its permanent archive row."""
     if not _ensure_schema():
@@ -8067,6 +8172,59 @@ def admin_articles():
             return redirect(url_for(
                 "admin_articles", q=query, category=category_filter,
                 show_hidden="1" if hidden else ("1" if show_hidden else "0"), page=page_number,
+            ))
+
+        if action == "save_article_image":
+            if not slug:
+                abort(400)
+            selected = _admin_fetch_article_by_slug(slug)
+            if not selected:
+                abort(404)
+            if str(request.form.get("rights_confirmed") or "") != "yes":
+                notice = "أكد أنك راجعت ترخيص الصورة وأنه يسمح بإعادة الاستخدام على الموقع."
+            elif not _clean_text(request.form.get("image_credit") or "", 180):
+                notice = "أدخل اسم المصوّر أو الجهة المالكة للصورة."
+            elif not _clean_text(request.form.get("image_credit_url") or "", 1000):
+                notice = "أدخل رابط صفحة الصورة الأصلية التي تعرض بياناتها."
+            elif not _clean_text(request.form.get("image_license_url") or "", 1000):
+                notice = "أدخل رابط الترخيص الدقيق للصورة."
+            else:
+                upload = request.files.get("image_file")
+                image_bytes = upload.read(2 * 1024 * 1024 + 1) if upload else b""
+                result = _admin_store_uploaded_image(
+                    slug,
+                    image_bytes,
+                    request.form.get("image_credit") or "",
+                    request.form.get("image_credit_url") or "",
+                    request.form.get("image_license_url") or "",
+                )
+                notice = {
+                    "saved": "تم حفظ الصورة بصورة محسّنة في Supabase مع بيانات المصدر والترخيص. ستبقى الصورة مرتبطة بهذا الخبر.",
+                    "invalid_image": "تعذر قبول الصورة. ارفع JPG أو PNG أو WebP سليمة ولا يتجاوز حجمها 2 ميغابايت.",
+                    "invalid_dimensions": "أبعاد الصورة صغيرة جدًا أو كبيرة بصورة غير آمنة؛ استخدم صورة لا تقل عن 300×180 بكسل.",
+                    "invalid_rights_url": "يجب أن تكون صفحة الصورة ورابط الترخيص رابطَي HTTPS صالحين.",
+                    "restricted_license": "هذا الترخيص يبدو غير تجاري أو يمنع الاشتقاق. لا تستخدمه لهذا الموقع دون إذن مختلف.",
+                    "article_not_found": "لم يُعثر على الخبر في الأرشيف.",
+                    "database_unavailable": "تعذر حفظ الصورة في Supabase؛ لم يُعلن نجاح العملية.",
+                }.get(result, "تعذر حفظ الصورة؛ راجع بياناتها ثم حاول مجددًا.")
+            session["wp_admin_notice"] = notice
+            return redirect(url_for(
+                "admin_articles", edit=slug, q=query, category=category_filter,
+                show_hidden="1" if show_hidden else "0", page=page_number,
+            ))
+
+        if action == "remove_article_image":
+            if not slug:
+                abort(400)
+            notice = (
+                "تمت إزالة الصورة من الخبر؛ بقي سجل الخبر محفوظًا."
+                if _remove_article_image(slug)
+                else "تعذر إزالة الصورة من الخبر."
+            )
+            session["wp_admin_notice"] = notice
+            return redirect(url_for(
+                "admin_articles", edit=slug, q=query, category=category_filter,
+                show_hidden="1" if show_hidden else "0", page=page_number,
             ))
 
         if action == "retry_article_image":
