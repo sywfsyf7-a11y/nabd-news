@@ -118,6 +118,9 @@ GEMINI_FALLBACK_MODEL = os.getenv("GEMINI_FALLBACK_MODEL", "gemini-3.8-flash").s
 GEMINI_FALLBACK_MODEL_2 = os.getenv("GEMINI_FALLBACK_MODEL_2", "gemini-3.1-flash-lite").strip()
 GEMINI_IMAGE_MODEL = os.getenv("GEMINI_IMAGE_MODEL", "gemini-nano-banana-2.1").strip()
 GEMINI_IMAGE_GENERATION_ENABLED = os.getenv("GEMINI_IMAGE_GENERATION_ENABLED", "false").lower() not in {"0", "false", "no"}
+# Manual admin generation is an explicitly requested action; it does not enable scheduled AI image generation.
+ADMIN_GEMINI_IMAGE_GENERATION_ENABLED = os.getenv("ADMIN_GEMINI_IMAGE_GENERATION_ENABLED", "true").lower() not in {"0", "false", "no"}
+MAX_ADMIN_GEMINI_IMAGES_PER_24H = max(0, min(30, int(os.getenv("MAX_ADMIN_GEMINI_IMAGES_PER_24H", "8"))))
 MAX_GEMINI_IMAGES_PER_REFRESH = max(0, min(4, int(os.getenv("MAX_GEMINI_IMAGES_PER_REFRESH", "1"))))
 MAX_GEMINI_IMAGES_PER_24H = max(0, min(100, int(os.getenv("MAX_GEMINI_IMAGES_PER_24H", "4"))))
 GEMINI_429_COOLDOWN_MINUTES = max(5, min(1440, int(os.getenv("GEMINI_429_COOLDOWN_MINUTES", "60"))))
@@ -158,22 +161,25 @@ IMAGE_CACHE_MAX_AGE_SECONDS = max(3600, int(os.getenv("IMAGE_CACHE_MAX_AGE_HOURS
 TRUSTED_REUSABLE_IMAGE_SOURCES = {
     "wikimedia_relevant", "openverse_licensed", "loc_open_access", "nasa_images",
     "artic_open_access", "met_open_access", "cleveland_museum_open_access",
-    "wellcome_open_access", "presskit_approved", "admin_verified"
+    "wellcome_open_access", "presskit_approved", "admin_verified", "gemini_generated"
 }
 
 
 def _image_license_verified(row: dict[str, Any]) -> bool:
-    """Only display third-party images when a human-auditable license URL is stored."""
+    """Validate a rights-cleared third-party photo or a first-party stored AI illustration."""
     image_url = str(row.get("image_url") or "").strip()
-    license_url = str(row.get("image_license_url") or "").strip()
     source = str(row.get("image_source") or "").strip()
+    if source == "gemini_generated":
+        # AI-generated illustrations are first-party media, not third-party licensed photos.
+        # Only accept immutable image ids served from the server's Supabase-backed route.
+        return bool(re.fullmatch(r"/media/generated/[a-f0-9]{32}", image_url))
+    license_url = str(row.get("image_license_url") or "").strip()
     remote_url = image_url.startswith("https://")
     cached_url = bool(re.fullmatch(r"/media/catalogued/[a-f0-9]{40}", image_url))
     return bool(
         (remote_url or cached_url)
         and source in TRUSTED_REUSABLE_IMAGE_SOURCES
         and license_url.startswith("https://")
-        and source != "gemini_generated"
     )
 
 CATEGORY_NAMES = {
@@ -3695,6 +3701,29 @@ def _db_count_gemini_images_last_24h() -> int | None:
     finally:
         _release_db_connection(conn)
 
+def _db_count_admin_gemini_images_last_24h() -> int | None:
+    """Count only admin-requested Gemini images to enforce a small, persistent daily budget."""
+    if not _ensure_schema():
+        return None
+    conn = _connect_db()
+    if conn is None:
+        return None
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT COUNT(*) FROM world_pulse_generated_images
+                WHERE created_at >= NOW() - INTERVAL '24 hours'
+                  AND prompt LIKE 'admin-manual:%'
+            """)
+            row = cur.fetchone()
+            return int(row[0]) if row else 0
+    except Exception as exc:
+        logger.warning("Could not read admin image-generation quota (%s)", type(exc).__name__)
+        return None
+    finally:
+        _release_db_connection(conn)
+
+
 def _store_gemini_generated_image(image_bytes: bytes, prompt: str) -> str:
     if not image_bytes or len(image_bytes) > 8 * 1024 * 1024 or not _ensure_schema():
         return ""
@@ -3793,10 +3822,10 @@ EDITORIAL ACCURACY AND RIGHTS:
 - Avoid graphic injury, gore, sensational depictions and deceptive photorealism.
 - Output only the finished image, no explanation or prompt text."""
     
-def _generate_gemini_article_image(raw: dict[str, Any]) -> dict[str, Any]:
+def _generate_gemini_article_image(raw: dict[str, Any], *, manual_admin: bool = False) -> dict[str, Any]:
     global _GEMINI_RATE_LIMIT_UNTIL, _GEMINI_TRANSIENT_ERROR_UNTIL
     if (
-        not GEMINI_IMAGE_GENERATION_ENABLED
+        (not ADMIN_GEMINI_IMAGE_GENERATION_ENABLED if manual_admin else not GEMINI_IMAGE_GENERATION_ENABLED)
         or not GEMINI_API_KEY
         or genai is None
         or types is None
@@ -3851,7 +3880,8 @@ def _generate_gemini_article_image(raw: dict[str, Any]) -> dict[str, Any]:
             buffer = io.BytesIO()
             optimized.save(buffer, format="JPEG", quality=88, optimize=True, progressive=True)
             stored_bytes = buffer.getvalue()
-        image_id = _store_gemini_generated_image(stored_bytes, prompt)
+        storage_prompt = ("admin-manual: " if manual_admin else "automatic: ") + prompt
+        image_id = _store_gemini_generated_image(stored_bytes, storage_prompt)
         if not image_id:
             raise RuntimeError("Persistent storage for generated images is unavailable")
         return {
@@ -7934,7 +7964,8 @@ def _admin_store_uploaded_image(
                 UPDATE world_pulse_articles
                 SET image_url = %s, image_source = 'admin_verified',
                     image_credit = %s, image_credit_url = %s, image_provider_url = %s,
-                    image_license_url = %s, image_checked_at = NOW()
+                    image_license_url = %s, image_checked_at = NOW(),
+                    image_relevance_verified = TRUE
                 WHERE slug = %s AND is_demo = FALSE
             """, (
                 "/media/catalogued/" + image_id, credit, source_page_url,
@@ -7954,6 +7985,33 @@ def _admin_store_uploaded_image(
         return "database_unavailable"
     finally:
         _release_db_connection(conn)
+
+
+def _admin_generate_and_save_article_image(slug: str) -> str:
+    """Create one contextual AI illustration for an existing saved story and persist its association."""
+    if not ADMIN_GEMINI_IMAGE_GENERATION_ENABLED or MAX_ADMIN_GEMINI_IMAGES_PER_24H <= 0:
+        return "disabled"
+    if not GEMINI_API_KEY or genai is None or types is None:
+        return "not_configured"
+    recent_count = _db_count_admin_gemini_images_last_24h()
+    if recent_count is None:
+        return "database_unavailable"
+    if recent_count >= MAX_ADMIN_GEMINI_IMAGES_PER_24H:
+        return "daily_limit"
+    article = _admin_fetch_article_by_slug(slug)
+    if not article:
+        return "article_not_found"
+    raw = _raw_from_stored_article(article)
+    if not str(raw.get("original_title") or "").strip():
+        return "missing_headline"
+    generated = _generate_gemini_article_image(raw, manual_admin=True)
+    if not generated:
+        return "generation_failed"
+    generated["image_relevance_verified"] = True
+    updated = _db_update_article_images([{**raw, **generated, "image_relevance_verified": True}])
+    if not updated:
+        return "database_write_failed"
+    return "saved"
 
 
 def _admin_set_article_hidden(slug: str, hidden: bool) -> bool:
@@ -8087,7 +8145,8 @@ def _remove_article_image(slug: str) -> bool:
         with conn.cursor() as cur:
             cur.execute("""UPDATE world_pulse_articles SET
                 image_url = '', image_source = 'none', image_credit = '', image_credit_url = '',
-                image_provider_url = '', image_license_url = '', image_checked_at = NOW()
+                image_provider_url = '', image_license_url = '', image_checked_at = NOW(),
+                image_relevance_verified = FALSE
                 WHERE slug = %s AND is_demo = FALSE""", (slug,))
             changed = changed or cur.rowcount > 0
         conn.commit()
@@ -8252,6 +8311,30 @@ def admin_articles():
                 show_hidden="1" if show_hidden else "0", page=page_number,
             ))
 
+        if action == "generate_ai_article_image":
+            if not slug:
+                abort(400)
+            selected = _admin_fetch_article_by_slug(slug)
+            if not selected:
+                abort(404)
+            result = _admin_generate_and_save_article_image(slug)
+            notice = {
+                "saved": "تم إنشاء رسم توضيحي مرتبط بعنوان الخبر وحفظه في Supabase. وُسمت الصورة بوضوح كرسم مولّد بالذكاء الاصطناعي.",
+                "disabled": "توليد الصور اليدوي غير مفعّل حاليًا من إعدادات الخادم.",
+                "not_configured": "تعذر إنشاء الصورة: تأكد من إعداد مفتاح Gemini وتثبيت مكتبة Google GenAI على Render.",
+                "database_unavailable": "تعذر التحقق من حد توليد الصور أو الاتصال بقاعدة البيانات؛ لم يتم إعلان نجاح العملية.",
+                "daily_limit": f"وصلت إلى الحد اليومي لتوليد الصور ({MAX_ADMIN_GEMINI_IMAGES_PER_24H} صور خلال 24 ساعة).",
+                "article_not_found": "لم يُعثر على الخبر في الأرشيف.",
+                "missing_headline": "أضف عنوانًا للخبر قبل إنشاء صورة توضيحية.",
+                "database_write_failed": "تم توليد الصورة لكن تعذر ربطها بالخبر في قاعدة البيانات؛ افتح سجل الخبر وحاول مجددًا.",
+                "generation_failed": "تعذر توليد الصورة الآن. قد يكون السبب حصّة Gemini أو مهلة الاتصال؛ بقيت الصورة الحالية كما هي.",
+            }.get(result, "تعذر إنشاء الصورة. بقيت الصورة الحالية والخبر محفوظين كما هما.")
+            session["wp_admin_notice"] = notice
+            return redirect(url_for(
+                "admin_articles", edit=slug, q=query, category=category_filter,
+                show_hidden="1" if show_hidden else "0", page=page_number,
+            ))
+
         if action == "retry_article_image":
             selected = _admin_fetch_article_by_slug(slug)
             if not selected:
@@ -8341,6 +8424,7 @@ def admin_articles():
             ))
 
         if action == "create_article":
+            create_status = ""
             source_url = _clean_text(request.form.get("source_url") or "", 500)
             source_name = _clean_text(request.form.get("source_name") or "", 140)
             new_category = str(request.form.get("category") or "")
@@ -8374,8 +8458,8 @@ def admin_articles():
                             "content_ar": "", "content_en": "", "read_minutes": 1,
                             "original_language": source_lang,
                         }
-                        status = _admin_create_article(values)
-                        notice = "أُضيف العنوان مع رابط المصدر فقط." if status == "created" else ("الرابط محفوظ من قبل؛ افتح الخبر الموجود بدل إنشاء نسخة مكررة." if status == "duplicate_source" else "تعذر حفظ الخبر في قاعدة البيانات.")
+                        create_status = _admin_create_article(values)
+                        notice = "أُضيف العنوان مع رابط المصدر فقط." if create_status == "created" else ("الرابط محفوظ من قبل؛ افتح الخبر الموجود بدل إنشاء نسخة مكررة." if create_status == "duplicate_source" else "تعذر حفظ الخبر في قاعدة البيانات.")
                 else:
                     values = {
                         "slug": _slug_for_url(source_url), "source_url": source_url,
@@ -8399,8 +8483,46 @@ def admin_articles():
                         notice = "أضف تفاصيل أصلية موثقة لا تقل عن 180 حرفًا في كل لغة. لا تنسخ نص المقال كاملًا."
                     else:
                         values["read_minutes"] = max(1, min(99, (max(len(values["content_ar"]), len(values["content_en"])) + 899) // 900))
-                        status = _admin_create_article(values)
-                        notice = "تمت إضافة الخبر إلى الأرشيف." if status == "created" else ("هذا الرابط محفوظ مسبقًا؛ لم ننشئ نسخة مكررة." if status == "duplicate_source" else "تعذر إضافة الخبر إلى قاعدة البيانات.")
+                        create_status = _admin_create_article(values)
+                        notice = "تمت إضافة الخبر إلى الأرشيف." if create_status == "created" else ("هذا الرابط محفوظ مسبقًا؛ لم ننشئ نسخة مكررة." if create_status == "duplicate_source" else "تعذر إضافة الخبر إلى قاعدة البيانات.")
+
+            # Images are optional for a new story. A selected manual upload must carry
+            # complete rights metadata; AI mode creates one labelled first-party illustration.
+            if create_status == "created":
+                image_mode = str(request.form.get("create_image_mode") or "none").casefold()
+                created_slug = str(values.get("slug") or _slug_for_url(source_url))
+                if image_mode == "upload":
+                    upload = request.files.get("create_image_file")
+                    image_bytes = upload.read(MAX_IMAGE_UPLOAD_BYTES + 1) if upload else b""
+                    if not image_bytes:
+                        notice = "تمت إضافة الخبر، لكن لم يتم اختيار ملف للصورة. افتح الخبر لإضافة صورة لاحقًا."
+                    elif str(request.form.get("create_rights_confirmed") or "") != "yes":
+                        notice = "تمت إضافة الخبر، لكن لم تُحفظ الصورة لأن تأكيد الترخيص مطلوب."
+                    elif not all(_clean_text(request.form.get(key) or "", max_len) for key, max_len in (
+                        ("create_image_credit", 180), ("create_image_credit_url", 1000),
+                        ("create_image_license_url", 1000),
+                    )):
+                        notice = "تمت إضافة الخبر، لكن بيانات صاحب الصورة وصفحتها والترخيص غير مكتملة."
+                    else:
+                        image_result = _admin_store_uploaded_image(
+                            created_slug,
+                            image_bytes,
+                            request.form.get("create_image_credit") or "",
+                            request.form.get("create_image_credit_url") or "",
+                            request.form.get("create_image_license_url") or "",
+                        )
+                        notice = (
+                            "تمت إضافة الخبر وحفظ الصورة المرخّصة في Supabase."
+                            if image_result == "saved"
+                            else "تمت إضافة الخبر، لكن لم تُحفظ الصورة (%s). يمكنك فتح الخبر وإعادة محاولة رفع الصورة." % image_result
+                        )
+                elif image_mode == "ai":
+                    image_result = _admin_generate_and_save_article_image(created_slug)
+                    notice = (
+                        "تمت إضافة الخبر وإنشاء رسم توضيحي بالذكاء الاصطناعي وحفظه في Supabase."
+                        if image_result == "saved"
+                        else "تمت إضافة الخبر، لكن تعذر إنشاء الصورة (%s). افتح الخبر وحاول من لوحة الصورة بالذكاء الاصطناعي." % image_result
+                    )
             session["wp_admin_notice"] = notice
             return redirect(url_for(
                 "admin_articles", q=query, category=category_filter,
@@ -8435,6 +8557,7 @@ def admin_articles():
         notice=notice,
         db_error=db_error,
         csrf_token=session.get("wp_admin_csrf", ""),
+        admin_gemini_image_generation_limit=MAX_ADMIN_GEMINI_IMAGES_PER_24H,
     )
 
 
