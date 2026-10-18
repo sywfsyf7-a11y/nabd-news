@@ -117,12 +117,12 @@ GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite").strip()
 GEMINI_FALLBACK_MODEL = os.getenv("GEMINI_FALLBACK_MODEL", "gemini-3.8-flash").strip()
 GEMINI_FALLBACK_MODEL_2 = os.getenv("GEMINI_FALLBACK_MODEL_2", "gemini-3.1-flash-lite").strip()
 GEMINI_IMAGE_MODEL = os.getenv("GEMINI_IMAGE_MODEL", "gemini-nano-banana-2.1").strip()
-GEMINI_IMAGE_GENERATION_ENABLED = os.getenv("GEMINI_IMAGE_GENERATION_ENABLED", "false").lower() not in {"0", "false", "no"}
-# Manual admin generation is an explicitly requested action; it does not enable scheduled AI image generation.
-ADMIN_GEMINI_IMAGE_GENERATION_ENABLED = os.getenv("ADMIN_GEMINI_IMAGE_GENERATION_ENABLED", "true").lower() not in {"0", "false", "no"}
-MAX_ADMIN_GEMINI_IMAGES_PER_24H = max(0, min(30, int(os.getenv("MAX_ADMIN_GEMINI_IMAGES_PER_24H", "8"))))
-MAX_GEMINI_IMAGES_PER_REFRESH = max(0, min(4, int(os.getenv("MAX_GEMINI_IMAGES_PER_REFRESH", "1"))))
-MAX_GEMINI_IMAGES_PER_24H = max(0, min(100, int(os.getenv("MAX_GEMINI_IMAGES_PER_24H", "4"))))
+# Gemini image generation is disabled; use verified licensed photos only.
+GEMINI_IMAGE_GENERATION_ENABLED = False
+ADMIN_GEMINI_IMAGE_GENERATION_ENABLED = False
+MAX_ADMIN_GEMINI_IMAGES_PER_24H = 0
+MAX_GEMINI_IMAGES_PER_REFRESH = 0
+MAX_GEMINI_IMAGES_PER_24H = 0
 GEMINI_429_COOLDOWN_MINUTES = max(5, min(1440, int(os.getenv("GEMINI_429_COOLDOWN_MINUTES", "60"))))
 GEMINI_TRANSIENT_ERROR_COOLDOWN_MINUTES = max(1, min(60, int(os.getenv("GEMINI_TRANSIENT_ERROR_COOLDOWN_MINUTES", "10"))))
 GEMINI_INVALID_RESPONSE_COOLDOWN_MINUTES = max(1, min(60, int(os.getenv("GEMINI_INVALID_RESPONSE_COOLDOWN_MINUTES", "5"))))
@@ -3823,7 +3823,8 @@ EDITORIAL ACCURACY AND RIGHTS:
 - Output only the finished image, no explanation or prompt text."""
     
 def _generate_gemini_article_image(raw: dict[str, Any], *, manual_admin: bool = False) -> dict[str, Any]:
-    global _GEMINI_RATE_LIMIT_UNTIL, _GEMINI_TRANSIENT_ERROR_UNTIL
+    """Image generation is disabled; do not call Gemini for news imagery."""
+    return {}
     if (
         (not ADMIN_GEMINI_IMAGE_GENERATION_ENABLED if manual_admin else not GEMINI_IMAGE_GENERATION_ENABLED)
         or not GEMINI_API_KEY
@@ -7934,50 +7935,8 @@ def _admin_store_uploaded_image(
     if not normalized_bytes:
         return "invalid_image"
 
-    # An administrator-supplied AI illustration is stored as first-party media.
-    # It does not require a third-party photo licence, but the admin must explicitly
-    # attest that the file was AI-generated. It is still labelled as AI media.
     if ai_generated:
-        if len(normalized_bytes) > 8 * 1024 * 1024:
-            return "image_too_large"
-        image_id = _store_gemini_generated_image(
-            normalized_bytes, "admin-uploaded AI-generated illustration"
-        )
-        if not image_id:
-            return "database_unavailable"
-        conn = _connect_db()
-        if conn is None:
-            return "database_unavailable"
-        try:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT 1 FROM world_pulse_articles WHERE slug = %s AND is_demo = FALSE LIMIT 1",
-                    (slug,),
-                )
-                if not cur.fetchone():
-                    conn.rollback()
-                    return "article_not_found"
-                cur.execute("""
-                    UPDATE world_pulse_articles
-                    SET image_url = %s, image_source = 'gemini_generated',
-                        image_credit = %s, image_credit_url = '',
-                        image_provider_url = 'https://ai.google.dev/gemini-api/docs/image-generation',
-                        image_license_url = '', image_checked_at = NOW(),
-                        image_relevance_verified = TRUE
-                    WHERE slug = %s AND is_demo = FALSE
-                """, ("/media/generated/" + image_id, "AI-generated illustration uploaded by site administrator", slug))
-                if cur.rowcount <= 0:
-                    conn.rollback()
-                    return "article_not_found"
-            conn.commit()
-            _invalidate_db_articles_cache()
-            return "saved_ai"
-        except Exception as exc:
-            conn.rollback()
-            logger.warning("Admin AI image association failed (%s)", type(exc).__name__)
-            return "database_unavailable"
-        finally:
-            _release_db_connection(conn)
+        return "ai_generation_disabled"
 
     for value in (source_page_url, license_url):
         parsed = urlparse(value)
@@ -8373,7 +8332,7 @@ def admin_articles():
             selected = _admin_fetch_article_by_slug(slug)
             if not selected:
                 abort(404)
-            result = _admin_generate_and_save_article_image(slug)
+            result = "disabled"
             notice = {
                 "saved": "تم إنشاء رسم توضيحي مرتبط بعنوان الخبر وسياقه وحفظه في Supabase. وُسم بوضوح كرسم مولّد بالذكاء الاصطناعي.",
                 "disabled": "توليد الصور بالذكاء الاصطناعي غير مفعّل حاليًا من إعدادات الخادم.",
