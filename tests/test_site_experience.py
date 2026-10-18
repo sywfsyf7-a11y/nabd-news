@@ -2086,6 +2086,7 @@ class AdminAutomaticLicensedImageWorkflowTests(unittest.TestCase):
         self.assertIn('value="auto" selected>البحث التلقائي عن صورة حقيقية مرخّصة', template)
         self.assertIn("رفع صورة يدويًا (اختياري", template)
         self.assertNotIn("إنشاء وحفظ صورة توضيحية بالذكاء الاصطناعي", template)
+        self.assertNotIn('name="action" value="generate_ai_article_image"', template)
         self.assertNotIn('<option value="ai"', template)
 
     def test_admin_image_search_path_explicitly_disables_image_generation(self):
@@ -2097,10 +2098,12 @@ class AdminAutomaticLicensedImageWorkflowTests(unittest.TestCase):
         helper = source[helper_start:helper_end]
 
         self.assertIn("_enrich_article_images(candidates, force_refresh=True, allow_ai_generation=False)", helper)
-        self.assertIn('name="action" value="retry_article_image"', open(
-            os.path.join(os.path.dirname(world_pulse.__file__), "templates", "admin_articles.html"),
-            encoding="utf-8",
-        ).read())
+        template_path = os.path.join(
+            os.path.dirname(world_pulse.__file__), "templates", "admin_articles.html"
+        )
+        with open(template_path, encoding="utf-8") as handle:
+            template = handle.read()
+        self.assertIn('name="action" value="retry_article_image"', template)
 
 
 if __name__ == "__main__":
