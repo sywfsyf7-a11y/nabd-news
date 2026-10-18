@@ -122,13 +122,27 @@
       <div class="actions" style="margin-top:14px"><button type="submit">حفظ الصورة وبيانات الحقوق</button></div>
     </form>
 
-    <form method="post" action="{{ url_for('admin_articles', q=query, category=active_category, show_hidden='1' if show_hidden else '0', page=page, edit=edit_article.slug) }}" style="margin-top:14px" onsubmit="return confirm('سيُستهلك طلب توليد صورة بالذكاء الاصطناعي، وسيستبدل الصورة الرئيسية الحالية إذا نجح. هل تريد المتابعة؟');">
+    <div class="section-head" style="margin-top:26px"><h3>رسم توضيحي إضافي بالذكاء الاصطناعي</h3><span class="pill">صورة مستقلة</span></div>
+    <p class="muted">يُحفظ هذا الرسم بشكل منفصل عن الصورة الرئيسية. لن يستبدل الصورة المرخّصة التي رفعتها ولن يغيّر بيانات صاحبها أو ترخيصها. عند عدم وجود صورة رئيسية، يمكن عرض الرسم بوصفه صورة توضيحية، مع وسم واضح بأنه مولّد بالذكاء الاصطناعي.</p>
+    {% if edit_article.ai_image_url %}
+      <div class="notice" style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">
+        <img src="{{ edit_article.ai_image_url }}" alt="معاينة الرسم التوضيحي الإضافي" loading="lazy" decoding="async" style="width:220px;max-height:140px;object-fit:cover;border-radius:10px">
+        <div><strong>الرسم الإضافي المحفوظ</strong><p class="muted">رسم توضيحي مولّد بالذكاء الاصطناعي، مرتبط بهذا الخبر ومحفوظ في Supabase.</p><p class="muted">تاريخ آخر توليد: {{ edit_article.ai_image_updated_at or 'غير متاح' }}</p></div>
+      </div>
+      <form method="post" action="{{ url_for('admin_articles', q=query, category=active_category, show_hidden='1' if show_hidden else '0', page=page, edit=edit_article.slug) }}" style="margin-top:10px" onsubmit="return confirm('سيتم فصل الرسم عن الخبر فقط؛ سيبقى الخبر والصورة الرئيسية وملف الوسائط في الأرشيف. هل تريد المتابعة؟');">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="action" value="remove_ai_article_illustration"><input type="hidden" name="slug" value="{{ edit_article.slug }}">
+        <button class="secondary" type="submit">فصل الرسم الإضافي عن الخبر</button>
+      </form>
+    {% else %}
+      <div class="notice warning">لا يوجد رسم توضيحي إضافي محفوظ لهذا الخبر بعد. يمكنك إنشاؤه أدناه دون تغيير الصورة الرئيسية.</div>
+    {% endif %}
+    <form method="post" action="{{ url_for('admin_articles', q=query, category=active_category, show_hidden='1' if show_hidden else '0', page=page, edit=edit_article.slug) }}" style="margin-top:14px" onsubmit="return confirm('سيتم إنشاء رسم توضيحي إضافي وربطه بالخبر. لن تتغير الصورة الرئيسية. هل تريد المتابعة؟');">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="action" value="generate_ai_article_image"><input type="hidden" name="slug" value="{{ edit_article.slug }}">
       <div class="notice" style="margin-bottom:10px">
-        <strong>إنشاء صورة توضيحية بالذكاء الاصطناعي</strong>
-        <p class="muted" style="margin:6px 0 0">سيستخدم النظام عنوان الخبر وقسمه والسياق المحفوظ لإنشاء رسم أفقي خاص بهذا الخبر، ثم يحفظه في Supabase ويضع علامة «رسم توضيحي». هذه ليست صورة صحفية حقيقية ولا تُعرض على أنها لقطة وثائقية. الحد اليومي الافتراضي {{ admin_gemini_image_generation_limit }} صورة مولّدة يدويًا.</p>
+        <strong>إنشاء رسم مرتبط بعنوان الخبر</strong>
+        <p class="muted" style="margin:6px 0 0">سيستخدم النظام عنوان الخبر وقسمه والسياق المحفوظ لإنشاء رسم أفقي أصلي. سيُحفظ منفصلًا في Supabase ويوسَم «رسم توضيحي بالذكاء الاصطناعي»؛ ليس صورة صحفية حقيقية ولا لقطة وثائقية. الحد اليومي الافتراضي {{ admin_gemini_image_generation_limit }} صور مولّدة يدويًا خلال 24 ساعة.</p>
       </div>
-      <button type="submit">إنشاء وحفظ صورة توضيحية بالذكاء الاصطناعي</button>
+      <button type="submit">إنشاء وحفظ رسم توضيحي إضافي</button>
     </form>
 
     {% if edit_article.image_url and (edit_article.image_source == 'gemini_generated' or edit_article.image_source in ['wikimedia_relevant','openverse_licensed','loc_open_access','nasa_images','artic_open_access','met_open_access','cleveland_museum_open_access','wellcome_open_access','presskit_approved','admin_verified']) %}
@@ -146,13 +160,15 @@
       <article class="story">
         {% if row.image_url and (row.image_source == 'gemini_generated' or (row.image_source in ['wikimedia_relevant','openverse_licensed','loc_open_access','nasa_images','artic_open_access','met_open_access','cleveland_museum_open_access','wellcome_open_access','presskit_approved','admin_verified'] and row.image_credit_url and row.image_license_url)) %}
           <img class="thumb" src="{{ public_image_url(row.image_url) }}" alt="" loading="lazy" decoding="async">
+        {% elif row.ai_image_url and not row.image_url %}
+          <img class="thumb" src="{{ row.ai_image_url }}" alt="رسم توضيحي بالذكاء الاصطناعي" loading="lazy" decoding="async">
         {% else %}
           <img class="thumb" src="{{ url_for('static', filename='images/fallback-ar.svg' if row.original_language == 'ar' else 'images/fallback-en.svg') }}" alt="" loading="lazy" decoding="async">
         {% endif %}
         <div>
           <div class="story-title">{{ row.title_ar or row.title_en or row.slug }}</div>
           <div class="meta"><span>{{ row.source_name or row.source_domain }}</span><span>·</span><span>{{ category_names[row.category]['ar'] if row.category in category_names else row.category }}</span><span>·</span><span>{{ 'عربي' if row.original_language == 'ar' else 'English' }}</span></div>
-          <div class="meta"><span class="pill {{ 'hidden' if row.is_hidden else 'good' }}">{{ 'مخفي — محفوظ' if row.is_hidden else 'ظاهر للعامة' }}</span>{% if row.headline_only %}<span class="pill">العنوان والرابط فقط</span>{% endif %}{% if row.image_url and row.image_source == 'gemini_generated' %}<span class="pill good">رسم توضيحي بالذكاء الاصطناعي</span>{% elif row.image_url and row.image_source in ['wikimedia_relevant','openverse_licensed','loc_open_access','nasa_images','artic_open_access','met_open_access','cleveland_museum_open_access','wellcome_open_access','presskit_approved','admin_verified'] and row.image_credit_url and row.image_license_url %}<span class="pill good">بيانات حقوق محفوظة</span>{% else %}<span class="pill">يحتاج مراجعة صورة</span>{% endif %}</div>
+          <div class="meta"><span class="pill {{ 'hidden' if row.is_hidden else 'good' }}">{{ 'مخفي — محفوظ' if row.is_hidden else 'ظاهر للعامة' }}</span>{% if row.headline_only %}<span class="pill">العنوان والرابط فقط</span>{% endif %}{% if row.ai_image_url %}<span class="pill good">رسم AI إضافي محفوظ</span>{% endif %}{% if row.image_url and row.image_source == 'gemini_generated' %}<span class="pill good">رسم توضيحي بالذكاء الاصطناعي</span>{% elif row.image_url and row.image_source in ['wikimedia_relevant','openverse_licensed','loc_open_access','nasa_images','artic_open_access','met_open_access','cleveland_museum_open_access','wellcome_open_access','presskit_approved','admin_verified'] and row.image_credit_url and row.image_license_url %}<span class="pill good">بيانات حقوق محفوظة</span>{% else %}<span class="pill">يحتاج مراجعة صورة</span>{% endif %}</div>
           <div class="meta"><a href="{{ row.source_url }}" target="_blank" rel="noopener noreferrer">المصدر الأصلي</a> · <a href="{{ url_for('article', slug=row.slug, lang=row.original_language) }}" target="_blank" rel="noopener noreferrer">عرض الخبر</a></div>
         </div>
         <div class="row-actions">
@@ -200,24 +216,18 @@
           <div><label for="create-content-en">Story details (at least 180 characters)</label><textarea id="create-content-en" name="content_en" maxlength="8000" dir="ltr"></textarea></div>
         </div>
         <details id="create-image-options" class="notice" style="margin-top:16px">
-          <summary><strong>الصورة الرئيسية للخبر (اختياري)</strong></summary>
-          <p class="muted">يمكنك ترك الخبر من دون صورة، رفع صورة يسمح ترخيصها بإعادة الاستخدام، أو إنشاء رسم توضيحي جديد بالذكاء الاصطناعي. اختر طريقة واحدة. الصور المولّدة تُحفظ في Supabase وتُوسم كرسم توضيحي.</p>
-          <label for="create-image-mode">طريقة الصورة</label>
-          <select id="create-image-mode" name="create_image_mode">
-            <option value="none" selected>بدون صورة الآن</option>
-            <option value="upload">رفع صورة مرخّصة</option>
-            <option value="ai">إنشاء رسم توضيحي بالذكاء الاصطناعي</option>
-          </select>
-          <div id="create-manual-image-fields" hidden>
-            <div class="fields">
-              <div class="wide"><label for="create-image-file">ملف الصورة (JPG أو PNG أو WebP)</label><input id="create-image-file" name="create_image_file" type="file" accept="image/jpeg,image/png,image/webp"></div>
-              <div><label for="create-image-credit">اسم المصوّر أو الجهة المالكة</label><input id="create-image-credit" name="create_image_credit" maxlength="180" placeholder="NASA / اسم المصوّر"></div>
-              <div><label for="create-image-credit-url">رابط صفحة الصورة الأصلية</label><input id="create-image-credit-url" name="create_image_credit_url" type="url" maxlength="1000" dir="ltr" placeholder="https://…"></div>
-              <div class="wide"><label for="create-image-license-url">رابط الترخيص المحدد</label><input id="create-image-license-url" name="create_image_license_url" type="url" maxlength="1000" dir="ltr" placeholder="https://creativecommons.org/licenses/by/4.0/"></div>
-            </div>
-            <label style="display:flex;align-items:flex-start;gap:10px;margin-top:10px"><input id="create-rights-confirmed" type="checkbox" name="create_rights_confirmed" value="yes" style="width:auto;margin-top:4px"><span>أؤكد أنني راجعت صفحة الصورة والترخيص وأن الاستخدام التحريري على هذا الموقع مسموح به، وأن بيانات الإسناد صحيحة.</span></label>
+          <summary><strong>الصورة الرئيسية والرسم الإضافي (اختياريان ومستقلان)</strong></summary>
+          <p class="muted">يمكنك رفع صورة رئيسية تسمح حقوقها بإعادة الاستخدام، وطلب رسم توضيحي إضافي بالذكاء الاصطناعي في الوقت نفسه. الصورة الرئيسية تبقى مستقلة عن رسم AI. الصور المولّدة تُحفظ في Supabase وتُعرض بوسم توضيحي واضح.</p>
+          <div class="fields">
+            <div class="wide"><label for="create-image-file">صورة رئيسية مرخّصة (JPG أو PNG أو WebP، اختيارية)</label><input id="create-image-file" name="create_image_file" type="file" accept="image/jpeg,image/png,image/webp"><small class="muted">اترك الملف فارغًا إذا أردت استخدام الرسم الإضافي كصورة العرض عند عدم توفر صورة رئيسية مرخّصة.</small></div>
+            <div><label for="create-image-credit">اسم المصوّر أو الجهة المالكة</label><input id="create-image-credit" name="create_image_credit" maxlength="180" placeholder="NASA / اسم المصوّر"></div>
+            <div><label for="create-image-credit-url">رابط صفحة الصورة الأصلية</label><input id="create-image-credit-url" name="create_image_credit_url" type="url" maxlength="1000" dir="ltr" placeholder="https://…"></div>
+            <div class="wide"><label for="create-image-license-url">رابط الترخيص المحدد</label><input id="create-image-license-url" name="create_image_license_url" type="url" maxlength="1000" dir="ltr" placeholder="https://creativecommons.org/licenses/by/4.0/"></div>
           </div>
-          <p id="create-ai-image-note" class="muted" hidden>سيُنشأ الرسم من عنوان الخبر وقسمه والسياق المحفوظ بعد حفظ الخبر، ثم يُربط به في Supabase. الحدّ الافتراضي {{ admin_gemini_image_generation_limit }} صور خلال 24 ساعة.</p>
+          <label style="display:flex;align-items:flex-start;gap:10px;margin-top:10px"><input id="create-rights-confirmed" type="checkbox" name="create_rights_confirmed" value="yes" style="width:auto;margin-top:4px"><span>أؤكد أنني راجعت صفحة الصورة والترخيص وأن الاستخدام التحريري على هذا الموقع مسموح به، وأن بيانات الإسناد صحيحة.</span></label>
+          <div class="notice" style="margin-top:14px">
+            <label style="display:flex;align-items:flex-start;gap:10px;margin:0"><input id="create-ai-illustration" type="checkbox" name="create_ai_illustration" value="yes" style="width:auto;margin-top:4px"><span><strong>إنشاء رسم توضيحي إضافي بالذكاء الاصطناعي</strong><br><small class="muted">يستخدم عنوان الخبر وقسمه والسياق المحفوظ. لا ينسخ صورة الناشر ولا يستبدل الصورة الرئيسية. الحد الافتراضي {{ admin_gemini_image_generation_limit }} صور خلال 24 ساعة.</small></span></label>
+          </div>
         </details>
         <button style="margin-top:14px" type="submit">التحقق من الشروط ثم إضافة الخبر</button>
       </form>
@@ -249,26 +259,21 @@
     try { localStorage.setItem(key, next); } catch (_) {}
   });
 
-  const imageMode = document.getElementById("create-image-mode");
-  const manualFields = document.getElementById("create-manual-image-fields");
-  const aiImageNote = document.getElementById("create-ai-image-note");
+  const upload = document.getElementById("create-image-file");
   const manualRequired = [
-    document.getElementById("create-image-file"),
     document.getElementById("create-image-credit"),
     document.getElementById("create-image-credit-url"),
     document.getElementById("create-image-license-url"),
     document.getElementById("create-rights-confirmed")
   ];
-  const syncCreateImageMode = () => {
-    const mode = imageMode ? imageMode.value : "none";
-    if (manualFields) manualFields.hidden = mode !== "upload";
-    if (aiImageNote) aiImageNote.hidden = mode !== "ai";
+  const syncPrimaryPhotoRequirements = () => {
+    const selected = Boolean(upload && upload.files && upload.files.length > 0);
     manualRequired.forEach((field) => {
-      if (field) field.required = mode === "upload";
+      if (field) field.required = selected;
     });
   };
-  imageMode?.addEventListener("change", syncCreateImageMode);
-  syncCreateImageMode();
+  upload?.addEventListener("change", syncPrimaryPhotoRequirements);
+  syncPrimaryPhotoRequirements();
 })();
 </script>
 </main></body></html>
