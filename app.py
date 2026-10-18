@@ -7911,8 +7911,6 @@ def _admin_store_uploaded_image(
         return "invalid_image"
     if len(image_bytes) > MAX_IMAGE_UPLOAD_BYTES:
         return "image_too_large"
-    if not ai_generated and not credit:
-        return "missing_image_credit"
     try:
         with Image.open(io.BytesIO(image_bytes)) as opened:
             image_format = str(opened.format or "").upper()
@@ -7943,6 +7941,8 @@ def _admin_store_uploaded_image(
 
     if not normalized_bytes:
         return "invalid_image"
+    if not ai_generated and not credit:
+        return "missing_image_credit"
 
     # An administrator-supplied AI illustration is stored as first-party media.
     # It does not require a third-party photo licence, but the admin must explicitly
