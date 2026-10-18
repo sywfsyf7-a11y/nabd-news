@@ -137,5 +137,104 @@ class AdminArchiveManagementTests(unittest.TestCase):
         connection.commit.assert_called_once()
 
 
+
+    def test_admin_article_editor_exposes_image_upload_and_rights_fields(self):
+        client = world_pulse.app.test_client()
+        self._logged_in_session(client)
+        with patch.object(world_pulse, "_admin_enabled", return_value=True):
+            with patch.object(world_pulse, "_admin_list_articles", return_value=([], 0, "")):
+                with patch.object(world_pulse, "_admin_fetch_article_by_slug", return_value={
+                    "slug": "story-photo", "title_ar": "عنوان", "title_en": "Headline",
+                    "original_language": "ar", "source_url": "https://publisher.example/story",
+                    "source_name": "Example", "source_domain": "publisher.example",
+                    "category": "world", "is_hidden": False, "headline_only": False,
+                    "image_url": "", "image_source": "none",
+                    "image_credit": "", "image_credit_url": "", "image_license_url": "",
+                }):
+                    response = client.get("/admin/articles?edit=story-photo")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn('name="image_file"', html)
+        self.assertIn('name="image_credit_url"', html)
+        self.assertIn('name="image_license_url"', html)
+        self.assertIn('name="rights_confirmed"', html)
+        self.assertIn('حفظ الصورة وبيانات الحقوق', html)
+
+    def test_admin_image_upload_action_requires_csrf(self):
+        import io
+        from PIL import Image
+
+        buffer = io.BytesIO()
+        Image.new("RGB", (400, 240), "navy").save(buffer, format="JPEG")
+        client = world_pulse.app.test_client()
+        self._logged_in_session(client)
+        with patch.object(world_pulse, "_admin_enabled", return_value=True):
+            with patch.object(world_pulse, "_admin_store_uploaded_image") as save_image:
+                response = client.post("/admin/articles?edit=story-photo", data={
+                    "action": "save_article_image",
+                    "slug": "story-photo",
+                    "rights_confirmed": "yes",
+                    "image_credit": "Photographer",
+                    "image_credit_url": "https://images.example/photo",
+                    "image_license_url": "https://creativecommons.org/licenses/by/4.0/",
+                    "image_file": (io.BytesIO(buffer.getvalue()), "photo.jpg"),
+                }, content_type="multipart/form-data")
+        self.assertEqual(response.status_code, 400)
+        save_image.assert_not_called()
+
+    def test_admin_image_upload_passes_rights_metadata_to_persistent_store(self):
+        import io
+        from PIL import Image
+
+        buffer = io.BytesIO()
+        Image.new("RGB", (400, 240), "navy").save(buffer, format="JPEG")
+        client = world_pulse.app.test_client()
+        self._logged_in_session(client)
+        article = {
+            "slug": "story-photo", "title_ar": "عنوان", "title_en": "Headline",
+            "original_language": "ar", "source_url": "https://publisher.example/story",
+            "source_name": "Example", "source_domain": "publisher.example",
+            "category": "world", "is_hidden": False, "headline_only": False,
+        }
+        with patch.object(world_pulse, "_admin_enabled", return_value=True):
+            with patch.object(world_pulse, "_admin_fetch_article_by_slug", return_value=article):
+                with patch.object(world_pulse, "_admin_store_uploaded_image", return_value="saved") as save_image:
+                    response = client.post("/admin/articles?edit=story-photo", data={
+                        "csrf_token": "test-csrf-token",
+                        "action": "save_article_image",
+                        "slug": "story-photo",
+                        "rights_confirmed": "yes",
+                        "image_credit": "Example photographer",
+                        "image_credit_url": "https://images.example/photo",
+                        "image_license_url": "https://creativecommons.org/licenses/by/4.0/",
+                        "image_file": (io.BytesIO(buffer.getvalue()), "photo.jpg"),
+                    }, content_type="multipart/form-data")
+        self.assertEqual(response.status_code, 302)
+        save_image.assert_called_once_with(
+            "story-photo",
+            buffer.getvalue(),
+            "Example photographer",
+            "https://images.example/photo",
+            "https://creativecommons.org/licenses/by/4.0/",
+        )
+        with client.session_transaction() as sess:
+            self.assertIn("تم حفظ الصورة بصورة محسّنة", sess["wp_admin_notice"])
+
+    def test_persistent_image_upload_rejects_missing_credit_and_bad_image_data(self):
+        self.assertEqual(
+            world_pulse._admin_store_uploaded_image(
+                "story", b"not-an-image", "", "https://images.example/item",
+                "https://creativecommons.org/licenses/by/4.0/",
+            ),
+            "invalid_image",
+        )
+        self.assertEqual(
+            world_pulse._admin_store_uploaded_image(
+                "story", b"not-an-image", "Creator", "http://images.example/item",
+                "https://creativecommons.org/licenses/by/4.0/",
+            ),
+            "invalid_image",
+        )
+
 if __name__ == "__main__":
     unittest.main()
