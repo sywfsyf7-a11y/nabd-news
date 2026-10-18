@@ -97,7 +97,7 @@
     </form>
 
     <div class="section-head" style="margin-top:26px"><h3>الصورة الرئيسية للخبر</h3><span class="pill">حفظ دائم في Supabase</span></div>
-    <p class="muted">ارفع صورة تملك حق إعادة نشرها أو يسمح ترخيصها بذلك. تُحوَّل الصورة إلى JPEG محسّن وتُخزَّن في Supabase، مع حفظ اسم صاحبها ورابط صفحة الصورة والترخيص. ذكر المصدر وحده لا يمنح حق الاستخدام، ولا ترفع صورة محمية لمجرد أنها مرتبطة بموضوع عام.</p>
+    <p class="muted">استخدم البحث التلقائي للعثور على صورة حقيقية مرتبطة بالخبر من مكتبات تسمح بإعادة الاستخدام. يتحقق النظام من صلة الصورة وبيانات الترخيص ويحفظ النسخة المحسّنة في Supabase. لا تحتاج إلى إدخال معلومات الحقوق يدويًا.</p>
     {% if edit_article.image_url and (edit_article.image_source == 'gemini_generated' or (edit_article.image_source in ['wikimedia_relevant','openverse_licensed','loc_open_access','nasa_images','artic_open_access','met_open_access','cleveland_museum_open_access','wellcome_open_access','presskit_approved','admin_verified'] and edit_article.image_credit_url and edit_article.image_license_url)) %}
       <div class="notice" style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">
         <img src="{{ public_image_url(edit_article.image_url) }}" alt="معاينة الصورة الحالية" loading="lazy" decoding="async" style="width:180px;max-height:120px;object-fit:cover;border-radius:10px">
@@ -209,7 +209,7 @@
           <label for="create-image-mode">طريقة الصورة</label>
           <select id="create-image-mode" name="create_image_mode">
             <option value="auto" selected>البحث التلقائي عن صورة حقيقية مرخّصة</option>
-            <option value="none">اترك الصورة بدون تغيير الآن</option>
+            <option value="none">لا تبحث عن صورة الآن</option>
           </select>
         </details>
         <button style="margin-top:14px" type="submit">التحقق من الشروط ثم إضافة الخبر</button>
