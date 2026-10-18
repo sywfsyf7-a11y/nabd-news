@@ -3701,6 +3701,29 @@ def _db_count_gemini_images_last_24h() -> int | None:
     finally:
         _release_db_connection(conn)
 
+def _db_count_admin_gemini_images_last_24h() -> int | None:
+    """Count only admin-requested Gemini images to enforce a small, persistent daily budget."""
+    if not _ensure_schema():
+        return None
+    conn = _connect_db()
+    if conn is None:
+        return None
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT COUNT(*) FROM world_pulse_generated_images
+                WHERE created_at >= NOW() - INTERVAL '24 hours'
+                  AND prompt LIKE 'admin-manual:%'
+            """)
+            row = cur.fetchone()
+            return int(row[0]) if row else 0
+    except Exception as exc:
+        logger.warning("Could not read admin image-generation quota (%s)", type(exc).__name__)
+        return None
+    finally:
+        _release_db_connection(conn)
+
+
 def _store_gemini_generated_image(image_bytes: bytes, prompt: str) -> str:
     if not image_bytes or len(image_bytes) > 8 * 1024 * 1024 or not _ensure_schema():
         return ""
@@ -7962,6 +7985,33 @@ def _admin_store_uploaded_image(
         return "database_unavailable"
     finally:
         _release_db_connection(conn)
+
+
+def _admin_generate_and_save_article_image(slug: str) -> str:
+    """Create one contextual AI illustration for an existing saved story and persist its association."""
+    if not ADMIN_GEMINI_IMAGE_GENERATION_ENABLED or MAX_ADMIN_GEMINI_IMAGES_PER_24H <= 0:
+        return "disabled"
+    if not GEMINI_API_KEY or genai is None or types is None:
+        return "not_configured"
+    recent_count = _db_count_admin_gemini_images_last_24h()
+    if recent_count is None:
+        return "database_unavailable"
+    if recent_count >= MAX_ADMIN_GEMINI_IMAGES_PER_24H:
+        return "daily_limit"
+    article = _admin_fetch_article_by_slug(slug)
+    if not article:
+        return "article_not_found"
+    raw = _raw_from_stored_article(article)
+    if not str(raw.get("original_title") or "").strip():
+        return "missing_headline"
+    generated = _generate_gemini_article_image(raw, manual_admin=True)
+    if not generated:
+        return "generation_failed"
+    generated["image_relevance_verified"] = True
+    updated = _db_update_article_images([{**raw, **generated, "image_relevance_verified": True}])
+    if not updated:
+        return "database_write_failed"
+    return "saved"
 
 
 def _admin_set_article_hidden(slug: str, hidden: bool) -> bool:
