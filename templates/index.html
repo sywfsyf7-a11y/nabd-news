@@ -281,7 +281,7 @@
                   <div aria-hidden="true" class="absolute inset-0 z-0 h-full w-full bg-gradient-to-br from-ink via-slate-800 to-slate-600"></div>
                   <img src="{{ story.image_url }}" data-fallback-src="{{ story.image_fallback_url }}" alt="{{ story.title }}" loading="lazy" decoding="async" class="absolute inset-0 z-[1] h-full w-full object-cover transition duration-700 group-hover:scale-105" onerror="if(this.dataset.fallbackSrc){this.onerror=null;this.src=this.dataset.fallbackSrc;}">
                   <span class="absolute {{ 'right-4' if lang == 'ar' else 'left-4' }} top-4 rounded-full border border-white/25 bg-ink/80 px-3 py-1.5 text-xs font-bold text-white backdrop-blur">{{ story.category_label }}</span>
-                  {% if story.image_source in ['editorial_generated', 'gemini_generated'] %}<span class="absolute {{ 'left-4' if lang == 'ar' else 'right-4' }} top-4 rounded-full border border-white/25 bg-ink/80 px-3 py-1.5 text-[10px] font-extrabold text-white backdrop-blur">{{ 'رسم تحريري' if lang == 'ar' else 'Editorial illustration' }}</span>{% endif %}
+                  {% if story.image_source == 'gemini_generated' %}<span class="absolute {{ 'left-4' if lang == 'ar' else 'right-4' }} top-4 rounded-full border border-white/25 bg-ink/80 px-3 py-1.5 text-[10px] font-extrabold text-white backdrop-blur">{{ 'رسم مولّد بالذكاء الاصطناعي' if lang == 'ar' else 'AI-generated illustration' }}</span>{% elif story.image_source == 'editorial_generated' %}<span class="absolute {{ 'left-4' if lang == 'ar' else 'right-4' }} top-4 rounded-full border border-white/25 bg-ink/80 px-3 py-1.5 text-[10px] font-extrabold text-white backdrop-blur">{{ 'رسم تحريري' if lang == 'ar' else 'Editorial illustration' }}</span>{% endif %}
                   {% if story.is_demo %}<span class="absolute bottom-3 {{ 'right-3' if lang == 'ar' else 'left-3' }} rounded-md bg-amber-100 px-2 py-1 text-[9px] font-extrabold text-amber-900">{{ ui.sample_badge }}</span>{% endif %}
                 </a>
                 <div class="flex flex-1 flex-col p-5 sm:p-6">
@@ -381,6 +381,16 @@
             {% if article.image_license_name %} · {{ article.image_license_name }}{% endif %}{% if article.image_license_url %} · <a href="{{ article.image_license_url }}" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">{{ ui.photo_license }}</a>{% endif %}
             {% if article.image_provider_name and article.image_provider_url %} · <a href="{{ article.image_provider_url }}" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">{{ article.image_provider_name }}</a>{% endif %}
           </div>
+        {% endif %}
+        {% if article.ai_image_url and not article.ai_image_is_primary %}
+          <figure class="border-b border-slate-100 px-6 py-5 sm:px-9 lg:px-12">
+            <div class="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
+              <img src="{{ article.ai_image_url }}" alt="{{ article.title }} — {{ 'رسم توضيحي بالذكاء الاصطناعي' if lang == 'ar' else 'AI-generated editorial illustration' }}" loading="lazy" decoding="async" class="mx-auto max-h-[420px] w-full object-contain">
+            </div>
+            <figcaption class="mt-3 text-xs leading-6 text-slate-500">
+              {{ 'رسم توضيحي إضافي مولّد بالذكاء الاصطناعي لشرح موضوع الخبر، وليس صورة توثّق الحدث الحقيقي.' if lang == 'ar' else 'Additional AI-generated editorial illustration to explain the topic; it is not documentary photography of the actual event.' }}
+            </figcaption>
+          </figure>
         {% endif %}
 
         <div class="grid gap-10 p-6 sm:p-9 lg:grid-cols-[minmax(0,1fr)_270px] lg:gap-14 lg:p-12">

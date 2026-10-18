@@ -785,6 +785,15 @@ CREATE TABLE IF NOT EXISTS world_pulse_generated_images (
 );
 CREATE INDEX IF NOT EXISTS idx_wp_generated_images_created
     ON world_pulse_generated_images (created_at DESC);
+-- Keep generated artwork separate from the primary image and its photo licence.
+CREATE TABLE IF NOT EXISTS world_pulse_article_ai_illustrations (
+    slug TEXT PRIMARY KEY,
+    image_id TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_wp_article_ai_illustrations_updated
+    ON world_pulse_article_ai_illustrations (updated_at DESC);
 CREATE TABLE IF NOT EXISTS world_pulse_catalogued_images (
     image_id TEXT PRIMARY KEY,
     source_url TEXT NOT NULL UNIQUE,
@@ -1762,12 +1771,15 @@ def _query_persistent_archive_rows() -> list[dict[str, Any]] | None:
             cur.execute("""
                 SELECT * FROM (
                     (
-                        SELECT slug, source_url, category, source_name, source_domain, image_url,
+                        SELECT world_pulse_articles.slug, source_url, category, source_name, source_domain, image_url,
                                image_source, image_credit, image_credit_url, image_provider_url, image_license_url, image_checked_at, image_relevance_verified,
+                               CASE WHEN ai_illustration.image_id IS NOT NULL THEN '/media/generated/' || ai_illustration.image_id ELSE '' END AS ai_image_url,
+                               ai_illustration.updated_at AS ai_image_updated_at,
                                title_ar, title_en, summary_ar, summary_en,
                                content_ar, content_en, published_at, fetched_at,
                                read_minutes, original_language, is_demo
                         FROM world_pulse_articles
+                        LEFT JOIN world_pulse_article_ai_illustrations AS ai_illustration ON ai_illustration.slug = world_pulse_articles.slug
                         WHERE is_demo = FALSE
                           AND is_hidden = FALSE
                           AND original_language = 'ar'
@@ -1783,12 +1795,15 @@ def _query_persistent_archive_rows() -> list[dict[str, Any]] | None:
                     )
                     UNION ALL
                     (
-                        SELECT slug, source_url, category, source_name, source_domain, image_url,
+                        SELECT world_pulse_articles.slug, source_url, category, source_name, source_domain, image_url,
                                image_source, image_credit, image_credit_url, image_provider_url, image_license_url, image_checked_at, image_relevance_verified,
+                               CASE WHEN ai_illustration.image_id IS NOT NULL THEN '/media/generated/' || ai_illustration.image_id ELSE '' END AS ai_image_url,
+                               ai_illustration.updated_at AS ai_image_updated_at,
                                title_ar, title_en, summary_ar, summary_en,
                                content_ar, content_en, published_at, fetched_at,
                                read_minutes, original_language, is_demo
                         FROM world_pulse_articles
+                        LEFT JOIN world_pulse_article_ai_illustrations AS ai_illustration ON ai_illustration.slug = world_pulse_articles.slug
                         WHERE is_demo = FALSE
                           AND is_hidden = FALSE
                           AND original_language = 'en'
@@ -1957,13 +1972,16 @@ def _db_fetch_article_by_slug(slug: str) -> dict[str, Any] | None:
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute("""
-                SELECT slug, source_url, category, source_name, source_domain, image_url,
+                SELECT world_pulse_articles.slug, source_url, category, source_name, source_domain, image_url,
                        image_source, image_credit, image_credit_url, image_provider_url, image_license_url, image_checked_at, image_relevance_verified,
+                       CASE WHEN ai_illustration.image_id IS NOT NULL THEN '/media/generated/' || ai_illustration.image_id ELSE '' END AS ai_image_url,
+                       ai_illustration.updated_at AS ai_image_updated_at,
                        title_ar, title_en, summary_ar, summary_en,
                        content_ar, content_en, published_at, fetched_at,
                        read_minutes, original_language, is_demo
                 FROM world_pulse_articles
-                WHERE slug = %s AND is_demo = FALSE AND is_hidden = FALSE
+                LEFT JOIN world_pulse_article_ai_illustrations AS ai_illustration ON ai_illustration.slug = world_pulse_articles.slug
+                WHERE world_pulse_articles.slug = %s AND is_demo = FALSE AND is_hidden = FALSE
                 LIMIT 1
             """, (slug,))
             row = cur.fetchone()
@@ -6875,6 +6893,19 @@ def _normalise_story(row: dict[str, Any], lang: str) -> dict[str, Any]:
     if not story.get("image_url"):
         story["image_url"] = story["image_fallback_url"]
         story["image_source"] = "editorial_generated"
+
+    # If no rights-cleared primary photo exists, use the separately stored AI illustration
+    # as the visual lead. When a proper photo exists, keep it primary and show AI art as secondary.
+    story["ai_image_url"] = str(story.get("ai_image_url") or "")
+    story["ai_image_is_primary"] = False
+    if story.get("image_source") == "editorial_generated" and story["ai_image_url"]:
+        story["image_url"] = story["ai_image_url"]
+        story["image_source"] = "gemini_generated"
+        story["image_credit"] = "AI-generated editorial illustration with Google Gemini"
+        story["image_credit_url"] = ""
+        story["image_provider_url"] = "https://ai.google.dev/gemini-api/docs/image-generation"
+        story["image_license_url"] = ""
+        story["ai_image_is_primary"] = True
     story["image_license_name"] = _image_license_label(str(story.get("image_license_url") or ""), str(story.get("image_source") or ""))
     story["image_provider_name"] = _image_provider_label(str(story.get("image_source") or ""))
     story["ai_enriched"] = bool(
@@ -7770,13 +7801,16 @@ def _admin_fetch_article_by_slug(slug: str) -> dict[str, Any] | None:
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute("""
-                SELECT slug, source_url, category, source_name, source_domain, image_url,
+                SELECT world_pulse_articles.slug, source_url, category, source_name, source_domain, image_url,
                        image_source, image_credit, image_credit_url, image_provider_url,
                        image_license_url, image_checked_at, title_ar, title_en, summary_ar,
                        summary_en, content_ar, content_en, published_at, fetched_at,
-                       read_minutes, original_language, is_demo, is_hidden
+                       read_minutes, original_language, is_demo, is_hidden,
+                       CASE WHEN ai_illustration.image_id IS NOT NULL THEN '/media/generated/' || ai_illustration.image_id ELSE '' END AS ai_image_url,
+                       ai_illustration.updated_at AS ai_image_updated_at
                 FROM world_pulse_articles
-                WHERE slug = %s AND is_demo = FALSE
+                LEFT JOIN world_pulse_article_ai_illustrations AS ai_illustration ON ai_illustration.slug = world_pulse_articles.slug
+                WHERE world_pulse_articles.slug = %s AND is_demo = FALSE
                 LIMIT 1
             """, (slug,))
             row = cur.fetchone()
@@ -7834,7 +7868,10 @@ def _admin_list_articles(
                        image_source, image_credit, image_credit_url, image_provider_url,
                        image_license_url, image_checked_at, title_ar, title_en, summary_ar,
                        summary_en, content_ar, content_en, published_at, fetched_at,
-                       read_minutes, original_language, is_demo, is_hidden
+                       read_minutes, original_language, is_demo, is_hidden,
+                       (SELECT '/media/generated/' || ai_illustration.image_id
+                          FROM world_pulse_article_ai_illustrations AS ai_illustration
+                         WHERE ai_illustration.slug = world_pulse_articles.slug) AS ai_image_url
                 FROM world_pulse_articles
                 WHERE """ + where_sql + """
                 ORDER BY COALESCE(published_at, fetched_at) DESC, fetched_at DESC
@@ -7987,8 +8024,75 @@ def _admin_store_uploaded_image(
         _release_db_connection(conn)
 
 
+def _admin_attach_ai_illustration(slug: str, image_url: str) -> bool:
+    """Associate server-stored AI artwork with a story without changing the primary photo."""
+    slug = _clean_text(slug, 220)
+    match = re.fullmatch(r"/media/generated/([a-f0-9]{32})", str(image_url or ""))
+    if not slug or not match or not _ensure_schema():
+        return False
+    image_id = match.group(1)
+    conn = _connect_db()
+    if conn is None:
+        return False
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT 1 FROM world_pulse_articles WHERE slug = %s AND is_demo = FALSE LIMIT 1",
+                (slug,),
+            )
+            if not cur.fetchone():
+                conn.rollback()
+                return False
+            cur.execute(
+                "SELECT 1 FROM world_pulse_generated_images WHERE image_id = %s LIMIT 1",
+                (image_id,),
+            )
+            if not cur.fetchone():
+                conn.rollback()
+                return False
+            cur.execute("""
+                INSERT INTO world_pulse_article_ai_illustrations (slug, image_id, created_at, updated_at)
+                VALUES (%s, %s, NOW(), NOW())
+                ON CONFLICT (slug) DO UPDATE
+                SET image_id = EXCLUDED.image_id, updated_at = NOW()
+            """, (slug, image_id))
+        conn.commit()
+        _invalidate_db_articles_cache()
+        return True
+    except Exception as exc:
+        conn.rollback()
+        logger.warning("Could not associate AI illustration with article (%s)", type(exc).__name__)
+        return False
+    finally:
+        _release_db_connection(conn)
+
+
+def _admin_remove_ai_illustration(slug: str) -> bool:
+    """Unlink an AI illustration while preserving the source story and generated-media record."""
+    slug = _clean_text(slug, 220)
+    if not slug or not _ensure_schema():
+        return False
+    conn = _connect_db()
+    if conn is None:
+        return False
+    try:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM world_pulse_article_ai_illustrations WHERE slug = %s", (slug,))
+            changed = cur.rowcount > 0
+        conn.commit()
+        if changed:
+            _invalidate_db_articles_cache()
+        return changed
+    except Exception as exc:
+        conn.rollback()
+        logger.warning("Could not unlink AI illustration from article (%s)", type(exc).__name__)
+        return False
+    finally:
+        _release_db_connection(conn)
+
+
 def _admin_generate_and_save_article_image(slug: str) -> str:
-    """Create one contextual AI illustration for an existing saved story and persist its association."""
+    """Generate a contextual AI illustration and store it separately from the primary photo."""
     if not ADMIN_GEMINI_IMAGE_GENERATION_ENABLED or MAX_ADMIN_GEMINI_IMAGES_PER_24H <= 0:
         return "disabled"
     if not GEMINI_API_KEY or genai is None or types is None:
@@ -8007,9 +8111,7 @@ def _admin_generate_and_save_article_image(slug: str) -> str:
     generated = _generate_gemini_article_image(raw, manual_admin=True)
     if not generated:
         return "generation_failed"
-    generated["image_relevance_verified"] = True
-    updated = _db_update_article_images([{**raw, **generated, "image_relevance_verified": True}])
-    if not updated:
+    if not _admin_attach_ai_illustration(slug, str(generated.get("image_url") or "")):
         return "database_write_failed"
     return "saved"
 
@@ -8311,6 +8413,20 @@ def admin_articles():
                 show_hidden="1" if show_hidden else "0", page=page_number,
             ))
 
+        if action == "remove_ai_article_illustration":
+            if not slug:
+                abort(400)
+            notice = (
+                "تم فصل الرسم التوضيحي بالذكاء الاصطناعي عن الخبر. بقيت الصورة الرئيسية والخبر محفوظين، ولم يُحذف ملف الوسائط من الأرشيف."
+                if _admin_remove_ai_illustration(slug)
+                else "تعذر فصل الرسم؛ لم يتغير الخبر أو صورته الرئيسية."
+            )
+            session["wp_admin_notice"] = notice
+            return redirect(url_for(
+                "admin_articles", edit=slug, q=query, category=category_filter,
+                show_hidden="1" if show_hidden else "0", page=page_number,
+            ))
+
         if action == "generate_ai_article_image":
             if not slug:
                 abort(400)
@@ -8319,7 +8435,7 @@ def admin_articles():
                 abort(404)
             result = _admin_generate_and_save_article_image(slug)
             notice = {
-                "saved": "تم إنشاء رسم توضيحي مرتبط بعنوان الخبر وحفظه في Supabase. وُسمت الصورة بوضوح كرسم مولّد بالذكاء الاصطناعي.",
+                "saved": "تم إنشاء رسم توضيحي إضافي وحفظه في Supabase. لم تتغير الصورة الرئيسية الحالية، ويمكن استخدام الرسم مع الخبر بصورة مستقلة.",
                 "disabled": "توليد الصور اليدوي غير مفعّل حاليًا من إعدادات الخادم.",
                 "not_configured": "تعذر إنشاء الصورة: تأكد من إعداد مفتاح Gemini وتثبيت مكتبة Google GenAI على Render.",
                 "database_unavailable": "تعذر التحقق من حد توليد الصور أو الاتصال بقاعدة البيانات؛ لم يتم إعلان نجاح العملية.",
@@ -8327,8 +8443,8 @@ def admin_articles():
                 "article_not_found": "لم يُعثر على الخبر في الأرشيف.",
                 "missing_headline": "أضف عنوانًا للخبر قبل إنشاء صورة توضيحية.",
                 "database_write_failed": "تم توليد الصورة لكن تعذر ربطها بالخبر في قاعدة البيانات؛ افتح سجل الخبر وحاول مجددًا.",
-                "generation_failed": "تعذر توليد الصورة الآن. قد يكون السبب حصّة Gemini أو مهلة الاتصال؛ بقيت الصورة الحالية كما هي.",
-            }.get(result, "تعذر إنشاء الصورة. بقيت الصورة الحالية والخبر محفوظين كما هما.")
+                "generation_failed": "تعذر توليد الرسم الإضافي الآن. قد يكون السبب حصّة Gemini أو مهلة الاتصال؛ بقيت الصورة الرئيسية والرسم السابق كما هما.",
+            }.get(result, "تعذر إنشاء الرسم الإضافي. بقيت الصورة الرئيسية والخبر محفوظين كما هما.")
             session["wp_admin_notice"] = notice
             return redirect(url_for(
                 "admin_articles", edit=slug, q=query, category=category_filter,
@@ -8486,23 +8602,21 @@ def admin_articles():
                         create_status = _admin_create_article(values)
                         notice = "تمت إضافة الخبر إلى الأرشيف." if create_status == "created" else ("هذا الرابط محفوظ مسبقًا؛ لم ننشئ نسخة مكررة." if create_status == "duplicate_source" else "تعذر إضافة الخبر إلى قاعدة البيانات.")
 
-            # Images are optional for a new story. A selected manual upload must carry
-            # complete rights metadata; AI mode creates one labelled first-party illustration.
+            # Primary upload and secondary AI artwork are independent, so editors may use both.
+            # A blank upload is ignored; if a file is supplied, complete rights metadata is required.
             if create_status == "created":
-                image_mode = str(request.form.get("create_image_mode") or "none").casefold()
                 created_slug = str(values.get("slug") or _slug_for_url(source_url))
-                if image_mode == "upload":
-                    upload = request.files.get("create_image_file")
-                    image_bytes = upload.read(MAX_IMAGE_UPLOAD_BYTES + 1) if upload else b""
-                    if not image_bytes:
-                        notice = "تمت إضافة الخبر، لكن لم يتم اختيار ملف للصورة. افتح الخبر لإضافة صورة لاحقًا."
-                    elif str(request.form.get("create_rights_confirmed") or "") != "yes":
-                        notice = "تمت إضافة الخبر، لكن لم تُحفظ الصورة لأن تأكيد الترخيص مطلوب."
+                outcomes = [notice]
+                upload = request.files.get("create_image_file")
+                image_bytes = upload.read(MAX_IMAGE_UPLOAD_BYTES + 1) if upload and upload.filename else b""
+                if image_bytes:
+                    if str(request.form.get("create_rights_confirmed") or "") != "yes":
+                        outcomes.append("لم تُحفظ الصورة الرئيسية المرفوعة لأن تأكيد الترخيص مطلوب.")
                     elif not all(_clean_text(request.form.get(key) or "", max_len) for key, max_len in (
                         ("create_image_credit", 180), ("create_image_credit_url", 1000),
                         ("create_image_license_url", 1000),
                     )):
-                        notice = "تمت إضافة الخبر، لكن بيانات صاحب الصورة وصفحتها والترخيص غير مكتملة."
+                        outcomes.append("لم تُحفظ الصورة الرئيسية المرفوعة لأن بيانات صاحب الصورة أو صفحتها أو ترخيصها غير مكتملة.")
                     else:
                         image_result = _admin_store_uploaded_image(
                             created_slug,
@@ -8511,18 +8625,19 @@ def admin_articles():
                             request.form.get("create_image_credit_url") or "",
                             request.form.get("create_image_license_url") or "",
                         )
-                        notice = (
-                            "تمت إضافة الخبر وحفظ الصورة المرخّصة في Supabase."
+                        outcomes.append(
+                            "تم حفظ الصورة الرئيسية المرخّصة في Supabase."
                             if image_result == "saved"
-                            else "تمت إضافة الخبر، لكن لم تُحفظ الصورة (%s). يمكنك فتح الخبر وإعادة محاولة رفع الصورة." % image_result
+                            else "تعذر حفظ الصورة الرئيسية (%s)؛ بقي الخبر محفوظًا ويمكنك المحاولة من صفحة التعديل." % image_result
                         )
-                elif image_mode == "ai":
-                    image_result = _admin_generate_and_save_article_image(created_slug)
-                    notice = (
-                        "تمت إضافة الخبر وإنشاء رسم توضيحي بالذكاء الاصطناعي وحفظه في Supabase."
-                        if image_result == "saved"
-                        else "تمت إضافة الخبر، لكن تعذر إنشاء الصورة (%s). افتح الخبر وحاول من لوحة الصورة بالذكاء الاصطناعي." % image_result
+                if str(request.form.get("create_ai_illustration") or "") == "yes":
+                    ai_result = _admin_generate_and_save_article_image(created_slug)
+                    outcomes.append(
+                        "تم حفظ رسم توضيحي إضافي بالذكاء الاصطناعي؛ الصورة الرئيسية مستقلة عنه."
+                        if ai_result == "saved"
+                        else "تعذر إنشاء الرسم التوضيحي الإضافي (%s)، لكن الخبر والصورة الرئيسية حُفظا كما هما." % ai_result
                     )
+                notice = " ".join(part for part in outcomes if part)
             session["wp_admin_notice"] = notice
             return redirect(url_for(
                 "admin_articles", q=query, category=category_filter,
