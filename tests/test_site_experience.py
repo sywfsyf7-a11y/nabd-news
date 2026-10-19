@@ -2524,7 +2524,7 @@ class AdSenseConsentReadinessTests(unittest.TestCase):
             self.assertEqual(response.status_code, 200)
             self.assertEqual(
                 response.get_data(as_text=True),
-                "google.com, pub-1234567890123456, DIRECT, f08c47fec0942fa0f\\n",
+                "google.com, pub-1234567890123456, DIRECT, f08c47fec0942fa0f\n",
             )
 
     def test_template_gates_google_ads_script_on_explicit_readiness(self):
