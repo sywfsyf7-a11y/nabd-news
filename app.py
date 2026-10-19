@@ -717,6 +717,16 @@ def _display_shared_cache_lock():
     return handle
 
 
+def _display_shared_build_lock(lang: str):
+    """Serialize normalized display-pool rebuilds across Gunicorn worker processes."""
+    directory = os.path.dirname(_DISPLAY_SHARED_CACHE_PATH)
+    if directory:
+        os.makedirs(directory, exist_ok=True)
+    handle = open(_DISPLAY_SHARED_CACHE_PATH + f".{lang}.build.lock", "a+", encoding="utf-8")
+    fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+    return handle
+
+
 def _read_shared_display_cache(lang: str) -> tuple[list[dict[str, Any]], float, bool] | None:
     if lang not in {"ar", "en"}:
         return None
@@ -7116,6 +7126,34 @@ def _build_display_stories(lang: str) -> list[dict[str, Any]]:
     return [_normalise_story(row, lang) for row in unique]
 
 
+def _build_display_stories_serialized(
+    lang: str, generation: int
+) -> tuple[list[dict[str, Any]], float, bool]:
+    """Build once across workers, rechecking the shared cache after obtaining its file lock."""
+    build_handle = _display_shared_build_lock(lang)
+    try:
+        shared = _read_shared_display_cache(lang)
+        if shared is not None and shared[1] < _DISPLAY_STORIES_CACHE_TTL_SECONDS and not shared[2]:
+            stories, age, _stale = shared
+            with _DISPLAY_STORIES_CACHE_LOCK:
+                if generation == _DISPLAY_STORIES_CACHE_GENERATION:
+                    _DISPLAY_STORIES_CACHE[lang] = (time.monotonic() - age, stories)
+            return [dict(row) for row in stories], 0.0, False
+
+        started = time.monotonic()
+        stories = _build_display_stories(lang)
+        elapsed = time.monotonic() - started
+        with _DISPLAY_STORIES_CACHE_LOCK:
+            cache_is_current = generation == _DISPLAY_STORIES_CACHE_GENERATION
+            if cache_is_current:
+                _DISPLAY_STORIES_CACHE[lang] = (time.monotonic(), stories)
+        if cache_is_current:
+            _write_shared_display_cache(lang, stories)
+        return [dict(row) for row in stories], elapsed, True
+    finally:
+        _archive_unlock(build_handle)
+
+
 def _refresh_display_stories_cache_async(lang: str, generation: int) -> None:
     """Rebuild an expired display pool once in the background while visitors keep seeing the prior copy."""
     with _DISPLAY_STORIES_REFRESHING_LOCK:
@@ -7131,18 +7169,10 @@ def _refresh_display_stories_cache_async(lang: str, generation: int) -> None:
                 with _DISPLAY_STORIES_CACHE_LOCK:
                     if generation != _DISPLAY_STORIES_CACHE_GENERATION:
                         return
-                started = time.monotonic()
-                stories = _build_display_stories(lang)
-                elapsed = time.monotonic() - started
-                with _DISPLAY_STORIES_CACHE_LOCK:
-                    cache_is_current = generation == _DISPLAY_STORIES_CACHE_GENERATION
-                    if cache_is_current:
-                        _DISPLAY_STORIES_CACHE[lang] = (time.monotonic(), stories)
-                if cache_is_current:
-                    _write_shared_display_cache(lang, stories)
+                stories, elapsed, rebuilt = _build_display_stories_serialized(lang, generation)
                 logger.info(
-                    "Display story cache refreshed in background: language=%s stories=%d elapsed=%.3fs",
-                    lang, len(stories), elapsed,
+                    "Display story cache refresh finished: language=%s stories=%d rebuilt=%s elapsed=%.3fs",
+                    lang, len(stories), rebuilt, elapsed,
                 )
         except Exception as exc:
             logger.warning(
@@ -7213,18 +7243,10 @@ def _get_display_stories(lang: str) -> list[dict[str, Any]]:
             generation = _DISPLAY_STORIES_CACHE_GENERATION
             if cached and now - cached[0] < _DISPLAY_STORIES_CACHE_TTL_SECONDS:
                 return [dict(row) for row in cached[1]]
-        started = time.monotonic()
-        stories = _build_display_stories(lang)
-        elapsed = time.monotonic() - started
-        with _DISPLAY_STORIES_CACHE_LOCK:
-            cache_is_current = generation == _DISPLAY_STORIES_CACHE_GENERATION
-            if cache_is_current:
-                _DISPLAY_STORIES_CACHE[lang] = (time.monotonic(), stories)
-        if cache_is_current:
-            _write_shared_display_cache(lang, stories)
+        stories, elapsed, rebuilt = _build_display_stories_serialized(lang, generation)
         logger.info(
-            "Display story cache built on demand: language=%s stories=%d elapsed=%.3fs",
-            lang, len(stories), elapsed,
+            "Display story cache served on demand: language=%s stories=%d rebuilt=%s elapsed=%.3fs",
+            lang, len(stories), rebuilt, elapsed,
         )
         return [dict(row) for row in stories]
 
