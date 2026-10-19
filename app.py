@@ -7148,6 +7148,25 @@ def current_language() -> str:
     value = session.get("lang", "ar")
     return value if value in ("ar", "en") else "ar"
 
+def _adsense_settings() -> dict[str, Any]:
+    """Enable Google ad code only after a real publisher ID and published CMP are configured.
+
+    This is intentionally disabled by default. A fake/local consent banner is not a
+    substitute for the Google-certified, IAB TCF-integrated message configured in AdSense.
+    """
+    publisher_id = (os.getenv("ADSENSE_PUBLISHER_ID") or "").strip()
+    publisher_id_valid = bool(re.fullmatch(r"ca-pub-\d{16}", publisher_id))
+    enabled_flag = (os.getenv("ADSENSE_ENABLED") or "false").strip().casefold() in {"1", "true", "yes", "on"}
+    consent_ready = (os.getenv("ADSENSE_CONSENT_READY") or "false").strip().casefold() in {"1", "true", "yes", "on"}
+    enabled = publisher_id_valid and enabled_flag and consent_ready
+    return {
+        "enabled": enabled,
+        "publisher_id": publisher_id if enabled else "",
+        "publisher_id_valid": publisher_id_valid,
+        "consent_ready": consent_ready,
+    }
+
+
 @app.context_processor
 def inject_shared_template_data() -> dict[str, Any]:
     lang = current_language()
@@ -7168,6 +7187,8 @@ def inject_shared_template_data() -> dict[str, Any]:
         "news_refresh_interval": NEWS_REFRESH_MINUTES,
         "contact_email": CONTACT_EMAIL,
         "contact_smtp_enabled": bool(os.getenv("SMTP_HOST") and os.getenv("SMTP_USERNAME") and os.getenv("SMTP_PASSWORD")),
+        "adsense_enabled": _adsense_settings()["enabled"],
+        "adsense_publisher_id": _adsense_settings()["publisher_id"],
         "now_year": datetime.now(TIMEZONE).year,
     }
 
@@ -7703,6 +7724,18 @@ def news_sitemap():
         '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" ' + \
         'xmlns:news="http://www.google.com/schemas/sitemap-news/0.9">' + "".join(entries) + '</urlset>'
     return app.response_class(body, mimetype="application/xml")
+
+@app.get("/ads.txt")
+def ads_txt():
+    """Expose the authorized Google seller record only after explicit AdSense/CMP setup."""
+    settings = _adsense_settings()
+    if not settings["enabled"]:
+        return app.response_class("", status=404, mimetype="text/plain")
+    publisher_id = settings["publisher_id"]
+    seller_id = "pub-" + publisher_id.removeprefix("ca-pub-")
+    body = f"google.com, {seller_id}, DIRECT, f08c47fec0942fa0f\n"
+    return app.response_class(body, mimetype="text/plain")
+
 
 @app.get("/robots.txt")
 def robots():
