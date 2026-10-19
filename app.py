@@ -839,8 +839,11 @@ def _clear_display_stories_cache(*, hard: bool = False) -> None:
         if hard:
             _DISPLAY_STORIES_CACHE.clear()
         else:
+            # A literal timestamp of 0 can still appear fresh shortly after process start
+            # because time.monotonic() also starts near zero. Force the snapshot past TTL.
+            stale_at = time.monotonic() - _DISPLAY_STORIES_CACHE_TTL_SECONDS - 1
             for lang, (_built_at, stories) in list(_DISPLAY_STORIES_CACHE.items()):
-                _DISPLAY_STORIES_CACHE[lang] = (0.0, stories)
+                _DISPLAY_STORIES_CACHE[lang] = (stale_at, stories)
     _mark_shared_display_cache_stale(hard=hard)
 # Licensed image bytes are immutable by content id; a small process-local LRU avoids
 # repeatedly opening Supabase sessions for the same image on each page view.
