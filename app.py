@@ -709,6 +709,9 @@ _DISPLAY_SHARED_CACHE_MAX_STALE_SECONDS = max(
 
 
 def _display_shared_cache_lock():
+    directory = os.path.dirname(_DISPLAY_SHARED_CACHE_PATH)
+    if directory:
+        os.makedirs(directory, exist_ok=True)
     handle = open(_DISPLAY_SHARED_CACHE_PATH + ".lock", "a+", encoding="utf-8")
     fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
     return handle
@@ -1971,7 +1974,9 @@ def _refresh_shared_archive_cache() -> None:
             rows = _query_persistent_archive_rows()
             if rows is not None:
                 _write_shared_archive_cache(rows)
-                _install_archive_snapshot(rows, clear_display=True)
+                # Re-querying an unchanged archive must not evict a warm display snapshot.
+                # Actual writes already mark display snapshots stale through the merge path.
+                _install_archive_snapshot(rows)
         finally:
             _archive_unlock(cache_handle)
     finally:
@@ -7127,9 +7132,11 @@ def _refresh_display_stories_cache_async(lang: str, generation: int) -> None:
                 stories = _build_display_stories(lang)
                 elapsed = time.monotonic() - started
                 with _DISPLAY_STORIES_CACHE_LOCK:
-                    if generation == _DISPLAY_STORIES_CACHE_GENERATION:
+                    cache_is_current = generation == _DISPLAY_STORIES_CACHE_GENERATION
+                    if cache_is_current:
                         _DISPLAY_STORIES_CACHE[lang] = (time.monotonic(), stories)
-                        _write_shared_display_cache(lang, stories)
+                if cache_is_current:
+                    _write_shared_display_cache(lang, stories)
                 logger.info(
                     "Display story cache refreshed in background: language=%s stories=%d elapsed=%.3fs",
                     lang, len(stories), elapsed,
@@ -7207,9 +7214,11 @@ def _get_display_stories(lang: str) -> list[dict[str, Any]]:
         stories = _build_display_stories(lang)
         elapsed = time.monotonic() - started
         with _DISPLAY_STORIES_CACHE_LOCK:
-            if generation == _DISPLAY_STORIES_CACHE_GENERATION:
+            cache_is_current = generation == _DISPLAY_STORIES_CACHE_GENERATION
+            if cache_is_current:
                 _DISPLAY_STORIES_CACHE[lang] = (time.monotonic(), stories)
-                _write_shared_display_cache(lang, stories)
+        if cache_is_current:
+            _write_shared_display_cache(lang, stories)
         logger.info(
             "Display story cache built on demand: language=%s stories=%d elapsed=%.3fs",
             lang, len(stories), elapsed,
