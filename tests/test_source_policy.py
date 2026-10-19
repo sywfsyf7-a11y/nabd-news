@@ -1,3 +1,5 @@
+import os
+import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -5,6 +7,16 @@ import app as world_pulse
 
 
 class SourcePolicyTests(unittest.TestCase):
+    def setUp(self):
+        self._display_cache_temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._display_cache_temp.cleanup)
+        cache_path = os.path.join(self._display_cache_temp.name, "display-cache.json")
+        patcher = patch.object(world_pulse, "_DISPLAY_SHARED_CACHE_PATH", cache_path)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        with world_pulse._DISPLAY_STORIES_CACHE_LOCK:
+            world_pulse._DISPLAY_STORIES_CACHE.clear()
+
     def test_category_publisher_allowlist_accepts_subdomains(self):
         self.assertEqual(
             world_pulse._source_domain_for_category("technology", "en", "www.theverge.com"),

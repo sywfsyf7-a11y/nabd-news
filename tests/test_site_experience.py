@@ -14,6 +14,18 @@ import app as world_pulse
 
 
 class SiteExperienceTests(unittest.TestCase):
+    def setUp(self):
+        self._display_cache_temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._display_cache_temp.cleanup)
+        cache_path = os.path.join(self._display_cache_temp.name, "display-cache.json")
+        patcher = patch.object(world_pulse, "_DISPLAY_SHARED_CACHE_PATH", cache_path)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        with world_pulse._DISPLAY_STORIES_CACHE_LOCK:
+            world_pulse._DISPLAY_STORIES_CACHE.clear()
+        with world_pulse._DISPLAY_STORIES_REFRESHING_LOCK:
+            world_pulse._DISPLAY_STORIES_REFRESHING.clear()
+
     def test_in_process_article_working_set_is_bounded_and_keeps_recent_stories(self):
         base = datetime(2026, 10, 1, tzinfo=timezone.utc)
         rows = [
@@ -1145,9 +1157,41 @@ class SiteExperienceTests(unittest.TestCase):
             second = world_pulse._get_display_stories("ar")
             self.assertEqual(first, second)
             builder.assert_called_once_with("ar")
-            world_pulse._invalidate_db_articles_cache()
-            world_pulse._get_display_stories("ar")
-            self.assertEqual(builder.call_count, 2)
+            with patch.object(world_pulse, "_refresh_display_stories_cache_async") as refresh:
+                world_pulse._invalidate_db_articles_cache()
+                third = world_pulse._get_display_stories("ar")
+                self.assertEqual(third, first)
+                refresh.assert_called_once()
+            self.assertEqual(builder.call_count, 1)
+
+    def test_second_worker_reuses_shared_normalized_display_snapshot(self):
+        story = {
+            "slug": "shared-display-story",
+            "title": "Cached normalized headline",
+            "summary": "Cached summary",
+            "published_at": datetime(2026, 10, 18, tzinfo=timezone.utc),
+            "fetched_at": datetime(2026, 10, 18, tzinfo=timezone.utc),
+        }
+        world_pulse._write_shared_display_cache("en", [story])
+        with patch.object(world_pulse, "_build_display_stories", side_effect=AssertionError("must reuse shared cache")) as builder:
+            result = world_pulse._get_display_stories("en")
+        self.assertEqual(result, [story])
+        builder.assert_not_called()
+
+    def test_expired_shared_display_snapshot_is_served_while_refresh_is_scheduled(self):
+        story = {"slug": "stale-display-story", "title": "Still usable"}
+        world_pulse._write_shared_display_cache("en", [story])
+        world_pulse._mark_shared_display_cache_stale()
+        with patch.object(world_pulse, "_refresh_display_stories_cache_async") as refresh:
+            with patch.object(world_pulse, "_build_display_stories", side_effect=AssertionError("refresh must be async")):
+                result = world_pulse._get_display_stories("en")
+        self.assertEqual(result, [story])
+        refresh.assert_called_once()
+
+    def test_hiding_an_article_discards_shared_display_snapshot(self):
+        world_pulse._write_shared_display_cache("ar", [{"slug": "hidden-story"}])
+        world_pulse._clear_display_stories_cache(hard=True)
+        self.assertIsNone(world_pulse._read_shared_display_cache("ar"))
 
     def test_parallel_cold_display_requests_share_one_build_per_language(self):
         stories = [{"slug": "shared-cold-story", "title": "Headline"}]
