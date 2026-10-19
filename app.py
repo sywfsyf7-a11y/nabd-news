@@ -693,6 +693,18 @@ _DB_ARTICLES_LOAD_LOCK = threading.Lock()
 _DISPLAY_STORIES_CACHE_TTL_SECONDS = max(2, min(120, int(os.getenv("DISPLAY_STORIES_CACHE_TTL_SECONDS", "120"))))
 _DISPLAY_STORIES_CACHE: dict[str, tuple[float, list[dict[str, Any]]]] = {}
 _DISPLAY_STORIES_CACHE_LOCK = threading.Lock()
+_DISPLAY_STORIES_CACHE_GENERATION = 0
+_DISPLAY_STORIES_BUILD_LOCKS = {lang: threading.Lock() for lang in ("ar", "en")}
+_DISPLAY_STORIES_REFRESHING: set[str] = set()
+_DISPLAY_STORIES_REFRESHING_LOCK = threading.Lock()
+
+
+def _clear_display_stories_cache() -> None:
+    """Invalidate display snapshots and prevent an in-flight refresh from reinstalling stale data."""
+    global _DISPLAY_STORIES_CACHE_GENERATION
+    with _DISPLAY_STORIES_CACHE_LOCK:
+        _DISPLAY_STORIES_CACHE_GENERATION += 1
+        _DISPLAY_STORIES_CACHE.clear()
 # Licensed image bytes are immutable by content id; a small process-local LRU avoids
 # repeatedly opening Supabase sessions for the same image on each page view.
 _CATALOGUED_IMAGE_MEMORY_CACHE_MAX_BYTES = max(
@@ -1515,8 +1527,7 @@ def _invalidate_db_articles_cache() -> None:
             logger.debug("Could not invalidate shared archive cache (%s)", type(exc).__name__)
     finally:
         _archive_unlock(cache_handle)
-    with _DISPLAY_STORIES_CACHE_LOCK:
-        _DISPLAY_STORIES_CACHE.clear()
+    _clear_display_stories_cache()
 
 
 def _remove_article_from_archive_cache(slug: str) -> None:
@@ -1540,8 +1551,7 @@ def _remove_article_from_archive_cache(slug: str) -> None:
             # A moderation action can be the first request handled by a fresh worker.
             # Do not publish an empty "fresh" snapshot unless an archive snapshot actually
             # existed; the next public request must be allowed to load Supabase normally.
-            with _DISPLAY_STORIES_CACHE_LOCK:
-                _DISPLAY_STORIES_CACHE.clear()
+            _clear_display_stories_cache()
             with _MEMORY_ARTICLES_LOCK:
                 for key in list(_MEMORY_ARTICLES):
                     if str(_MEMORY_ARTICLES[key].get("slug") or "") == slug:
@@ -1554,8 +1564,7 @@ def _remove_article_from_archive_cache(slug: str) -> None:
         with _DB_ARTICLES_CACHE_LOCK:
             _DB_ARTICLES_CACHE = visible_rows
             _DB_ARTICLES_CACHE_AT = time.monotonic()
-        with _DISPLAY_STORIES_CACHE_LOCK:
-            _DISPLAY_STORIES_CACHE.clear()
+        _clear_display_stories_cache()
         with _MEMORY_ARTICLES_LOCK:
             for key in list(_MEMORY_ARTICLES):
                 if str(_MEMORY_ARTICLES[key].get("slug") or "") == slug:
@@ -1568,8 +1577,7 @@ def _remove_article_from_archive_cache(slug: str) -> None:
             os.unlink(_ARCHIVE_SHARED_CACHE_PATH)
         except OSError:
             pass
-        with _DISPLAY_STORIES_CACHE_LOCK:
-            _DISPLAY_STORIES_CACHE.clear()
+        _clear_display_stories_cache()
         with _MEMORY_ARTICLES_LOCK:
             for key in list(_MEMORY_ARTICLES):
                 if str(_MEMORY_ARTICLES[key].get("slug") or "") == slug:
@@ -1669,8 +1677,7 @@ def _install_archive_snapshot(rows: list[dict[str, Any]], *, age_seconds: float 
         _DB_ARTICLES_CACHE = [dict(row) for row in rows]
         _DB_ARTICLES_CACHE_AT = time.monotonic() - max(0.0, age_seconds)
     if clear_display:
-        with _DISPLAY_STORIES_CACHE_LOCK:
-            _DISPLAY_STORIES_CACHE.clear()
+        _clear_display_stories_cache()
 
 
 def _merge_article_rows_into_archive_cache(articles: list[dict[str, Any]]) -> bool:
@@ -6235,8 +6242,7 @@ def _repair_legacy_source_links(limit: int = SOURCE_LINK_REPAIR_BATCH_SIZE) -> i
         global _DB_ARTICLES_CACHE_AT
         with _DB_ARTICLES_CACHE_LOCK:
             _DB_ARTICLES_CACHE_AT = 0.0
-        with _DISPLAY_STORIES_CACHE_LOCK:
-            _DISPLAY_STORIES_CACHE.clear()
+        _clear_display_stories_cache()
         logger.info("Archive source-link repair batch: scanned=%d repaired=%d", len(rows), updated)
     return updated
 
@@ -6961,18 +6967,95 @@ def _build_display_stories(lang: str) -> list[dict[str, Any]]:
     return [_normalise_story(row, lang) for row in unique]
 
 
+def _refresh_display_stories_cache_async(lang: str, generation: int) -> None:
+    """Rebuild an expired display pool once in the background while visitors keep seeing the prior copy."""
+    with _DISPLAY_STORIES_REFRESHING_LOCK:
+        if lang in _DISPLAY_STORIES_REFRESHING:
+            return
+        _DISPLAY_STORIES_REFRESHING.add(lang)
+
+    def refresh() -> None:
+        try:
+            with _DISPLAY_STORIES_BUILD_LOCKS[lang]:
+                # A moderation/source-repair invalidation may have happened while this
+                # worker was queued. Do not do expensive work for an obsolete generation.
+                with _DISPLAY_STORIES_CACHE_LOCK:
+                    if generation != _DISPLAY_STORIES_CACHE_GENERATION:
+                        return
+                started = time.monotonic()
+                stories = _build_display_stories(lang)
+                elapsed = time.monotonic() - started
+                with _DISPLAY_STORIES_CACHE_LOCK:
+                    if generation == _DISPLAY_STORIES_CACHE_GENERATION:
+                        _DISPLAY_STORIES_CACHE[lang] = (time.monotonic(), stories)
+                logger.info(
+                    "Display story cache refreshed in background: language=%s stories=%d elapsed=%.3fs",
+                    lang, len(stories), elapsed,
+                )
+        except Exception as exc:
+            logger.warning(
+                "Background display story cache refresh failed: language=%s error=%s",
+                lang, type(exc).__name__,
+            )
+        finally:
+            with _DISPLAY_STORIES_REFRESHING_LOCK:
+                _DISPLAY_STORIES_REFRESHING.discard(lang)
+
+    try:
+        threading.Thread(
+            target=refresh,
+            name=f"world-pulse-display-cache-{lang}",
+            daemon=True,
+        ).start()
+    except RuntimeError as exc:
+        with _DISPLAY_STORIES_REFRESHING_LOCK:
+            _DISPLAY_STORIES_REFRESHING.discard(lang)
+        logger.warning(
+            "Could not start background display cache refresh: language=%s error=%s",
+            lang, type(exc).__name__,
+        )
+
+
 def _get_display_stories(lang: str) -> list[dict[str, Any]]:
-    """Reuse the sorted/deduplicated display pool across requests."""
+    """Serve cached stories immediately and coalesce cold-cache builds per language."""
+    if lang not in _DISPLAY_STORIES_BUILD_LOCKS:
+        lang = "ar"
+
     now = time.monotonic()
     with _DISPLAY_STORIES_CACHE_LOCK:
         cached = _DISPLAY_STORIES_CACHE.get(lang)
+        generation = _DISPLAY_STORIES_CACHE_GENERATION
         if cached and now - cached[0] < _DISPLAY_STORIES_CACHE_TTL_SECONDS:
             return [dict(row) for row in cached[1]]
 
-    stories = _build_display_stories(lang)
-    with _DISPLAY_STORIES_CACHE_LOCK:
-        _DISPLAY_STORIES_CACHE[lang] = (time.monotonic(), stories)
-    return [dict(row) for row in stories]
+    # The expired list is still a valid last-known snapshot. Serve it immediately and
+    # refresh asynchronously, instead of making every concurrent visitor wait for the
+    # same sort, relevance checks, duplicate filtering, and language normalization.
+    if cached is not None:
+        _refresh_display_stories_cache_async(lang, generation)
+        return [dict(row) for row in cached[1]]
+
+    # Cold start or a deliberate invalidation: only one request per language builds the
+    # pool. Requests arriving together re-check the cache after acquiring this lock and
+    # reuse the first completed build rather than repeating CPU- and DB-heavy work.
+    with _DISPLAY_STORIES_BUILD_LOCKS[lang]:
+        now = time.monotonic()
+        with _DISPLAY_STORIES_CACHE_LOCK:
+            cached = _DISPLAY_STORIES_CACHE.get(lang)
+            generation = _DISPLAY_STORIES_CACHE_GENERATION
+            if cached and now - cached[0] < _DISPLAY_STORIES_CACHE_TTL_SECONDS:
+                return [dict(row) for row in cached[1]]
+        started = time.monotonic()
+        stories = _build_display_stories(lang)
+        elapsed = time.monotonic() - started
+        with _DISPLAY_STORIES_CACHE_LOCK:
+            if generation == _DISPLAY_STORIES_CACHE_GENERATION:
+                _DISPLAY_STORIES_CACHE[lang] = (time.monotonic(), stories)
+        logger.info(
+            "Display story cache built on demand: language=%s stories=%d elapsed=%.3fs",
+            lang, len(stories), elapsed,
+        )
+        return [dict(row) for row in stories]
 
 
 def _safe_saved_article_permalink(row: dict[str, Any]) -> bool:
