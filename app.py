@@ -688,6 +688,12 @@ _DB_LAST_FETCHED_VALUE: datetime | None = None
 _DB_LAST_FETCHED_CHECKED = 0.0
 _DB_LAST_FETCHED_LOCK = threading.Lock()
 _DB_ARTICLE_CACHE_TTL_SECONDS = max(1, min(60, int(os.getenv("DB_ARTICLE_CACHE_TTL_SECONDS", "60"))))
+# Keep the active archive bounded, but reserve space for each news section and language.
+# A single newest-120-per-language window made Gaming/Science/etc. disappear behind
+# high-volume World/Politics stories despite those articles still existing in Supabase.
+ARCHIVE_ROWS_PER_CATEGORY_LANGUAGE = max(
+    24, min(250, int(os.getenv("ARCHIVE_ROWS_PER_CATEGORY_LANGUAGE", "150")))
+)
 _DB_ARTICLES_CACHE: list[dict[str, Any]] | None = None
 _DB_ARTICLES_CACHE_AT = 0.0
 _DB_ARTICLES_CACHE_LOCK = threading.Lock()
@@ -1811,6 +1817,27 @@ def _archive_cache_sort_timestamp(row: dict[str, Any]) -> float:
     return 0.0
 
 
+def _bounded_archive_snapshot_rows(
+    rows: list[dict[str, Any]], *, per_category_limit: int | None = None
+) -> list[dict[str, Any]]:
+    """Keep a recent bounded window for every original-language/category pair."""
+    limit = max(1, int(per_category_limit or ARCHIVE_ROWS_PER_CATEGORY_LANGUAGE))
+    grouped: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for original in rows:
+        lang = str(original.get("original_language") or "").casefold()
+        category = str(original.get("category") or "world").casefold()
+        if lang not in {"ar", "en"} or original.get("is_demo"):
+            continue
+        grouped.setdefault((lang, category), []).append(dict(original))
+
+    selected: list[dict[str, Any]] = []
+    for group_rows in grouped.values():
+        group_rows.sort(key=_archive_cache_sort_timestamp, reverse=True)
+        selected.extend(group_rows[:limit])
+    selected.sort(key=_archive_cache_sort_timestamp, reverse=True)
+    return selected
+
+
 def _install_archive_snapshot(rows: list[dict[str, Any]], *, age_seconds: float = 0.0, clear_display: bool = False) -> None:
     global _DB_ARTICLES_CACHE, _DB_ARTICLES_CACHE_AT
     with _DB_ARTICLES_CACHE_LOCK:
@@ -1881,11 +1908,9 @@ def _merge_article_rows_into_archive_cache(articles: list[dict[str, Any]]) -> bo
                 continue
             per_language[lang].append(row)
 
-        merged_rows = []
-        for lang in ("ar", "en"):
-            per_language[lang].sort(key=_archive_cache_sort_timestamp, reverse=True)
-            merged_rows.extend(per_language[lang][:120])
-        merged_rows.sort(key=_archive_cache_sort_timestamp, reverse=True)
+        merged_rows = _bounded_archive_snapshot_rows(
+            [row for rows_for_language in per_language.values() for row in rows_for_language]
+        )
         _write_shared_archive_cache(merged_rows)
     finally:
         _archive_unlock(cache_handle)
@@ -1907,53 +1932,76 @@ def _query_persistent_archive_rows() -> list[dict[str, Any]] | None:
             ar_domains, ar_host_patterns, ar_name_patterns = _archive_source_filter_params("ar")
             en_domains, en_host_patterns, en_name_patterns = _archive_source_filter_params("en")
             cur.execute("""
+                WITH arabic_ranked AS (
+                    SELECT slug, source_url, category, source_name, source_domain, image_url,
+                           image_source, image_credit, image_credit_url, image_provider_url,
+                           image_license_url, image_checked_at, image_relevance_verified,
+                           title_ar, title_en, summary_ar, summary_en,
+                           content_ar, content_en, published_at, fetched_at,
+                           read_minutes, original_language, is_demo,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY category
+                               ORDER BY COALESCE(published_at, fetched_at) DESC, fetched_at DESC
+                           ) AS category_rank
+                    FROM world_pulse_articles
+                    WHERE is_demo = FALSE
+                      AND is_hidden = FALSE
+                      AND original_language = 'ar'
+                      AND LENGTH(TRIM(COALESCE(title_ar, ''))) > 0
+                      AND LENGTH(TRIM(COALESCE(summary_ar, ''))) > 0
+                      AND (
+                          LOWER(source_domain) = ANY(%s)
+                          OR LOWER(source_domain) LIKE ANY(%s)
+                          OR (COALESCE(source_domain, '') = '' AND LOWER(source_name) LIKE ANY(%s))
+                      )
+                ),
+                english_ranked AS (
+                    SELECT slug, source_url, category, source_name, source_domain, image_url,
+                           image_source, image_credit, image_credit_url, image_provider_url,
+                           image_license_url, image_checked_at, image_relevance_verified,
+                           title_ar, title_en, summary_ar, summary_en,
+                           content_ar, content_en, published_at, fetched_at,
+                           read_minutes, original_language, is_demo,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY category
+                               ORDER BY COALESCE(published_at, fetched_at) DESC, fetched_at DESC
+                           ) AS category_rank
+                    FROM world_pulse_articles
+                    WHERE is_demo = FALSE
+                      AND is_hidden = FALSE
+                      AND original_language = 'en'
+                      AND LENGTH(TRIM(COALESCE(title_en, ''))) > 0
+                      AND LENGTH(TRIM(COALESCE(summary_en, ''))) > 0
+                      AND (
+                          LOWER(source_domain) = ANY(%s)
+                          OR LOWER(source_domain) LIKE ANY(%s)
+                          OR (COALESCE(source_domain, '') = '' AND LOWER(source_name) LIKE ANY(%s))
+                      )
+                )
                 SELECT * FROM (
-                    (
-                        SELECT slug, source_url, category, source_name, source_domain, image_url,
-                               image_source, image_credit, image_credit_url, image_provider_url, image_license_url, image_checked_at, image_relevance_verified,
-                               title_ar, title_en, summary_ar, summary_en,
-                               content_ar, content_en, published_at, fetched_at,
-                               read_minutes, original_language, is_demo
-                        FROM world_pulse_articles
-                        WHERE is_demo = FALSE
-                          AND is_hidden = FALSE
-                          AND original_language = 'ar'
-                          AND LENGTH(TRIM(COALESCE(title_ar, ''))) > 0
-                          AND LENGTH(TRIM(COALESCE(summary_ar, ''))) > 0
-                          AND (
-                              LOWER(source_domain) = ANY(%s)
-                              OR LOWER(source_domain) LIKE ANY(%s)
-                              OR (COALESCE(source_domain, '') = '' AND LOWER(source_name) LIKE ANY(%s))
-                          )
-                        ORDER BY COALESCE(published_at, fetched_at) DESC, fetched_at DESC
-                        LIMIT 120
-                    )
+                    SELECT slug, source_url, category, source_name, source_domain, image_url,
+                           image_source, image_credit, image_credit_url, image_provider_url,
+                           image_license_url, image_checked_at, image_relevance_verified,
+                           title_ar, title_en, summary_ar, summary_en,
+                           content_ar, content_en, published_at, fetched_at,
+                           read_minutes, original_language, is_demo
+                    FROM arabic_ranked
+                    WHERE category_rank <= %s
                     UNION ALL
-                    (
-                        SELECT slug, source_url, category, source_name, source_domain, image_url,
-                               image_source, image_credit, image_credit_url, image_provider_url, image_license_url, image_checked_at, image_relevance_verified,
-                               title_ar, title_en, summary_ar, summary_en,
-                               content_ar, content_en, published_at, fetched_at,
-                               read_minutes, original_language, is_demo
-                        FROM world_pulse_articles
-                        WHERE is_demo = FALSE
-                          AND is_hidden = FALSE
-                          AND original_language = 'en'
-                          AND LENGTH(TRIM(COALESCE(title_en, ''))) > 0
-                          AND LENGTH(TRIM(COALESCE(summary_en, ''))) > 0
-                          AND (
-                              LOWER(source_domain) = ANY(%s)
-                              OR LOWER(source_domain) LIKE ANY(%s)
-                              OR (COALESCE(source_domain, '') = '' AND LOWER(source_name) LIKE ANY(%s))
-                          )
-                        ORDER BY COALESCE(published_at, fetched_at) DESC, fetched_at DESC
-                        LIMIT 120
-                    )
+                    SELECT slug, source_url, category, source_name, source_domain, image_url,
+                           image_source, image_credit, image_credit_url, image_provider_url,
+                           image_license_url, image_checked_at, image_relevance_verified,
+                           title_ar, title_en, summary_ar, summary_en,
+                           content_ar, content_en, published_at, fetched_at,
+                           read_minutes, original_language, is_demo
+                    FROM english_ranked
+                    WHERE category_rank <= %s
                 ) AS recent_articles
                 ORDER BY COALESCE(published_at, fetched_at) DESC, fetched_at DESC
             """, (
                 ar_domains, ar_host_patterns, ar_name_patterns,
                 en_domains, en_host_patterns, en_name_patterns,
+                ARCHIVE_ROWS_PER_CATEGORY_LANGUAGE, ARCHIVE_ROWS_PER_CATEGORY_LANGUAGE,
             ))
             rows = [dict(row) for row in cur.fetchall()]
         logger.info("Persistent archive read completed: rows=%d elapsed=%.3fs", len(rows), time.monotonic() - started)
@@ -4219,8 +4267,13 @@ def _search_article_image_with_variants(
         if index == 0:
             result = _search_any_reusable_image(query, lang, category)
         else:
-            # Secondary/category searches use only bounded open catalogues.
-            result = _search_any_reusable_image(query, lang, category, open_only=True)
+            # Keep alternate headline searches on open catalogues only. For the final
+            # category-level fallback, also allow vetted NASA and explicitly approved
+            # press-kit catalogues; the candidate must still pass the same topic score,
+            # item-level licence checks and clear illustrative-category label.
+            result = _search_any_reusable_image(
+                query, lang, category, open_only=not is_category_fallback
+            )
         if not result:
             continue
         provider_score = float(result.get("_image_relevance_score") or 0.0)

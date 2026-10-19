@@ -62,7 +62,8 @@
   {% if db_error %}<div class="notice error" role="alert">تعذر قراءة الأرشيف الآن. رمز التشخيص: {{ db_error }}. لم نُجرِ أي تغيير على الخبر.</div>{% endif %}
 
   <section class="card">
-    <div class="section-head"><h2>العثور على خبر</h2><span class="pill">عدد النتائج: {{ total }}</span></div>
+    <div class="section-head"><h2>العثور على خبر</h2><span class="pill">عدد سجلات الأرشيف المطابقة: {{ total }}</span></div>
+    <p class="muted">هذا الرقم يحصي السجلات المحفوظة في الأرشيف وفق الفلاتر، وليس عدد الأخبار الظاهرة للعامة. الواجهة تستبعد الأخبار المخفية، والسجلات التجريبية، والأخبار التي لا تجتاز فحص اللغة أو المصدر أو اكتمال المحتوى والحقوق. تم توسيع نافذة العرض لتحتفظ بأخبار من كل قسم بدل أن تطغى الأخبار الأحدث في قسم واحد على الأقسام الأخرى. لم يُحذف أي خبر من قاعدة البيانات بسبب هذا التغيير.</p>
     <form method="get" class="toolbar">
       <div><label for="q">بحث بالعنوان أو الناشر أو الرابط</label><input id="q" name="q" type="search" maxlength="120" value="{{ query }}" placeholder="مثال: النفط، NASA، عنوان الخبر"></div>
       <div><label for="category">القسم</label><select id="category" name="category"><option value="all" {% if active_category == 'all' %}selected{% endif %}>كل الأقسام</option>{% for key in category_keys %}<option value="{{ key }}" {% if active_category == key %}selected{% endif %}>{{ category_names[key]['ar'] }} / {{ category_names[key]['en'] }}</option>{% endfor %}</select></div>
