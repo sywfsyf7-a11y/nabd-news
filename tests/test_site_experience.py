@@ -2488,7 +2488,7 @@ class AdSenseConsentReadinessTests(unittest.TestCase):
             self.assertEqual(response.status_code, 200)
             self.assertEqual(
                 response.get_data(as_text=True),
-                "google.com, pub-1234567890123456, DIRECT, f08c47fec0942fa0f\n",
+                "google.com, pub-1234567890123456, DIRECT, f08c47fec0942fa0\n",
             )
 
         with patch.dict(os.environ, {**environment, "ADSENSE_CONSENT_READY": "true"}):
@@ -2499,8 +2499,21 @@ class AdSenseConsentReadinessTests(unittest.TestCase):
             self.assertEqual(response.status_code, 200)
             self.assertEqual(
                 response.get_data(as_text=True),
-                "google.com, pub-1234567890123456, DIRECT, f08c47fec0942fa0f\n",
+                "google.com, pub-1234567890123456, DIRECT, f08c47fec0942fa0\n",
             )
+
+    def test_ads_txt_accepts_pub_prefix_and_normalizes_ad_tag_id(self):
+        with patch.dict(os.environ, {
+            "ADSENSE_ENABLED": "false",
+            "ADSENSE_CONSENT_READY": "false",
+            "ADSENSE_PUBLISHER_ID": "pub-1234567890123456",
+        }):
+            response = world_pulse.app.test_client().get("/ads.txt")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.get_data(as_text=True),
+            "google.com, pub-1234567890123456, DIRECT, f08c47fec0942fa0\n",
+        )
 
     def test_ads_txt_does_not_enable_ads_or_publish_placeholder_without_real_id(self):
         with patch.dict(os.environ, {
@@ -2524,7 +2537,7 @@ class AdSenseConsentReadinessTests(unittest.TestCase):
             self.assertEqual(response.status_code, 200)
             self.assertEqual(
                 response.get_data(as_text=True),
-                "google.com, pub-1234567890123456, DIRECT, f08c47fec0942fa0f\n",
+                "google.com, pub-1234567890123456, DIRECT, f08c47fec0942fa0\n",
             )
 
     def test_template_gates_google_ads_script_on_explicit_readiness(self):

@@ -7478,9 +7478,10 @@ def current_language() -> str:
     return value if value in ("ar", "en") else "ar"
 
 def _adsense_publisher_id() -> str:
-    """Return the configured AdSense publisher ID only when it has Google's expected format."""
+    """Normalize AdSense's pub- ID or ad-tag ca-pub- ID to the script-compatible form."""
     publisher_id = (os.getenv("ADSENSE_PUBLISHER_ID") or "").strip()
-    return publisher_id if re.fullmatch(r"ca-pub-\d{16}", publisher_id) else ""
+    match = re.fullmatch(r"(?:ca-)?pub-(\d{16})", publisher_id)
+    return f"ca-pub-{match.group(1)}" if match else ""
 
 
 def _adsense_settings() -> dict[str, Any]:
@@ -8069,7 +8070,7 @@ def ads_txt():
         # Never publish a fake/example seller ID. Configure the real ID in Render first.
         return app.response_class("", status=404, mimetype="text/plain")
     seller_id = "pub-" + publisher_id.removeprefix("ca-pub-")
-    body = f"google.com, {seller_id}, DIRECT, f08c47fec0942fa0f\n"
+    body = f"google.com, {seller_id}, DIRECT, f08c47fec0942fa0\n"
     return app.response_class(body, mimetype="text/plain")
 
 
