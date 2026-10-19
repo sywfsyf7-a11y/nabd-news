@@ -2404,8 +2404,8 @@ def _prepare_archive_image_revalidation_candidates(
 ) -> list[dict[str, Any]]:
     """Use only the remaining per-tick photo-query budget to repair older archived stories."""
     available = max(0, MAX_IMAGE_LOOKUPS_PER_REFRESH - len(current_candidates))
-    if limit is not None:
-        available = min(available, max(0, int(limit)))
+    requested_limit = IMAGE_REVALIDATION_BATCH_SIZE if limit is None else max(0, int(limit))
+    available = min(available, requested_limit, IMAGE_REVALIDATION_BATCH_SIZE)
     if available <= 0:
         return []
 
