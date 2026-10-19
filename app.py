@@ -346,10 +346,14 @@ DIRECT_RSS_FEEDS = (
 # Precompute publisher-to-category membership once. Building this mapping inside
 # _classify_story multiplied the work by every candidate RSS entry during each refresh.
 _DOMAIN_CATEGORY_LOOKUP: dict[str, set[str]] = {}
+_DOMAIN_CATEGORY_LOOKUP_BY_LANGUAGE: dict[str, dict[str, set[str]]] = {"ar": {}, "en": {}}
 for _category_key, _language_map in CATEGORY_SOURCE_DOMAINS.items():
-    for _configured_domains in _language_map.values():
+    for _language_key, _configured_domains in _language_map.items():
         for _configured_domain in _configured_domains:
             _DOMAIN_CATEGORY_LOOKUP.setdefault(_configured_domain, set()).add(_category_key)
+            _DOMAIN_CATEGORY_LOOKUP_BY_LANGUAGE.setdefault(_language_key, {}).setdefault(
+                _configured_domain, set()
+            ).add(_category_key)
 
 CATEGORY_MATCH_TERMS = {
     "politics": [
@@ -544,6 +548,15 @@ def _display_category(row: dict[str, Any], lang: str) -> str:
     host = str(row.get("source_domain") or "").casefold().removeprefix("www.")
     if not host:
         host = _infer_source_domain_from_name(current, source_lang, str(row.get("source_name") or ""))
+    # If this publisher is only allowlisted in the section already recorded on the row,
+    # classify nothing: even a keyword-based classification cannot move it to another
+    # allowed section, so running every category regex is redundant work on cold builds.
+    current_domain = _source_domain_for_category(current, source_lang, host) if host else ""
+    if (
+        current_domain
+        and _DOMAIN_CATEGORY_LOOKUP_BY_LANGUAGE.get(source_lang, {}).get(current_domain, set()) == {current}
+    ):
+        return current
     title = str(row.get(f"title_{source_lang}") or row.get("original_title") or row.get(f"title_{lang}") or "")
     summary = str(row.get(f"summary_{source_lang}") or row.get("original_summary") or row.get(f"summary_{lang}") or "")
     detected = _classify_story(title, summary, current, host)
@@ -719,6 +732,16 @@ def _display_shared_cache_lock():
     if directory:
         os.makedirs(directory, exist_ok=True)
     handle = open(_DISPLAY_SHARED_CACHE_PATH + ".lock", "a+", encoding="utf-8")
+    fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+    return handle
+
+
+def _display_cold_build_lock():
+    """Single-flight the expensive normalized display build across Gunicorn workers."""
+    directory = os.path.dirname(_DISPLAY_SHARED_CACHE_PATH)
+    if directory:
+        os.makedirs(directory, exist_ok=True)
+    handle = open(_DISPLAY_SHARED_CACHE_PATH + ".build.lock", "a+", encoding="utf-8")
     fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
     return handle
 
@@ -7168,12 +7191,17 @@ def _build_display_stories(lang: str) -> list[dict[str, Any]]:
             or _looks_like_feed_section_title(source_title, original.get("source_name", ""))
         ):
             continue
+        # Cross-language legacy rows must have a complete, script-valid translation.
+        # Filter these out before keyword classification and duplicate analysis, which is
+        # expensive and cannot make an incomplete card publishable anyway.
+        if not _has_complete_display_translation(original, lang):
+            continue
         row = original
         corrected_category = _display_category(original, lang)
         if corrected_category != original.get("category"):
             row = dict(original)
             row["category"] = corrected_category
-        if row.get("category") not in CATEGORY_NAMES or not _story_allowed_in_display_language(row, lang):
+        if row.get("category") not in CATEGORY_NAMES or not _row_allowed_on_language_site(row, lang):
             continue
         live.append(row)
     live.sort(
