@@ -2481,8 +2481,15 @@ class AdSenseConsentReadinessTests(unittest.TestCase):
             "ADSENSE_PUBLISHER_ID": "ca-pub-1234567890123456",
         }
         with patch.dict(os.environ, environment):
+            # The consent gate must keep advertising disabled...
             self.assertFalse(world_pulse._adsense_settings()["enabled"])
-            self.assertEqual(world_pulse.app.test_client().get("/ads.txt").status_code, 404)
+            # ...but it must not hide a valid ads.txt seller declaration.
+            response = world_pulse.app.test_client().get("/ads.txt")
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(
+                response.get_data(as_text=True),
+                "google.com, pub-1234567890123456, DIRECT, f08c47fec0942fa0f\n",
+            )
 
         with patch.dict(os.environ, {**environment, "ADSENSE_CONSENT_READY": "true"}):
             settings = world_pulse._adsense_settings()
@@ -2494,6 +2501,17 @@ class AdSenseConsentReadinessTests(unittest.TestCase):
                 response.get_data(as_text=True),
                 "google.com, pub-1234567890123456, DIRECT, f08c47fec0942fa0f\n",
             )
+
+    def test_ads_txt_does_not_enable_ads_or_publish_placeholder_without_real_id(self):
+        with patch.dict(os.environ, {
+            "ADSENSE_ENABLED": "true",
+            "ADSENSE_CONSENT_READY": "true",
+            "ADSENSE_PUBLISHER_ID": "replace-me",
+        }):
+            self.assertFalse(world_pulse._adsense_settings()["enabled"])
+            response = world_pulse.app.test_client().get("/ads.txt")
+            self.assertEqual(response.status_code, 404)
+            self.assertEqual(response.get_data(as_text=True), "")
 
     def test_template_gates_google_ads_script_on_explicit_readiness(self):
         template_path = os.path.join(
