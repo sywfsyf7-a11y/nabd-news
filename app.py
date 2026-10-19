@@ -2345,40 +2345,94 @@ def _db_fetch_articles_needing_images(limit: int = 6) -> list[dict[str, Any]]:
                        summary_ar, summary_en, content_ar, content_en, published_at,
                        fetched_at, read_minutes, original_language, is_demo
                 FROM world_pulse_articles
-                 WHERE is_demo = FALSE
-                   AND is_hidden = FALSE
-                   AND source_url <> ''
-                   AND (
-                    COALESCE(image_relevance_verified, FALSE) = FALSE
-                    OR 
+                WHERE is_demo = FALSE
+                  AND is_hidden = FALSE
+                  AND source_url <> ''
+                  AND (
                     (
                       (
-                        COALESCE(image_url, '') = ''
+                        COALESCE(image_relevance_verified, FALSE) = FALSE
+                        OR COALESCE(image_url, '') = ''
                         OR image_source IN ('fallback_ar', 'fallback_en', 'language_fallback',
                                             'pexels_api', 'unsplash_api', 'category',
                                             'duplicate_removed', 'none')
                         OR image_url IN ('/static/A.jpg', '/static/E.jpg')
                       )
-                      AND (image_checked_at IS NULL OR image_checked_at < NOW() - (%s * INTERVAL '1 hour'))
+                      AND (
+                        image_checked_at IS NULL
+                        OR image_checked_at < NOW() - (%s * INTERVAL '1 hour')
+                      )
                     )
                     OR (
                       COALESCE(image_url, '') <> ''
                       AND image_source NOT IN ('fallback_ar', 'fallback_en', 'language_fallback',
                                                'pexels_api', 'unsplash_api', 'category',
                                                'duplicate_removed', 'none')
-                      AND (image_checked_at IS NULL OR image_checked_at < NOW() - (%s * INTERVAL '1 second'))
+                      AND (
+                        image_checked_at IS NULL
+                        OR image_checked_at < NOW() - (%s * INTERVAL '1 second')
+                      )
                     )
                   )
-                ORDER BY image_relevance_verified ASC, image_checked_at ASC NULLS FIRST,
-                         COALESCE(published_at, fetched_at) DESC, fetched_at DESC
+                ORDER BY
+                  CASE
+                    WHEN COALESCE(image_relevance_verified, FALSE) = FALSE
+                      OR COALESCE(image_url, '') = ''
+                      OR image_source IN ('fallback_ar', 'fallback_en', 'language_fallback',
+                                          'pexels_api', 'unsplash_api', 'category',
+                                          'duplicate_removed', 'none')
+                      OR image_url IN ('/static/A.jpg', '/static/E.jpg')
+                    THEN 0 ELSE 1
+                  END ASC,
+                  image_checked_at ASC NULLS FIRST,
+                  COALESCE(published_at, fetched_at) DESC, fetched_at DESC
                 LIMIT %s
-            """, (IMAGE_RETRY_AFTER_HOURS, IMAGE_CACHE_MAX_AGE_SECONDS, max(1, min(24, int(limit)))))
+            """, (
+                IMAGE_RETRY_AFTER_HOURS, IMAGE_CACHE_MAX_AGE_SECONDS,
+                max(1, min(24, int(limit))),
+            ))
             return [dict(row) for row in cur.fetchall()]
     except Exception as exc:
         logger.debug("Image backfill query failed (%s)", type(exc).__name__)
         return []
     finally:
         _release_db_connection(conn)
+
+
+def _prepare_archive_image_revalidation_candidates(
+    current_candidates: list[dict[str, Any]], *, limit: int | None = None
+) -> list[dict[str, Any]]:
+    """Use only the remaining per-tick photo-query budget to repair older archived stories."""
+    available = max(0, MAX_IMAGE_LOOKUPS_PER_REFRESH - len(current_candidates))
+    if limit is not None:
+        available = min(available, max(0, int(limit)))
+    if available <= 0:
+        return []
+
+    seen_keys = {
+        key for key in (_canonical_story_url(item.get("source_url")) for item in current_candidates)
+        if key
+    }
+    # A just-saved story can be returned by the photo-repair query itself. Read a few extra
+    # bounded rows so skipping duplicate URLs still leaves room to repair older archive items.
+    rows = _db_fetch_articles_needing_images(limit=min(24, available + len(seen_keys)))
+    pending: list[dict[str, Any]] = []
+    for row in rows:
+        key = _canonical_story_url(row.get("source_url"))
+        if not key or key in seen_keys:
+            continue
+        raw = _raw_from_stored_article(row)
+        raw["_revalidating_cached_image"] = True
+        image_language = str(row.get("original_language") or "en").casefold()
+        if image_language not in {"ar", "en"}:
+            image_language = "en"
+        raw["image_search_title"] = row.get(f"title_{image_language}") or raw.get("original_title", "")
+        raw["image_search_context"] = row.get(f"summary_{image_language}") or raw.get("original_summary", "")
+        pending.append(raw)
+        seen_keys.add(key)
+        if len(pending) >= available:
+            break
+    return pending
 
 def _sync_cached_image_metadata(articles: list[dict[str, Any]]) -> None:
     """Update just image fields in warm caches; a photo update must not trigger a full archive scan."""
@@ -2496,19 +2550,9 @@ def _db_update_article_images(articles: list[dict[str, Any]]) -> int:
 
 def _backfill_missing_article_images(limit: int = 6) -> int:
     """Repair missing photos and re-check stale image matches in small batches."""
-    rows = _db_fetch_articles_needing_images(limit)
-    if not rows:
+    pending = _prepare_archive_image_revalidation_candidates([], limit=limit)
+    if not pending:
         return 0
-    pending = [_raw_from_stored_article(row) for row in rows]
-    for raw, row in zip(pending, rows):
-        # Revalidate stored photos; if no relevant, rights-cleared match is found, use
-        # the labelled editorial illustration rather than a potentially misleading photo.
-        raw["_revalidating_cached_image"] = True
-        image_language = str(row.get("original_language") or "en").casefold()
-        if image_language not in {"ar", "en"}:
-            image_language = "en"
-        raw["image_search_title"] = row.get(f"title_{image_language}") or raw.get("original_title", "")
-        raw["image_search_context"] = row.get(f"summary_{image_language}") or raw.get("original_summary", "")
     _enrich_article_images(pending)
     _db_update_article_images(pending)
     for raw in pending:
@@ -2516,10 +2560,16 @@ def _backfill_missing_article_images(limit: int = 6) -> int:
             continue
         cached = _MEMORY_ARTICLES.get(str(raw["source_url"]))
         if cached is not None:
-            for key in ("image_url", "image_source", "image_credit", "image_credit_url",
-                        "image_provider_url", "image_license_url", "image_checked_at"):
+            for key in (
+                "image_url", "image_source", "image_credit", "image_credit_url",
+                "image_provider_url", "image_license_url", "image_checked_at",
+                "image_relevance_verified",
+            ):
                 cached[key] = raw.get(key, "")
-    return sum(1 for raw in pending if raw.get("image_url") and raw.get("image_source") in TRUSTED_REUSABLE_IMAGE_SOURCES)
+    return sum(
+        1 for raw in pending
+        if raw.get("image_url") and raw.get("image_source") in TRUSTED_REUSABLE_IMAGE_SOURCES
+    )
 
 def _raw_from_stored_article(row: dict[str, Any]) -> dict[str, Any]:
     original_language = row.get("original_language", "en")
@@ -6761,7 +6811,16 @@ def _refresh_news_job() -> None:
                 logger.warning("Story was saved, but its RSS queue acknowledgement will be retried")
 
         image_candidates = [raw for _index, raw in raw_to_publish]
-        image_updates = 0
+        archive_image_candidates = _prepare_archive_image_revalidation_candidates(
+            image_candidates, limit=IMAGE_REVALIDATION_BATCH_SIZE
+        )
+        image_candidates.extend(archive_image_candidates)
+        if archive_image_candidates:
+            logger.info(
+                "Archive image maintenance queued: candidates=%d remaining_lookup_budget=%d",
+                len(archive_image_candidates),
+                max(0, MAX_IMAGE_LOOKUPS_PER_REFRESH - len(image_candidates)),
+            )        image_updates = 0
         images_found = 0
         try:
             _enrich_article_images(image_candidates)
