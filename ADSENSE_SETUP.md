@@ -18,7 +18,7 @@ Set these values on the web service only after the corresponding account steps a
 - `ADSENSE_CONSENT_READY`: leave `false` until the site's European regulations message is published and verified; then set `true`.
 - `ADSENSE_ENABLED`: leave `false` during setup and site review; set `true` only when ready to load the Google AdSense script.
 
-The page loads Google's AdSense script only if `ADSENSE_ENABLED=true`, `ADSENSE_CONSENT_READY=true`, and the publisher ID has the expected format. The `/ads.txt` endpoint returns the Google seller record only under the same conditions; otherwise it returns 404.
+The page loads Google's AdSense script only if `ADSENSE_ENABLED=true`, `ADSENSE_CONSENT_READY=true`, and the publisher ID has the expected format. The `/ads.txt` endpoint is separate: it returns the Google seller record whenever `ADSENSE_PUBLISHER_ID` is a valid real ID, even while ads and consent-dependent ad code remain disabled. If no valid publisher ID is configured, `/ads.txt` returns 404 rather than publishing a placeholder.
 
 ## Important limitation
 
