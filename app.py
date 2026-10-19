@@ -104,7 +104,9 @@ NEWS_RETRY_MINUTES = 5
 # Discover new publisher stories every 15 minutes; publishing itself remains a smaller five-minute tick.
 NEWS_DISCOVERY_REFRESH_MINUTES = 15
 MAX_PENDING_NEWS_CANDIDATES = max(24, min(160, int(os.getenv("MAX_PENDING_NEWS_CANDIDATES", "60"))))
-MAX_QUEUE_ADDITIONS_PER_DISCOVERY = max(1, min(12, int(os.getenv("MAX_QUEUE_ADDITIONS_PER_DISCOVERY", "6"))))
+# One story is published every five-minute tick; cap new candidates to the three slots
+# available in a 15-minute discovery window, even if Render has a stale higher override.
+MAX_QUEUE_ADDITIONS_PER_DISCOVERY = max(1, min(3, int(os.getenv("MAX_QUEUE_ADDITIONS_PER_DISCOVERY", "3"))))
 NEWS_AUTO_FETCH = os.getenv("NEWS_AUTO_FETCH", "true").lower() not in {"0", "false", "no"}
 NEWS_SCHEDULER_ENABLED = os.getenv("NEWS_SCHEDULER_ENABLED", "true").lower() not in {"0", "false", "no"}
 NEWS_SCHEDULER_POLL_SECONDS = max(15, min(120, int(os.getenv("NEWS_SCHEDULER_POLL_SECONDS", "30"))))
@@ -2622,7 +2624,10 @@ _IMAGE_STOPWORDS = {
 def _image_tokens(value: str) -> set[str]:
     return {t.casefold() for t in re.findall(r"[\w\u0600-\u06ff]{3,}", value or "") if t.casefold() not in _IMAGE_STOPWORDS}
 
-MIN_IMAGE_RELEVANCE_SCORE = 0.26
+# Reject borderline matches for photos presented as documenting the specific story.
+# A separate, lower threshold is allowed only for explicitly labelled category art.
+MIN_IMAGE_RELEVANCE_SCORE = 0.40
+MIN_CATEGORY_IMAGE_RELEVANCE_SCORE = 0.26
 
 
 def _image_match_score(title: str, description: str) -> float:
@@ -4083,10 +4088,12 @@ def _search_article_image_with_variants(
         # Provider scores alone may be high because only a location or category word
         # matched. Use the lower of catalogue relevance and article-topic relevance.
         score = min(provider_score, story_score) if provider_score > 0 and story_score > 0 else 0.0
-        if score < MIN_IMAGE_RELEVANCE_SCORE:
+        minimum_score = MIN_CATEGORY_IMAGE_RELEVANCE_SCORE if is_category_fallback else MIN_IMAGE_RELEVANCE_SCORE
+        if score < minimum_score:
             logger.info(
-                "Image candidate rejected: source=%s provider_score=%.3f story_score=%.3f",
+                "Image candidate rejected: source=%s provider_score=%.3f story_score=%.3f category_fallback=%s minimum=%.2f",
                 result.get("image_source", "unknown"), provider_score, story_score,
+                is_category_fallback, minimum_score,
             )
             continue
         if score > best_score:
@@ -6247,6 +6254,39 @@ def _repair_legacy_source_links(limit: int = SOURCE_LINK_REPAIR_BATCH_SIZE) -> i
     return updated
 
 
+def _select_news_publication_batch(
+    queue_items: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], set[str]]:
+    """Select one new queued story plus one eligible archive repair when available."""
+    fresh_batch = [dict(item) for item in queue_items[:MAX_ARTICLES_PER_REFRESH]]
+    selected_queue_keys = {
+        key for key in (_canonical_story_url(item.get("source_url")) for item in fresh_batch) if key
+    }
+    raw_articles = list(fresh_batch)
+    seen_keys = set(selected_queue_keys)
+
+    # This is a repair to an already-published row, not an extra new publication.
+    # It shares the same small editorial request and is processed only from sources
+    # whose available excerpts may be adapted under the configured publisher policy.
+    for stored in _db_fetch_articles_needing_editorial(limit=8):
+        stored_key = _canonical_story_url(stored.get("source_url"))
+        source_url = str(stored.get("source_url") or "")
+        source_name = str(stored.get("source_name") or "")
+        source_domain = str(stored.get("source_domain") or "")
+        if (
+            not stored_key
+            or stored_key in seen_keys
+            or _is_headline_only_domain(source_domain)
+            or _publisher_requires_license(source_name, (source_url,))
+        ):
+            continue
+        raw_articles.append(_raw_from_stored_article(stored))
+        seen_keys.add(stored_key)
+        break
+
+    return raw_articles, selected_queue_keys
+
+
 def _refresh_news_job() -> None:
     global _REFRESHING, _LAST_REFRESH_SUCCESS, _LAST_REFRESH_AT, _LAST_REFRESH_STATE, _LAST_REFRESH_ERROR
     refresh_lock_file = None
@@ -6369,42 +6409,12 @@ def _refresh_news_job() -> None:
         # Preserve the known database URL set for the later fallback/retry guards.
         existing_url_keys = known_keys
 
-        # Exactly one fresh story is translated and published per tick by default. Existing
-        # editorial repairs run only when no queued new story is waiting.
-        selected_queue_keys: set[str] = set()
-        if queue_items:
-            # Keep publishing fresh news every tick, but reserve one slot in the same
-            # Gemini request for repairing an older thin article. This prevents the
-            # permanent archive backlog from starving while the incoming queue stays busy.
-            fresh_limit = max(1, MAX_ARTICLES_PER_REFRESH - 1)
-            batch = queue_items[:fresh_limit]
-            raw_articles = [dict(item) for item in batch]
-            selected_queue_keys = {
-                key for key in (_canonical_story_url(item.get("source_url")) for item in batch) if key
-            }
-            if len(raw_articles) < MAX_ARTICLES_PER_REFRESH:
-                queued_keys = set(selected_queue_keys)
-                for stored in _db_fetch_articles_needing_editorial(limit=8):
-                    stored_key = _canonical_story_url(stored.get("source_url"))
-                    if (
-                        not stored_key
-                        or stored_key in queued_keys
-                        or _is_headline_only_domain(str(stored.get("source_domain") or ""))
-                    ):
-                        continue
-                    raw_articles.append(_raw_from_stored_article(stored))
-                    queued_keys.add(stored_key)
-                    if len(raw_articles) >= MAX_ARTICLES_PER_REFRESH:
-                        break
-        else:
-            editorial_retry_candidates = []
-            for stored in _db_fetch_articles_needing_editorial(limit=8):
-                if _is_headline_only_domain(str(stored.get("source_domain") or "")):
-                    continue
-                editorial_retry_candidates.append(_raw_from_stored_article(stored))
-                if len(editorial_retry_candidates) >= MAX_ARTICLES_PER_REFRESH:
-                    break
-            raw_articles = editorial_retry_candidates
+        # Publish at most one NEW queued story per five-minute tick, while using
+        # the same bounded Gemini request to repair one older eligible story. The repair
+        # is not counted as a new publication and is never selected from headline-only or
+        # rights-restricted publishers. This keeps the permanent archive from starving
+        # behind an always-nonempty new-story queue.
+        raw_articles, selected_queue_keys = _select_news_publication_batch(queue_items)
 
         logger.info(
             "News publishing tick: new_stories=%d editorial_retries=%d queue_remaining=%d discovery_due=%s",
@@ -6537,10 +6547,9 @@ def _refresh_news_job() -> None:
                 type(image_exc).__name__,
             )
 
-        # This tick has already done one image pass for the newly persisted story.
-        # Do not start a second archive-image search in the same cycle: the production
-        # load check showed long-tail latency spikes while image-provider work was active.
-        # Archive image repairs still run on an idle queue tick (see the early-return path).
+        # Keep one bounded image pass per tick. When the editorial batch includes an old
+        # archive repair, the same pass may improve its image metadata without launching
+        # another round of provider requests.
 
         _LAST_REFRESH_SUCCESS = time.monotonic()
         _LAST_REFRESH_AT = datetime.now(timezone.utc)

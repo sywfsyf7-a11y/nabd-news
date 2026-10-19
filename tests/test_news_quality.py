@@ -1,5 +1,6 @@
 """Regression tests for story classification, image matching and duplicate suppression."""
 import unittest
+from unittest.mock import patch
 
 import app as world_pulse
 from datetime import datetime, timezone
@@ -138,6 +139,91 @@ class NewsQualityTests(unittest.TestCase):
             0.0,
         )
 
+
+
+    def test_publishing_tick_repairs_one_existing_story_without_using_new_story_slot(self):
+        fresh = {
+            "slug": "fresh-story",
+            "source_url": "https://example.test/fresh-story",
+            "category": "world",
+            "original_language": "en",
+        }
+        old = {
+            "slug": "old-thin-story",
+            "source_url": "https://example.test/old-thin-story",
+            "source_name": "Example News",
+            "source_domain": "example.test",
+            "original_language": "en",
+        }
+        old_raw = {
+            "slug": "old-thin-story",
+            "source_url": old["source_url"],
+            "_database_backfill": True,
+        }
+        with patch.object(world_pulse, "MAX_ARTICLES_PER_REFRESH", 1):
+            with patch.object(world_pulse, "_db_fetch_articles_needing_editorial", return_value=[old]):
+                with patch.object(world_pulse, "_raw_from_stored_article", return_value=old_raw):
+                    batch, selected_queue_keys = world_pulse._select_news_publication_batch([fresh])
+
+        self.assertEqual(len(batch), 2)
+        self.assertEqual(batch[0]["source_url"], fresh["source_url"])
+        self.assertEqual(batch[1]["source_url"], old["source_url"])
+        self.assertEqual(selected_queue_keys, {world_pulse._canonical_story_url(fresh["source_url"])})
+
+    def test_publishing_tick_does_not_rewrite_headline_only_publishers(self):
+        fresh = {
+            "slug": "fresh-story",
+            "source_url": "https://example.test/fresh-story",
+            "category": "world",
+            "original_language": "en",
+        }
+        restricted = {
+            "slug": "restricted-story",
+            "source_url": "https://www.reuters.com/world/example",
+            "source_name": "Reuters",
+            "source_domain": "reuters.com",
+            "original_language": "en",
+        }
+        with patch.object(world_pulse, "_db_fetch_articles_needing_editorial", return_value=[restricted]):
+            with patch.object(world_pulse, "_is_headline_only_domain", return_value=True):
+                batch, selected_queue_keys = world_pulse._select_news_publication_batch([fresh])
+
+        self.assertEqual(len(batch), 1)
+        self.assertEqual(batch[0]["source_url"], fresh["source_url"])
+        self.assertEqual(selected_queue_keys, {world_pulse._canonical_story_url(fresh["source_url"])})
+
+    def test_discovery_additions_are_capped_to_five_minute_publication_capacity(self):
+        self.assertEqual(world_pulse.NEWS_DISCOVERY_REFRESH_MINUTES, 15)
+        self.assertEqual(world_pulse.NEWS_REFRESH_MINUTES, 5)
+        self.assertEqual(world_pulse.MAX_ARTICLES_PER_REFRESH, 1)
+        self.assertLessEqual(world_pulse.MAX_QUEUE_ADDITIONS_PER_DISCOVERY, 3)
+
+    def test_borderline_image_relevance_is_rejected_to_prevent_misleading_photos(self):
+        candidate = {
+            "image_url": "https://images.example.test/loosely-related.jpg",
+            "image_source": "wikimedia_relevant",
+            "_image_relevance_score": 0.383,
+            "_image_relevance_evidence": "Iran oil story with a generic portrait",
+            "image_credit": "Example contributor",
+            "image_credit_url": "https://commons.wikimedia.org/wiki/Example",
+            "image_provider_url": "https://commons.wikimedia.org/wiki/Example",
+            "image_license_url": "https://creativecommons.org/licenses/by/4.0/",
+        }
+        with patch.object(world_pulse, "_image_search_query_variants", return_value=["Iran oil tanker blockade naval crisis"]):
+            with patch.object(world_pulse, "_category_image_search_query", return_value=""):
+                with patch.object(world_pulse, "_image_search_query", return_value="Iran oil tanker blockade naval crisis"):
+                    with patch.object(world_pulse, "_english_image_anchor_query", return_value=""):
+                        with patch.object(world_pulse, "_search_any_reusable_image", return_value=candidate):
+                            with patch.object(world_pulse, "_image_match_score", return_value=0.383):
+                                result = world_pulse._search_article_image_with_variants(
+                                    "Iran oil tanker blockade naval crisis",
+                                    "A report about a maritime oil disruption.",
+                                    "en",
+                                    "world",
+                                )
+
+        self.assertEqual(result, {})
+        self.assertEqual(world_pulse.MIN_IMAGE_RELEVANCE_SCORE, 0.40)
 
 if __name__ == "__main__":
     unittest.main()
