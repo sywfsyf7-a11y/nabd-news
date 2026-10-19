@@ -3,6 +3,8 @@ import unittest
 import os
 import tempfile
 import time
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from collections import OrderedDict
 from datetime import datetime, timezone, timedelta
 from urllib.parse import parse_qs, urlparse
@@ -1146,6 +1148,62 @@ class SiteExperienceTests(unittest.TestCase):
             world_pulse._invalidate_db_articles_cache()
             world_pulse._get_display_stories("ar")
             self.assertEqual(builder.call_count, 2)
+
+    def test_parallel_cold_display_requests_share_one_build_per_language(self):
+        stories = [{"slug": "shared-cold-story", "title": "Headline"}]
+
+        def slow_build(lang):
+            self.assertEqual(lang, "en")
+            time.sleep(0.05)
+            return stories
+
+        with patch.object(world_pulse, "_DISPLAY_STORIES_CACHE", {}):
+            with patch.object(world_pulse, "_build_display_stories", side_effect=slow_build) as builder:
+                with ThreadPoolExecutor(max_workers=6) as pool:
+                    results = list(pool.map(lambda _index: world_pulse._get_display_stories("en"), range(6)))
+
+        self.assertEqual(builder.call_count, 1)
+        self.assertEqual(results, [stories] * 6)
+
+    def test_expired_display_cache_is_served_while_background_refresh_runs(self):
+        old_stories = [{"slug": "old-cache-story", "title": "Previously cached"}]
+        new_stories = [{"slug": "fresh-cache-story", "title": "Newly refreshed"}]
+        cache = {
+            "en": (
+                time.monotonic() - world_pulse._DISPLAY_STORIES_CACHE_TTL_SECONDS - 1,
+                old_stories,
+            )
+        }
+        refresh_started = threading.Event()
+        release_refresh = threading.Event()
+
+        def controlled_build(lang):
+            self.assertEqual(lang, "en")
+            refresh_started.set()
+            release_refresh.wait(timeout=3)
+            return new_stories
+
+        with world_pulse._DISPLAY_STORIES_REFRESHING_LOCK:
+            world_pulse._DISPLAY_STORIES_REFRESHING.discard("en")
+        with patch.object(world_pulse, "_DISPLAY_STORIES_CACHE", cache):
+            with patch.object(world_pulse, "_build_display_stories", side_effect=controlled_build) as builder:
+                try:
+                    displayed = world_pulse._get_display_stories("en")
+                    self.assertEqual(displayed, old_stories)
+                    self.assertTrue(refresh_started.wait(timeout=1))
+                    self.assertEqual(builder.call_count, 1)
+                finally:
+                    release_refresh.set()
+
+                deadline = time.monotonic() + 1.5
+                while time.monotonic() < deadline:
+                    with world_pulse._DISPLAY_STORIES_CACHE_LOCK:
+                        current = cache.get("en")
+                    if current and current[1] == new_stories:
+                        break
+                    time.sleep(0.01)
+
+                self.assertEqual(cache["en"][1], new_stories)
 
     def test_news_status_poll_reports_state_without_triggering_refresh(self):
         with patch.object(world_pulse, "_maybe_start_refresh") as maybe_refresh:
