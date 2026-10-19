@@ -743,6 +743,44 @@ class SiteExperienceTests(unittest.TestCase):
         self.assertEqual(len(items), 1)
         self.assertEqual(items[0]["original_title"], "Nintendo announces a new console and release window")
 
+    def test_display_category_skips_classifier_for_single_section_publisher(self):
+        row = {
+            "category": "gaming",
+            "original_language": "ar",
+            "source_domain": "saudigamer.com",
+            "source_name": "سعودي جيمر",
+            "title_ar": "عنوان خبر ألعاب",
+            "summary_ar": "ملخص خبر ألعاب",
+        }
+        with patch.object(
+            world_pulse, "_classify_story",
+            side_effect=AssertionError("single-section sources should not need keyword classification"),
+        ):
+            self.assertEqual(world_pulse._display_category(row, "ar"), "gaming")
+
+    def test_incomplete_cross_language_story_is_filtered_before_category_classification(self):
+        row = {
+            "slug": "incomplete-legacy-translation",
+            "source_url": "https://www.theverge.com/news/legacy-story",
+            "source_domain": "theverge.com",
+            "source_name": "The Verge",
+            "category": "technology",
+            "original_language": "en",
+            "title_en": "A new artificial intelligence chip is announced",
+            "summary_en": "The publisher reports a new artificial intelligence chip announcement.",
+            "content_en": "The available English story details are retained in the permanent archive.",
+            "title_ar": "إعلان شريحة ذكاء اصطناعي جديدة",
+            "summary_ar": "ملخص عربي قصير لا يكفي لنشر ترجمة مكتملة.",
+            "content_ar": "تفاصيل عربية قصيرة.",
+            "is_demo": False,
+        }
+        with patch.object(world_pulse, "_all_live_articles", return_value=[row]):
+            with patch.object(
+                world_pulse, "_display_category",
+                side_effect=AssertionError("incomplete translated stories should be filtered first"),
+            ):
+                self.assertEqual(world_pulse._build_display_stories("ar"), [])
+
     def test_display_builder_hides_legacy_section_titles_without_deleting_archive_rows(self):
         rows = [
             {
