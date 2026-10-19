@@ -7477,14 +7477,21 @@ def current_language() -> str:
     value = session.get("lang", "ar")
     return value if value in ("ar", "en") else "ar"
 
+def _adsense_publisher_id() -> str:
+    """Return the configured AdSense publisher ID only when it has Google's expected format."""
+    publisher_id = (os.getenv("ADSENSE_PUBLISHER_ID") or "").strip()
+    return publisher_id if re.fullmatch(r"ca-pub-\d{16}", publisher_id) else ""
+
+
 def _adsense_settings() -> dict[str, Any]:
     """Enable Google ad code only after a real publisher ID and published CMP are configured.
 
-    This is intentionally disabled by default. A fake/local consent banner is not a
-    substitute for the Google-certified, IAB TCF-integrated message configured in AdSense.
+    The public ads.txt seller record has a separate gate: it needs only the real publisher ID.
+    Consent readiness controls ad script loading, not whether a publisher can declare its
+    authorized Google seller in ads.txt.
     """
-    publisher_id = (os.getenv("ADSENSE_PUBLISHER_ID") or "").strip()
-    publisher_id_valid = bool(re.fullmatch(r"ca-pub-\d{16}", publisher_id))
+    publisher_id = _adsense_publisher_id()
+    publisher_id_valid = bool(publisher_id)
     enabled_flag = (os.getenv("ADSENSE_ENABLED") or "false").strip().casefold() in {"1", "true", "yes", "on"}
     consent_ready = (os.getenv("ADSENSE_CONSENT_READY") or "false").strip().casefold() in {"1", "true", "yes", "on"}
     enabled = publisher_id_valid and enabled_flag and consent_ready
@@ -8056,11 +8063,11 @@ def news_sitemap():
 
 @app.get("/ads.txt")
 def ads_txt():
-    """Expose the authorized Google seller record only after explicit AdSense/CMP setup."""
-    settings = _adsense_settings()
-    if not settings["enabled"]:
+    """Expose the Google seller record when a valid publisher ID is configured."""
+    publisher_id = _adsense_publisher_id()
+    if not publisher_id:
+        # Never publish a fake/example seller ID. Configure the real ID in Render first.
         return app.response_class("", status=404, mimetype="text/plain")
-    publisher_id = settings["publisher_id"]
     seller_id = "pub-" + publisher_id.removeprefix("ca-pub-")
     body = f"google.com, {seller_id}, DIRECT, f08c47fec0942fa0f\n"
     return app.response_class(body, mimetype="text/plain")
