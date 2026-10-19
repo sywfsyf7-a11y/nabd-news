@@ -1577,6 +1577,7 @@ class BoundedImageProviderSearchTests(unittest.TestCase):
         self.assertEqual(query.count("PARTITION BY category"), 2)
         self.assertEqual(query.count("category_rank <= %s"), 2)
         self.assertNotIn("LIMIT 120", query)
+        self.assertIn("SELECT * FROM (", query)
         self.assertIn("UNION ALL", query)
         self.assertIn("original_language = 'ar'", query)
         self.assertIn("original_language = 'en'", query)
