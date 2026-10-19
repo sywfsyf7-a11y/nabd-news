@@ -2256,5 +2256,53 @@ class AdminImageWorkflowTests(unittest.TestCase):
         self.assertIn('name="action" value="retry_article_image"', template)
 
 
+class AdSenseConsentReadinessTests(unittest.TestCase):
+    def test_adsense_and_ads_txt_are_disabled_by_default(self):
+        with patch.dict(os.environ, {
+            "ADSENSE_ENABLED": "false",
+            "ADSENSE_CONSENT_READY": "false",
+            "ADSENSE_PUBLISHER_ID": "",
+        }):
+            settings = world_pulse._adsense_settings()
+            self.assertFalse(settings["enabled"])
+            response = world_pulse.app.test_client().get("/ads.txt")
+            self.assertEqual(response.status_code, 404)
+            self.assertEqual(response.get_data(as_text=True), "")
+
+    def test_adsense_requires_valid_publisher_id_and_confirmed_cmp_setup(self):
+        environment = {
+            "ADSENSE_ENABLED": "true",
+            "ADSENSE_CONSENT_READY": "false",
+            "ADSENSE_PUBLISHER_ID": "ca-pub-1234567890123456",
+        }
+        with patch.dict(os.environ, environment):
+            self.assertFalse(world_pulse._adsense_settings()["enabled"])
+            self.assertEqual(world_pulse.app.test_client().get("/ads.txt").status_code, 404)
+
+        with patch.dict(os.environ, {**environment, "ADSENSE_CONSENT_READY": "true"}):
+            settings = world_pulse._adsense_settings()
+            self.assertTrue(settings["enabled"])
+            self.assertEqual(settings["publisher_id"], "ca-pub-1234567890123456")
+            response = world_pulse.app.test_client().get("/ads.txt")
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(
+                response.get_data(as_text=True),
+                "google.com, pub-1234567890123456, DIRECT, f08c47fec0942fa0f\n",
+            )
+
+    def test_template_gates_google_ads_script_on_explicit_readiness(self):
+        template_path = os.path.join(
+            os.path.dirname(world_pulse.__file__), "templates", "index.html"
+        )
+        with open(template_path, encoding="utf-8") as handle:
+            template = handle.read()
+        self.assertIn("{% if adsense_enabled %}", template)
+        self.assertIn(
+            "pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client={{ adsense_publisher_id }}",
+            template,
+        )
+        self.assertIn("{% endif %}", template)
+
+
 if __name__ == "__main__":
     unittest.main()
