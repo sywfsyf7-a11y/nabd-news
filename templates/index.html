@@ -367,6 +367,25 @@
         </div>
       </div>
 
+      {% set share_url = canonical_url %}
+      {% set share_title = article.title %}
+      <section class="mb-5 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5" aria-label="{{ 'مشاركة الخبر' if lang == 'ar' else 'Share this story' }}">
+        <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <p class="text-sm font-extrabold text-ink">{{ 'شارك الخبر' if lang == 'ar' else 'Share this story' }}</p>
+          <button type="button" data-copy-story-link="{{ share_url }}" class="inline-flex items-center gap-2 rounded-full border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700 transition hover:border-pulse hover:text-pulse">
+            <span aria-hidden="true">🔗</span><span data-copy-label>{{ 'نسخ الرابط' if lang == 'ar' else 'Copy link' }}</span>
+          </button>
+        </div>
+        <div class="flex flex-wrap gap-2">
+          <a href="https://wa.me/?text={{ (share_title ~ ' ' ~ share_url)|urlencode }}" target="_blank" rel="noopener noreferrer" class="rounded-full bg-[#25D366] px-4 py-2.5 text-xs font-extrabold text-white hover:opacity-90">WhatsApp</a>
+          <a href="https://www.facebook.com/sharer/sharer.php?u={{ share_url|urlencode }}" target="_blank" rel="noopener noreferrer" class="rounded-full bg-[#1877F2] px-4 py-2.5 text-xs font-extrabold text-white hover:opacity-90">Facebook</a>
+          <a href="https://twitter.com/intent/tweet?text={{ share_title|urlencode }}&url={{ share_url|urlencode }}" target="_blank" rel="noopener noreferrer" class="rounded-full bg-black px-4 py-2.5 text-xs font-extrabold text-white hover:opacity-90">X</a>
+          <a href="https://t.me/share/url?url={{ share_url|urlencode }}&text={{ share_title|urlencode }}" target="_blank" rel="noopener noreferrer" class="rounded-full bg-[#229ED9] px-4 py-2.5 text-xs font-extrabold text-white hover:opacity-90">Telegram</a>
+          <button type="button" data-native-share data-share-title="{{ share_title }}" data-share-url="{{ share_url }}" class="rounded-full bg-ink px-4 py-2.5 text-xs font-extrabold text-white transition hover:bg-pulse">{{ 'مشاركة المزيد…' if lang == 'ar' else 'More sharing options…' }}</button>
+        </div>
+        <p data-share-feedback class="mt-2 min-h-4 text-xs text-slate-500" aria-live="polite"></p>
+      </section>
+
       <article class="overflow-hidden rounded-[2rem] border border-slate-200/80 bg-white shadow-soft">
         <div class="relative aspect-[16/8] max-h-[540px] overflow-hidden bg-slate-200 sm:aspect-[16/7]">
           <div aria-hidden="true" class="absolute inset-0 z-0 h-full w-full bg-gradient-to-br from-ink via-slate-800 to-slate-600"></div>
@@ -526,6 +545,37 @@
 
       applyTheme(root.dataset.theme || 'light');
       themeButton?.addEventListener('click', () => applyTheme(root.dataset.theme === 'dark' ? 'light' : 'dark'));
+    })();
+  </script>
+  <script>
+    (() => {
+      document.querySelectorAll('[data-copy-story-link]').forEach((button) => {
+        button.addEventListener('click', async () => {
+          const link = button.getAttribute('data-copy-story-link');
+          const feedback = button.closest('section')?.querySelector('[data-share-feedback]');
+          const label = button.querySelector('[data-copy-label]');
+          try {
+            await navigator.clipboard.writeText(link);
+            if (label) label.textContent = {{ ('تم نسخ الرابط' if lang == 'ar' else 'Link copied')|tojson }};
+            if (feedback) feedback.textContent = {{ ('تم نسخ رابط الخبر، ويمكنك لصقه في أي تطبيق.' if lang == 'ar' else 'Story link copied. Paste it into any app.')|tojson }};
+          } catch (_) {
+            if (feedback) feedback.textContent = link;
+          }
+        });
+      });
+      document.querySelectorAll('[data-native-share]').forEach((button) => {
+        button.addEventListener('click', async () => {
+          const title = button.getAttribute('data-share-title') || document.title;
+          const url = button.getAttribute('data-share-url') || window.location.href;
+          const feedback = button.closest('section')?.querySelector('[data-share-feedback]');
+          if (navigator.share) {
+            try { await navigator.share({ title, text: title, url }); }
+            catch (error) { if (error?.name !== 'AbortError' && feedback) feedback.textContent = url; }
+          } else if (feedback) {
+            feedback.textContent = url;
+          }
+        });
+      });
     })();
   </script>
 </body>
