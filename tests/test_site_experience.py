@@ -1178,6 +1178,20 @@ class SiteExperienceTests(unittest.TestCase):
         self.assertEqual(result, [story])
         builder.assert_not_called()
 
+    def test_serialized_display_builder_rechecks_shared_cache_before_work(self):
+        story = {"slug": "second-worker-story", "title": "Shared normalized story"}
+        world_pulse._write_shared_display_cache("en", [story])
+        generation = world_pulse._DISPLAY_STORIES_CACHE_GENERATION
+        with patch.object(
+            world_pulse, "_build_display_stories",
+            side_effect=AssertionError("second worker must reuse the snapshot written by the first"),
+        ) as builder:
+            result, elapsed, rebuilt = world_pulse._build_display_stories_serialized("en", generation)
+        self.assertEqual(result, [story])
+        self.assertEqual(elapsed, 0.0)
+        self.assertFalse(rebuilt)
+        builder.assert_not_called()
+
     def test_expired_shared_display_snapshot_is_served_while_refresh_is_scheduled(self):
         story = {"slug": "stale-display-story", "title": "Still usable"}
         world_pulse._write_shared_display_cache("en", [story])
