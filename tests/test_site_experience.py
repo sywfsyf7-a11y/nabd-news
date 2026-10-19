@@ -1590,6 +1590,95 @@ class BoundedImageProviderSearchTests(unittest.TestCase):
         self.assertIn("IP addresses", english)
         self.assertIn("consent mechanism", english)
 
+        template, _filename, _uptodate = world_pulse.app.jinja_env.loader.get_source(
+            world_pulse.app.jinja_env, "index.html"
+        )
+        self.assertIn("policies.google.com/technologies/partner-sites", template)
+        self.assertIn("adssettings.google.com", template)
+
+    def test_ai_enriched_badge_requires_substantive_arabic_and_english_bodies(self):
+        row = {
+            "slug": "ai-quality-check",
+            "source_url": "https://www.theverge.com/news/ai-quality-check",
+            "source_name": "The Verge",
+            "source_domain": "theverge.com",
+            "category": "technology",
+            "original_language": "en",
+            "title_ar": "تحديث تقني جديد",
+            "title_en": "A new technology update",
+            "summary_ar": "يعرض المصدر تحديثاً تقنياً محدداً.",
+            "summary_en": "The source describes a specific technology update.",
+            "content_ar": "تفاصيل مختصرة فقط.",
+            "content_en": "A short detail.",
+            "image_url": "",
+            "image_source": "none",
+            "is_demo": False,
+        }
+        short_story = world_pulse._normalise_story(dict(row), "en")
+        self.assertFalse(short_story["ai_enriched"])
+
+        long_ar = (
+            "يوضح المصدر أن الشركة أعلنت عن تحديث تقني جديد لمنتجها. "
+            "وتشير المادة إلى التغيير المعلن والسياق المذكور وموعد التنفيذ عندما يكون متاحاً. "
+            "ولا يضيف هذا الملخص أرقاماً أو أسماء أو نتائج لم ترد في النص الأصلي. "
+        ) * 2
+        long_en = (
+            "The source says the company announced a new technology update. "
+            "The brief describes the reported change and the context provided in the source. "
+            "It does not add figures, names, dates, outcomes, or claims that the source did not report. "
+        ) * 2
+        complete_story = world_pulse._normalise_story(
+            dict(row, content_ar=long_ar, content_en=long_en), "en"
+        )
+        self.assertTrue(complete_story["ai_enriched"])
+
+    def test_sitemaps_exclude_short_or_headline_only_article_pages(self):
+        published = datetime.now(timezone.utc)
+        eligible = {
+            "slug": "eligible-story",
+            "source_url": "https://www.theverge.com/news/eligible-story",
+            "title": "A substantive technology report",
+            "summary": "A separate executive summary about the reported development.",
+            "content": ("The article provides source-supported details about the reported development. " * 4),
+            "published_at": published,
+            "headline_only": False,
+            "source_only": False,
+            "is_demo": False,
+        }
+        thin = dict(
+            eligible,
+            slug="thin-story",
+            source_url="https://www.theverge.com/news/thin-story",
+            title="A thin item",
+            content="A few words only.",
+            source_only=True,
+        )
+        headline_only = dict(
+            eligible,
+            slug="headline-only-story",
+            source_url="https://www.bbc.com/news/headline-only-story",
+            title="Headline-only item",
+            headline_only=True,
+            source_only=True,
+            content="",
+        )
+        rows = [eligible, thin, headline_only]
+        with patch.object(world_pulse, "_get_display_stories", side_effect=lambda _lang: rows):
+            with patch.object(world_pulse, "STATIC_PAGES", {}):
+                client = world_pulse.app.test_client()
+                sitemap_response = client.get("/sitemap.xml")
+                news_sitemap_response = client.get("/news-sitemap.xml")
+
+        self.assertEqual(sitemap_response.status_code, 200)
+        sitemap_body = sitemap_response.get_data(as_text=True)
+        self.assertIn("eligible-story", sitemap_body)
+        self.assertNotIn("thin-story", sitemap_body)
+        self.assertNotIn("headline-only-story", sitemap_body)
+        news_body = news_sitemap_response.get_data(as_text=True)
+        self.assertIn("eligible-story", news_body)
+        self.assertNotIn("thin-story", news_body)
+        self.assertNotIn("headline-only-story", news_body)
+
     def test_thin_or_headline_only_article_pages_are_not_indexed_as_full_articles(self):
         source, _filename, _uptodate = world_pulse.app.jinja_env.loader.get_source(
             world_pulse.app.jinja_env, "index.html"
