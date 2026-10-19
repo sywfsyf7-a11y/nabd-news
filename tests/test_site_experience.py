@@ -992,10 +992,13 @@ class SiteExperienceTests(unittest.TestCase):
         self.assertIn("INTERVAL '1 second'", query)
         self.assertIn("COALESCE(image_relevance_verified, FALSE) = FALSE", query)
         self.assertIn("image_checked_at < NOW() - (%s * INTERVAL '1 hour')", query)
-        self.assertNotIn(
-            "COALESCE(image_relevance_verified, FALSE) = FALSE\\n                     OR",
+        self.assertIn(
+            """AND (
+                      (
+                        (
+                          COALESCE(image_relevance_verified, FALSE) = FALSE""",
             query,
-            "failed/no-match rows must respect retry cooldown to avoid retrying the same article every tick",
+            "the unverified-image condition must be grouped under the retry cooldown",
         )
         self.assertEqual(connection.cursor_instance.params[0], world_pulse.IMAGE_RETRY_AFTER_HOURS)
         self.assertEqual(connection.cursor_instance.params[1], world_pulse.IMAGE_CACHE_MAX_AGE_SECONDS)
