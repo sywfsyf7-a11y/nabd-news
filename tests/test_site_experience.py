@@ -987,8 +987,16 @@ class SiteExperienceTests(unittest.TestCase):
             with patch.object(world_pulse, "_connect_db", return_value=connection):
                 result = world_pulse._db_fetch_articles_needing_images(limit=6)
         self.assertEqual(result, [])
-        self.assertIn("COALESCE(image_url, '') <> ''", connection.cursor_instance.query)
-        self.assertIn("INTERVAL '1 second'", connection.cursor_instance.query)
+        query = connection.cursor_instance.query
+        self.assertIn("COALESCE(image_url, '') <> ''", query)
+        self.assertIn("INTERVAL '1 second'", query)
+        self.assertIn("COALESCE(image_relevance_verified, FALSE) = FALSE", query)
+        self.assertIn("image_checked_at < NOW() - (%s * INTERVAL '1 hour')", query)
+        self.assertNotIn(
+            "COALESCE(image_relevance_verified, FALSE) = FALSE\\n                     OR",
+            query,
+            "failed/no-match rows must respect retry cooldown to avoid retrying the same article every tick",
+        )
         self.assertEqual(connection.cursor_instance.params[0], world_pulse.IMAGE_RETRY_AFTER_HOURS)
         self.assertEqual(connection.cursor_instance.params[1], world_pulse.IMAGE_CACHE_MAX_AGE_SECONDS)
         self.assertTrue(connection.closed)
@@ -1053,7 +1061,8 @@ class SiteExperienceTests(unittest.TestCase):
                                                     with patch.object(world_pulse, "_avoid_repeated_news_photos"):
                                                         with patch.object(world_pulse, "_db_update_article_images", return_value=1) as image_update:
                                                             with patch.object(world_pulse, "_backfill_missing_article_images", return_value=0) as image_backfill:
-                                                                world_pulse._refresh_news_job()
+                                                                with patch.object(world_pulse, "MAX_IMAGE_LOOKUPS_PER_REFRESH", 1):
+                                                                    world_pulse._refresh_news_job()
         self.assertEqual(events, ["save", "images"])
         image_update.assert_called_once()
         image_backfill.assert_not_called()
@@ -1776,6 +1785,77 @@ class BoundedImageProviderSearchTests(unittest.TestCase):
         self.assertNotIn("image_url NOT LIKE '/media/catalogued/", sql)
         self.assertIn("image_checked_at < NOW() - (%s * INTERVAL '1 second')", sql)
         self.assertGreaterEqual(world_pulse.IMAGE_CACHE_MAX_AGE_SECONDS, 6 * 3600)
+
+    def test_archive_image_candidates_use_only_remaining_budget_and_skip_duplicate_urls(self):
+        current = [{
+            "source_url": "https://example.test/fresh",
+            "image_url": "",
+            "image_source": "none",
+        }]
+        same_fresh = {
+            "slug": "fresh",
+            "source_url": "https://example.test/fresh",
+            "category": "world",
+            "source_domain": "example.test",
+            "source_name": "Example News",
+            "original_language": "en",
+            "title_en": "Fresh news story",
+            "summary_en": "Summary for the fresh news story.",
+            "content_en": "The source provides additional details about the fresh news story.",
+            "image_url": "",
+            "image_source": "none",
+            "image_checked_at": None,
+        }
+        archived = []
+        for index in range(1, 5):
+            archived.append({
+                "slug": f"archived-{index}",
+                "source_url": f"https://example.test/archived-{index}",
+                "category": "technology",
+                "source_domain": "example.test",
+                "source_name": "Example News",
+                "original_language": "ar",
+                "title_ar": f"خبر تقني قديم رقم {index}",
+                "summary_ar": "ملخص عربي للخبر التقني القديم.",
+                "content_ar": "تفاصيل عربية موثوقة إضافية حول الخبر التقني القديم.",
+                "title_en": f"Archived technology story {index}",
+                "summary_en": f"English summary of archived technology story {index}.",
+                "content_en": f"Source-supported details for archived technology story {index}.",
+                "image_url": "",
+                "image_source": "none",
+                "image_checked_at": None,
+            })
+
+        with patch.object(world_pulse, "MAX_IMAGE_LOOKUPS_PER_REFRESH", 4):
+            with patch.object(world_pulse, "IMAGE_REVALIDATION_BATCH_SIZE", 3):
+                with patch.object(
+                    world_pulse,
+                    "_db_fetch_articles_needing_images",
+                    return_value=[same_fresh, *archived],
+                ) as fetch:
+                    candidates = world_pulse._prepare_archive_image_revalidation_candidates(current)
+
+        fetch.assert_called_once_with(limit=4)
+        self.assertEqual(len(candidates), 3)
+        self.assertEqual(
+            [item["source_url"] for item in candidates],
+            [f"https://example.test/archived-{index}" for index in range(1, 4)],
+        )
+        self.assertTrue(all(item["_revalidating_cached_image"] for item in candidates))
+        self.assertEqual(candidates[0]["image_search_title"], archived[0]["title_ar"])
+        self.assertEqual(candidates[0]["image_search_context"], archived[0]["summary_ar"])
+
+    def test_archive_image_candidates_do_not_exceed_remaining_lookup_budget(self):
+        current = [
+            {"source_url": f"https://example.test/current-{i}", "image_url": "", "image_source": "none"}
+            for i in range(4)
+        ]
+        with patch.object(world_pulse, "MAX_IMAGE_LOOKUPS_PER_REFRESH", 4):
+            with patch.object(world_pulse, "_db_fetch_articles_needing_images") as fetch:
+                candidates = world_pulse._prepare_archive_image_revalidation_candidates(current)
+
+        self.assertEqual(candidates, [])
+        fetch.assert_not_called()
 
     def test_arabic_archive_image_revalidation_uses_native_arabic_title_and_summary(self):
         row = {
