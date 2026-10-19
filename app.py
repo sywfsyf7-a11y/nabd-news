@@ -2624,9 +2624,10 @@ _IMAGE_STOPWORDS = {
 def _image_tokens(value: str) -> set[str]:
     return {t.casefold() for t in re.findall(r"[\w\u0600-\u06ff]{3,}", value or "") if t.casefold() not in _IMAGE_STOPWORDS}
 
-# Reject borderline matches more aggressively: a country or broad category match is not
-# enough to use a photo as if it documented the actual event.
+# Reject borderline matches for photos presented as documenting the specific story.
+# A separate, lower threshold is allowed only for explicitly labelled category art.
 MIN_IMAGE_RELEVANCE_SCORE = 0.40
+MIN_CATEGORY_IMAGE_RELEVANCE_SCORE = 0.26
 
 
 def _image_match_score(title: str, description: str) -> float:
@@ -4087,10 +4088,12 @@ def _search_article_image_with_variants(
         # Provider scores alone may be high because only a location or category word
         # matched. Use the lower of catalogue relevance and article-topic relevance.
         score = min(provider_score, story_score) if provider_score > 0 and story_score > 0 else 0.0
-        if score < MIN_IMAGE_RELEVANCE_SCORE:
+        minimum_score = MIN_CATEGORY_IMAGE_RELEVANCE_SCORE if is_category_fallback else MIN_IMAGE_RELEVANCE_SCORE
+        if score < minimum_score:
             logger.info(
-                "Image candidate rejected: source=%s provider_score=%.3f story_score=%.3f",
+                "Image candidate rejected: source=%s provider_score=%.3f story_score=%.3f category_fallback=%s minimum=%.2f",
                 result.get("image_source", "unknown"), provider_score, story_score,
+                is_category_fallback, minimum_score,
             )
             continue
         if score > best_score:
