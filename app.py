@@ -346,10 +346,14 @@ DIRECT_RSS_FEEDS = (
 # Precompute publisher-to-category membership once. Building this mapping inside
 # _classify_story multiplied the work by every candidate RSS entry during each refresh.
 _DOMAIN_CATEGORY_LOOKUP: dict[str, set[str]] = {}
+_DOMAIN_CATEGORY_LOOKUP_BY_LANGUAGE: dict[str, dict[str, set[str]]] = {"ar": {}, "en": {}}
 for _category_key, _language_map in CATEGORY_SOURCE_DOMAINS.items():
-    for _configured_domains in _language_map.values():
+    for _language_key, _configured_domains in _language_map.items():
         for _configured_domain in _configured_domains:
             _DOMAIN_CATEGORY_LOOKUP.setdefault(_configured_domain, set()).add(_category_key)
+            _DOMAIN_CATEGORY_LOOKUP_BY_LANGUAGE.setdefault(_language_key, {}).setdefault(
+                _configured_domain, set()
+            ).add(_category_key)
 
 CATEGORY_MATCH_TERMS = {
     "politics": [
@@ -544,6 +548,15 @@ def _display_category(row: dict[str, Any], lang: str) -> str:
     host = str(row.get("source_domain") or "").casefold().removeprefix("www.")
     if not host:
         host = _infer_source_domain_from_name(current, source_lang, str(row.get("source_name") or ""))
+    # If this publisher is only allowlisted in the section already recorded on the row,
+    # classify nothing: even a keyword-based classification cannot move it to another
+    # allowed section, so running every category regex is redundant work on cold builds.
+    current_domain = _source_domain_for_category(current, source_lang, host) if host else ""
+    if (
+        current_domain
+        and _DOMAIN_CATEGORY_LOOKUP_BY_LANGUAGE.get(source_lang, {}).get(current_domain, set()) == {current}
+    ):
+        return current
     title = str(row.get(f"title_{source_lang}") or row.get("original_title") or row.get(f"title_{lang}") or "")
     summary = str(row.get(f"summary_{source_lang}") or row.get("original_summary") or row.get(f"summary_{lang}") or "")
     detected = _classify_story(title, summary, current, host)
@@ -719,6 +732,16 @@ def _display_shared_cache_lock():
     if directory:
         os.makedirs(directory, exist_ok=True)
     handle = open(_DISPLAY_SHARED_CACHE_PATH + ".lock", "a+", encoding="utf-8")
+    fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+    return handle
+
+
+def _display_cold_build_lock():
+    """Single-flight the expensive normalized display build across Gunicorn workers."""
+    directory = os.path.dirname(_DISPLAY_SHARED_CACHE_PATH)
+    if directory:
+        os.makedirs(directory, exist_ok=True)
+    handle = open(_DISPLAY_SHARED_CACHE_PATH + ".build.lock", "a+", encoding="utf-8")
     fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
     return handle
 
@@ -7168,12 +7191,17 @@ def _build_display_stories(lang: str) -> list[dict[str, Any]]:
             or _looks_like_feed_section_title(source_title, original.get("source_name", ""))
         ):
             continue
+        # Cross-language legacy rows must have a complete, script-valid translation.
+        # Filter these out before keyword classification and duplicate analysis, which is
+        # expensive and cannot make an incomplete card publishable anyway.
+        if not _has_complete_display_translation(original, lang):
+            continue
         row = original
         corrected_category = _display_category(original, lang)
         if corrected_category != original.get("category"):
             row = dict(original)
             row["category"] = corrected_category
-        if row.get("category") not in CATEGORY_NAMES or not _story_allowed_in_display_language(row, lang):
+        if row.get("category") not in CATEGORY_NAMES or not _row_allowed_on_language_site(row, lang):
             continue
         live.append(row)
     live.sort(
@@ -7209,24 +7237,44 @@ def _refresh_display_stories_cache_async(lang: str, generation: int) -> None:
     def refresh() -> None:
         try:
             with _DISPLAY_STORIES_BUILD_LOCKS[lang]:
-                # A moderation/source-repair invalidation may have happened while this
-                # worker was queued. Do not do expensive work for an obsolete generation.
-                with _DISPLAY_STORIES_CACHE_LOCK:
-                    if generation != _DISPLAY_STORIES_CACHE_GENERATION:
-                        return
-                started = time.monotonic()
-                stories = _build_display_stories(lang)
-                elapsed = time.monotonic() - started
-                with _DISPLAY_STORIES_CACHE_LOCK:
-                    cache_is_current = generation == _DISPLAY_STORIES_CACHE_GENERATION
+                # One worker at a time may rebuild a language pool across all Gunicorn
+                # workers. Once the lock is held, reuse a sibling's freshly written pool.
+                build_handle = _display_cold_build_lock()
+                try:
+                    with _DISPLAY_STORIES_CACHE_LOCK:
+                        if generation != _DISPLAY_STORIES_CACHE_GENERATION:
+                            return
+                    shared = _read_shared_display_cache(lang)
+                    if shared is not None:
+                        shared_stories, shared_age, shared_stale = shared
+                        if shared_age < _DISPLAY_STORIES_CACHE_TTL_SECONDS and not shared_stale:
+                            with _DISPLAY_STORIES_CACHE_LOCK:
+                                cache_is_current = generation == _DISPLAY_STORIES_CACHE_GENERATION
+                                if cache_is_current:
+                                    _DISPLAY_STORIES_CACHE[lang] = (
+                                        time.monotonic() - shared_age, shared_stories
+                                    )
+                            if cache_is_current:
+                                logger.info(
+                                    "Display cache refresh skipped: another worker published a fresh pool language=%s stories=%d",
+                                    lang, len(shared_stories),
+                                )
+                            return
+                    started = time.monotonic()
+                    stories = _build_display_stories(lang)
+                    elapsed = time.monotonic() - started
+                    with _DISPLAY_STORIES_CACHE_LOCK:
+                        cache_is_current = generation == _DISPLAY_STORIES_CACHE_GENERATION
+                        if cache_is_current:
+                            _DISPLAY_STORIES_CACHE[lang] = (time.monotonic(), stories)
                     if cache_is_current:
-                        _DISPLAY_STORIES_CACHE[lang] = (time.monotonic(), stories)
-                if cache_is_current:
-                    _write_shared_display_cache(lang, stories)
-                logger.info(
-                    "Display story cache refreshed in background: language=%s stories=%d elapsed=%.3fs",
-                    lang, len(stories), elapsed,
-                )
+                        _write_shared_display_cache(lang, stories)
+                    logger.info(
+                        "Display story cache refreshed in background: language=%s stories=%d elapsed=%.3fs",
+                        lang, len(stories), elapsed,
+                    )
+                finally:
+                    _archive_unlock(build_handle)
         except Exception as exc:
             logger.warning(
                 "Background display story cache refresh failed: language=%s error=%s",
@@ -7287,8 +7335,10 @@ def _get_display_stories(lang: str) -> list[dict[str, Any]]:
         _refresh_display_stories_cache_async(lang, generation)
         return [dict(row) for row in shared_stories]
 
-    # Cold start or a missing shared snapshot: only one request per language per process
-    # builds the pool. Requests arriving together reuse the first completed build.
+    # Cold start or a missing shared snapshot: only one worker builds the pool. A
+    # filesystem lock coordinates sibling Gunicorn workers, and the shared snapshot is
+    # rechecked after acquiring the lock so concurrent cold requests do not duplicate a
+    # multi-second classification/deduplication pass.
     with _DISPLAY_STORIES_BUILD_LOCKS[lang]:
         now = time.monotonic()
         with _DISPLAY_STORIES_CACHE_LOCK:
@@ -7296,20 +7346,45 @@ def _get_display_stories(lang: str) -> list[dict[str, Any]]:
             generation = _DISPLAY_STORIES_CACHE_GENERATION
             if cached and now - cached[0] < _DISPLAY_STORIES_CACHE_TTL_SECONDS:
                 return [dict(row) for row in cached[1]]
-        started = time.monotonic()
-        stories = _build_display_stories(lang)
-        elapsed = time.monotonic() - started
-        with _DISPLAY_STORIES_CACHE_LOCK:
-            cache_is_current = generation == _DISPLAY_STORIES_CACHE_GENERATION
+
+        build_handle = _display_cold_build_lock()
+        try:
+            shared_display = _read_shared_display_cache(lang)
+            if shared_display is not None:
+                shared_stories, shared_age, shared_stale = shared_display
+                with _DISPLAY_STORIES_CACHE_LOCK:
+                    cached = _DISPLAY_STORIES_CACHE.get(lang)
+                    generation = _DISPLAY_STORIES_CACHE_GENERATION
+                    if cached and time.monotonic() - cached[0] < _DISPLAY_STORIES_CACHE_TTL_SECONDS:
+                        return [dict(row) for row in cached[1]]
+                    _DISPLAY_STORIES_CACHE[lang] = (time.monotonic() - shared_age, shared_stories)
+                if shared_age < _DISPLAY_STORIES_CACHE_TTL_SECONDS and not shared_stale:
+                    logger.info(
+                        "Display cache cold-build avoided: reused sibling pool language=%s stories=%d age=%.2fs",
+                        lang, len(shared_stories), shared_age,
+                    )
+                    return [dict(row) for row in shared_stories]
+                # A stale shared pool is still better than an empty page. Release the
+                # build lock when returning; the async worker will take it to rebuild.
+                _refresh_display_stories_cache_async(lang, generation)
+                return [dict(row) for row in shared_stories]
+
+            started = time.monotonic()
+            stories = _build_display_stories(lang)
+            elapsed = time.monotonic() - started
+            with _DISPLAY_STORIES_CACHE_LOCK:
+                cache_is_current = generation == _DISPLAY_STORIES_CACHE_GENERATION
+                if cache_is_current:
+                    _DISPLAY_STORIES_CACHE[lang] = (time.monotonic(), stories)
             if cache_is_current:
-                _DISPLAY_STORIES_CACHE[lang] = (time.monotonic(), stories)
-        if cache_is_current:
-            _write_shared_display_cache(lang, stories)
-        logger.info(
-            "Display story cache built on demand: language=%s stories=%d elapsed=%.3fs",
-            lang, len(stories), elapsed,
-        )
-        return [dict(row) for row in stories]
+                _write_shared_display_cache(lang, stories)
+            logger.info(
+                "Display story cache built on demand: language=%s stories=%d elapsed=%.3fs",
+                lang, len(stories), elapsed,
+            )
+            return [dict(row) for row in stories]
+        finally:
+            _archive_unlock(build_handle)
 
 
 def _safe_saved_article_permalink(row: dict[str, Any]) -> bool:
