@@ -6879,11 +6879,19 @@ def _normalise_story(row: dict[str, Any], lang: str) -> dict[str, Any]:
         story["image_source"] = "editorial_generated"
     story["image_license_name"] = _image_license_label(str(story.get("image_license_url") or ""), str(story.get("image_source") or ""))
     story["image_provider_name"] = _image_provider_label(str(story.get("image_source") or ""))
+    # Do not label a partial/error fallback as a complete AI-assisted article.
+    # The public editorial badge is earned only when both language bodies are substantive
+    # and their writing systems match the claimed language.
+    ai_body_ar = str(story.get("content_ar") or "").strip()
+    ai_body_en = str(story.get("content_en") or "").strip()
     story["ai_enriched"] = bool(
         len(str(story.get("title_ar") or "").strip()) > 0
         and len(str(story.get("title_en") or "").strip()) > 0
-        and len(str(story.get("content_ar") or "").strip()) >= 25
-        and len(str(story.get("content_en") or "").strip()) >= 25
+        and len(ai_body_ar) >= 180
+        and len(ai_body_en) >= 180
+        and _text_matches_language(ai_body_ar, "ar")
+        and _text_matches_language(ai_body_en, "en")
+        and not story["headline_only"]
     )
     story["details_from_source_excerpt"] = bool(
         not story["headline_only"] and not story["ai_enriched"] and raw_content.strip()
@@ -7530,6 +7538,21 @@ def contact():
         breaking_story=None, related_stories=[], article=None,
     ), 200
 
+def _story_is_search_indexable(story: dict[str, Any]) -> bool:
+    """Keep low-content/source-only pages out of XML sitemaps to match their noindex metadata."""
+    if story.get("is_demo") or story.get("headline_only") or story.get("source_only"):
+        return False
+    title = str(story.get("title") or "").strip()
+    summary = str(story.get("summary") or "").strip()
+    content = str(story.get("content") or "").strip()
+    return bool(
+        story.get("source_url")
+        and title
+        and summary
+        and len(content) >= 180
+    )
+
+
 @app.get("/sitemap.xml")
 def sitemap():
     origin = _site_origin()
@@ -7542,6 +7565,8 @@ def sitemap():
         else:
             paths.append(url_for("contact", lang=lang, _external=False))
         for story in _get_display_stories(lang):
+            if not _story_is_search_indexable(story):
+                continue
             paths.append(url_for("article", slug=story["slug"], lang=lang, _external=False))
     unique_paths = list(dict.fromkeys(paths))
     xml_urls = "".join(
@@ -7561,6 +7586,8 @@ def news_sitemap():
     for lang in ("ar", "en"):
         lang_name = SITE_NAME_AR if lang == "ar" else SITE_NAME_EN
         for story in _get_display_stories(lang):
+            if not _story_is_search_indexable(story):
+                continue
             published = story.get("published_at")
             if isinstance(published, str):
                 try:
