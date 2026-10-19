@@ -1978,23 +1978,25 @@ def _query_persistent_archive_rows() -> list[dict[str, Any]] | None:
                           OR (COALESCE(source_domain, '') = '' AND LOWER(source_name) LIKE ANY(%s))
                       )
                 )
-                SELECT slug, source_url, category, source_name, source_domain, image_url,
-                       image_source, image_credit, image_credit_url, image_provider_url,
-                       image_license_url, image_checked_at, image_relevance_verified,
-                       title_ar, title_en, summary_ar, summary_en,
-                       content_ar, content_en, published_at, fetched_at,
-                       read_minutes, original_language, is_demo
-                FROM arabic_ranked
-                WHERE category_rank <= %s
-                UNION ALL
-                SELECT slug, source_url, category, source_name, source_domain, image_url,
-                       image_source, image_credit, image_credit_url, image_provider_url,
-                       image_license_url, image_checked_at, image_relevance_verified,
-                       title_ar, title_en, summary_ar, summary_en,
-                       content_ar, content_en, published_at, fetched_at,
-                       read_minutes, original_language, is_demo
-                FROM english_ranked
-                WHERE category_rank <= %s
+                SELECT * FROM (
+                    SELECT slug, source_url, category, source_name, source_domain, image_url,
+                           image_source, image_credit, image_credit_url, image_provider_url,
+                           image_license_url, image_checked_at, image_relevance_verified,
+                           title_ar, title_en, summary_ar, summary_en,
+                           content_ar, content_en, published_at, fetched_at,
+                           read_minutes, original_language, is_demo
+                    FROM arabic_ranked
+                    WHERE category_rank <= %s
+                    UNION ALL
+                    SELECT slug, source_url, category, source_name, source_domain, image_url,
+                           image_source, image_credit, image_credit_url, image_provider_url,
+                           image_license_url, image_checked_at, image_relevance_verified,
+                           title_ar, title_en, summary_ar, summary_en,
+                           content_ar, content_en, published_at, fetched_at,
+                           read_minutes, original_language, is_demo
+                    FROM english_ranked
+                    WHERE category_rank <= %s
+                ) AS recent_articles
                 ORDER BY COALESCE(published_at, fetched_at) DESC, fetched_at DESC
             """, (
                 ar_domains, ar_host_patterns, ar_name_patterns,
