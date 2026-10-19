@@ -70,6 +70,32 @@ class SiteExperienceTests(unittest.TestCase):
         tailwind_config_path = os.path.join(os.path.dirname(world_pulse.__file__), "tailwind.config.js")
         self.assertTrue(os.path.exists(tailwind_config_path))
 
+    def test_article_social_sharing_links_and_copy_control_are_available_without_third_party_scripts(self):
+        template_path = os.path.join(
+            os.path.dirname(world_pulse.__file__), "templates", "index.html"
+        )
+        with open(template_path, encoding="utf-8") as handle:
+            template = handle.read()
+
+        for share_endpoint in (
+            "facebook.com/sharer/sharer.php",
+            "twitter.com/intent/tweet",
+            "api.whatsapp.com/send",
+            "t.me/share/url",
+            "linkedin.com/sharing/share-offsite",
+            "reddit.com/submit",
+            'href="mailto:?subject=',
+        ):
+            self.assertIn(share_endpoint, template)
+
+        self.assertIn('id="copyArticleLink"', template)
+        self.assertIn('data-copy-url="{{ share_article_url }}"', template)
+        self.assertIn("navigator.clipboard.writeText(url)", template)
+        self.assertIn("window.location.href", template)
+        self.assertIn("rel=" + '"noopener noreferrer"', template)
+        self.assertNotIn("addthis.com", template.casefold())
+        self.assertNotIn("sharethis.com", template.casefold())
+
     def test_persistent_news_queue_serialises_metadata_without_losing_native_language(self):
         item = {
             "slug": "queue-story",

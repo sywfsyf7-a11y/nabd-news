@@ -396,6 +396,46 @@
           </div>
         {% endif %}
 
+        {% if not article.is_demo %}
+          {% set share_article_url = url_for('article', slug=article.slug, lang=lang, _external=True) %}
+          <section class="border-y border-slate-100 px-6 py-5 sm:px-9 lg:px-12" aria-labelledby="article-share-title">
+            <div class="flex flex-col gap-3">
+              <div class="flex flex-wrap items-center justify-between gap-2">
+                <h2 id="article-share-title" class="text-sm font-extrabold text-ink">{{ 'شارك هذا الخبر' if lang == 'ar' else 'Share this story' }}</h2>
+                <span class="text-xs text-slate-400">{{ 'شارك الرابط الأصلي للخبر' if lang == 'ar' else 'Share a link to this story' }}</span>
+              </div>
+              <div class="flex flex-wrap gap-2">
+                <a href="https://www.facebook.com/sharer/sharer.php?u={{ share_article_url|urlencode }}" target="_blank" rel="noopener noreferrer" aria-label="{{ 'مشاركة على فيسبوك' if lang == 'ar' else 'Share on Facebook' }}" class="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700">
+                  <span aria-hidden="true" class="grid h-5 w-5 place-items-center rounded-full bg-blue-600 text-[11px] font-extrabold text-white">f</span>Facebook
+                </a>
+                <a href="https://twitter.com/intent/tweet?url={{ share_article_url|urlencode }}&amp;text={{ article.title|urlencode }}" target="_blank" rel="noopener noreferrer" aria-label="{{ 'مشاركة على إكس' if lang == 'ar' else 'Share on X' }}" class="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50 hover:text-ink">
+                  <span aria-hidden="true" class="grid h-5 w-5 place-items-center rounded-full bg-ink text-[10px] font-extrabold text-white">X</span>X
+                </a>
+                <a href="https://api.whatsapp.com/send?text={{ (article.title ~ ' ' ~ share_article_url)|urlencode }}" target="_blank" rel="noopener noreferrer" aria-label="{{ 'مشاركة على واتساب' if lang == 'ar' else 'Share on WhatsApp' }}" class="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 transition hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-800">
+                  <span aria-hidden="true" class="grid h-5 w-5 place-items-center rounded-full bg-emerald-600 text-[10px] font-extrabold text-white">W</span>WhatsApp
+                </a>
+                <a href="https://t.me/share/url?url={{ share_article_url|urlencode }}&amp;text={{ article.title|urlencode }}" target="_blank" rel="noopener noreferrer" aria-label="{{ 'مشاركة على تيليجرام' if lang == 'ar' else 'Share on Telegram' }}" class="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 transition hover:border-sky-300 hover:bg-sky-50 hover:text-sky-700">
+                  <span aria-hidden="true" class="grid h-5 w-5 place-items-center rounded-full bg-sky-500 text-[10px] font-extrabold text-white">T</span>Telegram
+                </a>
+                <a href="https://www.linkedin.com/sharing/share-offsite/?url={{ share_article_url|urlencode }}" target="_blank" rel="noopener noreferrer" aria-label="{{ 'مشاركة على لينكدإن' if lang == 'ar' else 'Share on LinkedIn' }}" class="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-800">
+                  <span aria-hidden="true" class="grid h-5 w-5 place-items-center rounded bg-blue-700 text-[10px] font-extrabold text-white">in</span>LinkedIn
+                </a>
+                <a href="https://www.reddit.com/submit?url={{ share_article_url|urlencode }}&amp;title={{ article.title|urlencode }}" target="_blank" rel="noopener noreferrer" aria-label="{{ 'مشاركة على ريديت' if lang == 'ar' else 'Share on Reddit' }}" class="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 transition hover:border-orange-300 hover:bg-orange-50 hover:text-orange-800">
+                  <span aria-hidden="true" class="grid h-5 w-5 place-items-center rounded-full bg-orange-600 text-[10px] font-extrabold text-white">r</span>Reddit
+                </a>
+                <a href="mailto:?subject={{ article.title|urlencode }}&amp;body={{ share_article_url|urlencode }}" aria-label="{{ 'إرسال رابط الخبر بالبريد الإلكتروني' if lang == 'ar' else 'Email this story' }}" class="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50">
+                  <span aria-hidden="true" class="grid h-5 w-5 place-items-center rounded-full bg-slate-600 text-[10px] font-extrabold text-white">@</span>{{ 'البريد' if lang == 'ar' else 'Email' }}
+                </a>
+                <button id="copyArticleLink" type="button" data-copy-url="{{ share_article_url }}" class="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-700 transition hover:border-pulse hover:text-pulse" aria-label="{{ 'نسخ رابط الخبر' if lang == 'ar' else 'Copy story link' }}">
+                  <svg viewBox="0 0 20 20" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="7" y="6" width="9" height="11" rx="1.5"/><path d="M13 6V4.5A1.5 1.5 0 0 0 11.5 3h-7A1.5 1.5 0 0 0 3 4.5v9A1.5 1.5 0 0 0 4.5 15H7" stroke-linecap="round"/></svg>
+                  <span id="copyArticleLinkText">{{ 'نسخ الرابط' if lang == 'ar' else 'Copy link' }}</span>
+                </button>
+              </div>
+              <p id="copyArticleLinkStatus" role="status" aria-live="polite" class="hidden text-xs text-emerald-700"></p>
+            </div>
+          </section>
+        {% endif %}
+
         <div class="grid gap-10 p-6 sm:p-9 lg:grid-cols-[minmax(0,1fr)_270px] lg:gap-14 lg:p-12">
           <div class="min-w-0">
             {% if article.translation_fallback %}
@@ -526,6 +566,46 @@
 
       applyTheme(root.dataset.theme || 'light');
       themeButton?.addEventListener('click', () => applyTheme(root.dataset.theme === 'dark' ? 'light' : 'dark'));
+
+      const copyArticleLinkButton = document.getElementById('copyArticleLink');
+      const copyArticleLinkText = document.getElementById('copyArticleLinkText');
+      const copyArticleLinkStatus = document.getElementById('copyArticleLinkStatus');
+      if (copyArticleLinkButton) {
+        const defaultCopyLabel = {{ ('نسخ الرابط' if lang == 'ar' else 'Copy link')|tojson }};
+        const copiedLabel = {{ ('تم النسخ' if lang == 'ar' else 'Copied')|tojson }};
+        const copyFailedMessage = {{ ('تعذر النسخ تلقائياً. انسخ الرابط من النافذة التي ستظهر.' if lang == 'ar' else 'Automatic copy was unavailable. Copy the link from the prompt.')|tojson }};
+        copyArticleLinkButton.addEventListener('click', async () => {
+          const url = copyArticleLinkButton.dataset.copyUrl || window.location.href;
+          let copied = false;
+          try {
+            if (navigator.clipboard && window.isSecureContext) {
+              await navigator.clipboard.writeText(url);
+              copied = true;
+            }
+          } catch (_) { /* Fall through to a browser-compatible fallback. */ }
+          if (!copied) {
+            try {
+              const field = document.createElement('textarea');
+              field.value = url;
+              field.setAttribute('readonly', '');
+              field.style.position = 'fixed';
+              field.style.opacity = '0';
+              document.body.appendChild(field);
+              field.select();
+              copied = document.execCommand('copy');
+              field.remove();
+            } catch (_) { copied = false; }
+          }
+          if (copyArticleLinkStatus) {
+            copyArticleLinkStatus.classList.remove('hidden');
+            copyArticleLinkStatus.textContent = copied ? copiedLabel : copyFailedMessage;
+          }
+          if (copyArticleLinkText) copyArticleLinkText.textContent = copied ? copiedLabel : defaultCopyLabel;
+          if (!copied) {
+            try { window.prompt(copyFailedMessage, url); } catch (_) {}
+          }
+        });
+      }
     })();
   </script>
 </body>
