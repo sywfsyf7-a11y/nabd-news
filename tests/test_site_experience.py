@@ -1555,7 +1555,7 @@ class BoundedImageProviderSearchTests(unittest.TestCase):
         self.assertEqual(specialist_keys, {"image:wellcome_open_access"})
 
 
-    def test_archive_feed_query_limits_each_language_before_combining(self):
+    def test_archive_feed_query_reserves_a_bounded_window_per_category_and_language(self):
         from unittest.mock import MagicMock
 
         connection = MagicMock()
@@ -1573,19 +1573,74 @@ class BoundedImageProviderSearchTests(unittest.TestCase):
                                     self.assertEqual(world_pulse._db_fetch_all(), [])
 
         query = cursor.execute.call_args.args[0]
-        self.assertNotIn("ROW_NUMBER()", query)
+        self.assertIn("ROW_NUMBER() OVER", query)
+        self.assertEqual(query.count("PARTITION BY category"), 2)
+        self.assertEqual(query.count("category_rank <= %s"), 2)
+        self.assertNotIn("LIMIT 120", query)
         self.assertIn("UNION ALL", query)
-        self.assertIn("SELECT * FROM (", query)
-        self.assertEqual(query.count("LIMIT 120"), 2)
         self.assertIn("original_language = 'ar'", query)
         self.assertIn("original_language = 'en'", query)
         self.assertIn("LOWER(source_domain) = ANY(%s)", query)
         self.assertIn("LOWER(source_name) LIKE ANY(%s)", query)
         params = cursor.execute.call_args.args[1]
-        self.assertEqual(len(params), 6)
+        self.assertEqual(len(params), 8)
         self.assertIn("aljazeera.net", params[0])
         self.assertIn("theverge.com", params[3])
+        self.assertEqual(params[6], world_pulse.ARCHIVE_ROWS_PER_CATEGORY_LANGUAGE)
+        self.assertEqual(params[7], world_pulse.ARCHIVE_ROWS_PER_CATEGORY_LANGUAGE)
         self.assertNotIn("npr.org", params[0] + params[3])
+
+    def test_archive_snapshot_cache_keeps_each_section_represented(self):
+        base = datetime(2026, 10, 1, tzinfo=timezone.utc)
+        rows = []
+        for category in ("world", "gaming", "science"):
+            for index in range(5):
+                rows.append({
+                    "slug": f"{category}-{index}",
+                    "source_url": f"https://example.test/{category}/{index}",
+                    "category": category,
+                    "original_language": "en",
+                    "published_at": base + timedelta(days=index),
+                    "fetched_at": base + timedelta(days=index),
+                })
+        selected = world_pulse._bounded_archive_snapshot_rows(rows, per_category_limit=2)
+        counts = {}
+        for row in selected:
+            counts[(row["original_language"], row["category"])] = counts.get(
+                (row["original_language"], row["category"]), 0
+            ) + 1
+
+        self.assertEqual(counts, {("en", "world"): 2, ("en", "gaming"): 2, ("en", "science"): 2})
+        self.assertEqual(
+            {row["slug"] for row in selected},
+            {f"{category}-{index}" for category in ("world", "gaming", "science") for index in (3, 4)},
+        )
+
+    def test_category_fallback_can_search_all_rights_cleared_catalogues(self):
+        candidate = {
+            "image_url": "https://images.example.test/category.jpg",
+            "image_source": "openverse_licensed",
+            "image_credit": "Photographer Name",
+            "image_credit_url": "https://photos.example.test/item",
+            "image_provider_url": "https://photos.example.test/item",
+            "image_license_url": "https://creativecommons.org/licenses/by/4.0/",
+            "image_title": "Gaming setup with a controller",
+            "_image_relevance_evidence": "Video game hardware console controller setup for gaming",
+            "_image_relevance_score": 0.31,
+        }
+        with patch.object(world_pulse, "_image_search_query_variants", return_value=["specific story", "category query"]):
+            with patch.object(world_pulse, "_category_image_search_query", return_value="category query"):
+                with patch.object(world_pulse, "_search_any_reusable_image", side_effect=[{}, dict(candidate)]) as search:
+                    result = world_pulse._search_article_image_with_variants(
+                        "New video game hardware", "", "en", "gaming"
+                    )
+
+        self.assertTrue(result["image_relevance_verified"])
+        self.assertIn("illustrative category image", result["image_credit"])
+        # The broad fallback is allowed to query specialist/public-domain/approved
+        # sources, but its result must still pass the relevance and licence checks.
+        self.assertTrue(search.call_args_list[0].kwargs == {} or search.call_args_list[0].kwargs.get("open_only") is False)
+        self.assertFalse(search.call_args_list[1].kwargs["open_only"])
 
     def test_partial_translation_falls_back_to_cohesive_native_article(self):
         native_body = (
