@@ -699,14 +699,146 @@ _DISPLAY_STORIES_CACHE_GENERATION = 0
 _DISPLAY_STORIES_BUILD_LOCKS = {lang: threading.Lock() for lang in ("ar", "en")}
 _DISPLAY_STORIES_REFRESHING: set[str] = set()
 _DISPLAY_STORIES_REFRESHING_LOCK = threading.Lock()
+# Gunicorn workers do not share Python dictionaries. Reuse normalized display pools from
+# the shared instance filesystem so sibling workers do not repeat cold display builds.
+_DISPLAY_SHARED_CACHE_PATH = os.getenv("WORLD_PULSE_DISPLAY_CACHE_FILE", "/tmp/world-pulse-display-cache.json")
+_DISPLAY_SHARED_CACHE_MAX_STALE_SECONDS = max(
+    _DISPLAY_STORIES_CACHE_TTL_SECONDS,
+    min(900, int(os.getenv("DISPLAY_CACHE_MAX_STALE_SECONDS", "300"))),
+)
 
 
-def _clear_display_stories_cache() -> None:
-    """Invalidate display snapshots and prevent an in-flight refresh from reinstalling stale data."""
+def _display_shared_cache_lock():
+    handle = open(_DISPLAY_SHARED_CACHE_PATH + ".lock", "a+", encoding="utf-8")
+    fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+    return handle
+
+
+def _read_shared_display_cache(lang: str) -> tuple[list[dict[str, Any]], float, bool] | None:
+    if lang not in {"ar", "en"}:
+        return None
+    try:
+        with open(_DISPLAY_SHARED_CACHE_PATH, "r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+        entry = (payload.get("languages") or {}).get(lang)
+        if not isinstance(entry, dict) or not isinstance(entry.get("stories"), list):
+            return None
+        age = max(0.0, time.time() - float(entry.get("cached_at") or 0))
+        if age > _DISPLAY_SHARED_CACHE_MAX_STALE_SECONDS:
+            return None
+        stories = []
+        for item in entry["stories"]:
+            if not isinstance(item, dict):
+                continue
+            row = dict(item)
+            for key in ("published_at", "fetched_at", "image_checked_at"):
+                value = row.get(key)
+                if isinstance(value, str):
+                    try:
+                        row[key] = datetime.fromisoformat(value.replace("Z", "+00:00"))
+                    except ValueError:
+                        row[key] = None
+            stories.append(row)
+        return stories, age, bool(entry.get("stale"))
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        return None
+
+
+def _write_shared_display_cache(lang: str, stories: list[dict[str, Any]]) -> None:
+    if lang not in {"ar", "en"}:
+        return
+    path = _DISPLAY_SHARED_CACHE_PATH
+    directory = os.path.dirname(path)
+    if directory:
+        os.makedirs(directory, exist_ok=True)
+    lock_handle = None
+    temporary_path = f"{path}.{os.getpid()}.{threading.get_ident()}.tmp"
+
+    def encode_value(value):
+        if isinstance(value, datetime):
+            return value.isoformat()
+        raise TypeError(f"Unsupported display cache value: {type(value).__name__}")
+
+    try:
+        lock_handle = _display_shared_cache_lock()
+        try:
+            with open(path, "r", encoding="utf-8") as input_handle:
+                payload = json.load(input_handle)
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            payload = {}
+        languages = payload.get("languages") if isinstance(payload.get("languages"), dict) else {}
+        languages = dict(languages)
+        languages[lang] = {"cached_at": time.time(), "stale": False, "stories": stories}
+        try:
+            with open(temporary_path, "w", encoding="utf-8") as output:
+                json.dump({"languages": languages}, output, ensure_ascii=False, default=encode_value)
+                output.flush()
+                os.fsync(output.fileno())
+            os.replace(temporary_path, path)
+        finally:
+            try:
+                os.unlink(temporary_path)
+            except OSError:
+                pass
+    except (OSError, TypeError, ValueError) as exc:
+        logger.debug("Could not write shared display snapshot (%s)", type(exc).__name__)
+    finally:
+        if lock_handle is not None:
+            _archive_unlock(lock_handle)
+
+
+def _mark_shared_display_cache_stale(*, hard: bool = False) -> None:
+    """Allow stale-while-revalidate after updates; hard removal discards snapshots."""
+    lock_handle = None
+    try:
+        lock_handle = _display_shared_cache_lock()
+        if hard:
+            try:
+                os.unlink(_DISPLAY_SHARED_CACHE_PATH)
+            except FileNotFoundError:
+                pass
+            return
+        try:
+            with open(_DISPLAY_SHARED_CACHE_PATH, "r", encoding="utf-8") as input_handle:
+                payload = json.load(input_handle)
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            return
+        languages = payload.get("languages")
+        if not isinstance(languages, dict):
+            return
+        for entry in languages.values():
+            if isinstance(entry, dict):
+                entry["stale"] = True
+        temporary_path = f"{_DISPLAY_SHARED_CACHE_PATH}.{os.getpid()}.{threading.get_ident()}.tmp"
+        try:
+            with open(temporary_path, "w", encoding="utf-8") as output:
+                json.dump(payload, output, ensure_ascii=False)
+                output.flush()
+                os.fsync(output.fileno())
+            os.replace(temporary_path, _DISPLAY_SHARED_CACHE_PATH)
+        finally:
+            try:
+                os.unlink(temporary_path)
+            except OSError:
+                pass
+    except (OSError, TypeError, ValueError) as exc:
+        logger.debug("Could not invalidate shared display snapshot (%s)", type(exc).__name__)
+    finally:
+        if lock_handle is not None:
+            _archive_unlock(lock_handle)
+
+
+def _clear_display_stories_cache(*, hard: bool = False) -> None:
+    """Keep old display snapshots usable while asynchronously rebuilding after changes."""
     global _DISPLAY_STORIES_CACHE_GENERATION
     with _DISPLAY_STORIES_CACHE_LOCK:
         _DISPLAY_STORIES_CACHE_GENERATION += 1
-        _DISPLAY_STORIES_CACHE.clear()
+        if hard:
+            _DISPLAY_STORIES_CACHE.clear()
+        else:
+            for lang, (_built_at, stories) in list(_DISPLAY_STORIES_CACHE.items()):
+                _DISPLAY_STORIES_CACHE[lang] = (0.0, stories)
+    _mark_shared_display_cache_stale(hard=hard)
 # Licensed image bytes are immutable by content id; a small process-local LRU avoids
 # repeatedly opening Supabase sessions for the same image on each page view.
 _CATALOGUED_IMAGE_MEMORY_CACHE_MAX_BYTES = max(
@@ -1553,7 +1685,7 @@ def _remove_article_from_archive_cache(slug: str) -> None:
             # A moderation action can be the first request handled by a fresh worker.
             # Do not publish an empty "fresh" snapshot unless an archive snapshot actually
             # existed; the next public request must be allowed to load Supabase normally.
-            _clear_display_stories_cache()
+            _clear_display_stories_cache(hard=True)
             with _MEMORY_ARTICLES_LOCK:
                 for key in list(_MEMORY_ARTICLES):
                     if str(_MEMORY_ARTICLES[key].get("slug") or "") == slug:
@@ -1566,7 +1698,7 @@ def _remove_article_from_archive_cache(slug: str) -> None:
         with _DB_ARTICLES_CACHE_LOCK:
             _DB_ARTICLES_CACHE = visible_rows
             _DB_ARTICLES_CACHE_AT = time.monotonic()
-        _clear_display_stories_cache()
+        _clear_display_stories_cache(hard=True)
         with _MEMORY_ARTICLES_LOCK:
             for key in list(_MEMORY_ARTICLES):
                 if str(_MEMORY_ARTICLES[key].get("slug") or "") == slug:
@@ -1579,7 +1711,7 @@ def _remove_article_from_archive_cache(slug: str) -> None:
             os.unlink(_ARCHIVE_SHARED_CACHE_PATH)
         except OSError:
             pass
-        _clear_display_stories_cache()
+        _clear_display_stories_cache(hard=True)
         with _MEMORY_ARTICLES_LOCK:
             for key in list(_MEMORY_ARTICLES):
                 if str(_MEMORY_ARTICLES[key].get("slug") or "") == slug:
@@ -1834,7 +1966,7 @@ def _refresh_shared_archive_cache() -> None:
         try:
             shared = _read_shared_archive_cache(max_age_seconds=_DB_ARTICLE_CACHE_TTL_SECONDS)
             if shared is not None:
-                _install_archive_snapshot(shared[0], age_seconds=shared[1], clear_display=True)
+                _install_archive_snapshot(shared[0], age_seconds=shared[1])
                 return
             rows = _query_persistent_archive_rows()
             if rows is not None:
@@ -1902,7 +2034,7 @@ def _db_fetch_all() -> list[dict[str, Any]]:
 
     shared_fresh = _read_shared_archive_cache(max_age_seconds=_DB_ARTICLE_CACHE_TTL_SECONDS)
     if shared_fresh is not None:
-        _install_archive_snapshot(shared_fresh[0], age_seconds=shared_fresh[1], clear_display=True)
+        _install_archive_snapshot(shared_fresh[0], age_seconds=shared_fresh[1])
         return [dict(row) for row in shared_fresh[0]]
 
     # Prefer a slightly stale successful snapshot over blocking a visitor on a slow
@@ -1938,7 +2070,7 @@ def _db_fetch_all() -> list[dict[str, Any]]:
         try:
             shared = _read_shared_archive_cache(max_age_seconds=_DB_ARTICLE_CACHE_TTL_SECONDS)
             if shared is not None:
-                _install_archive_snapshot(shared[0], age_seconds=shared[1], clear_display=True)
+                _install_archive_snapshot(shared[0], age_seconds=shared[1])
                 return [dict(row) for row in shared[0]]
             rows = _query_persistent_archive_rows()
             if rows is not None:
@@ -6997,6 +7129,7 @@ def _refresh_display_stories_cache_async(lang: str, generation: int) -> None:
                 with _DISPLAY_STORIES_CACHE_LOCK:
                     if generation == _DISPLAY_STORIES_CACHE_GENERATION:
                         _DISPLAY_STORIES_CACHE[lang] = (time.monotonic(), stories)
+                        _write_shared_display_cache(lang, stories)
                 logger.info(
                     "Display story cache refreshed in background: language=%s stories=%d elapsed=%.3fs",
                     lang, len(stories), elapsed,
@@ -7044,9 +7177,25 @@ def _get_display_stories(lang: str) -> list[dict[str, Any]]:
         _refresh_display_stories_cache_async(lang, generation)
         return [dict(row) for row in cached[1]]
 
-    # Cold start or a deliberate invalidation: only one request per language builds the
-    # pool. Requests arriving together re-check the cache after acquiring this lock and
-    # reuse the first completed build rather than repeating CPU- and DB-heavy work.
+    # A sibling Gunicorn worker may already have paid for this build. Reuse its
+    # normalized display snapshot while fresh; an expired snapshot is still useful
+    # immediately and is refreshed in the background.
+    shared_display = _read_shared_display_cache(lang)
+    if shared_display is not None:
+        shared_stories, shared_age, shared_stale = shared_display
+        with _DISPLAY_STORIES_CACHE_LOCK:
+            cached = _DISPLAY_STORIES_CACHE.get(lang)
+            generation = _DISPLAY_STORIES_CACHE_GENERATION
+            if cached and time.monotonic() - cached[0] < _DISPLAY_STORIES_CACHE_TTL_SECONDS:
+                return [dict(row) for row in cached[1]]
+            _DISPLAY_STORIES_CACHE[lang] = (time.monotonic() - shared_age, shared_stories)
+        if shared_age < _DISPLAY_STORIES_CACHE_TTL_SECONDS and not shared_stale:
+            return [dict(row) for row in shared_stories]
+        _refresh_display_stories_cache_async(lang, generation)
+        return [dict(row) for row in shared_stories]
+
+    # Cold start or a missing shared snapshot: only one request per language per process
+    # builds the pool. Requests arriving together reuse the first completed build.
     with _DISPLAY_STORIES_BUILD_LOCKS[lang]:
         now = time.monotonic()
         with _DISPLAY_STORIES_CACHE_LOCK:
@@ -7060,6 +7209,7 @@ def _get_display_stories(lang: str) -> list[dict[str, Any]]:
         with _DISPLAY_STORIES_CACHE_LOCK:
             if generation == _DISPLAY_STORIES_CACHE_GENERATION:
                 _DISPLAY_STORIES_CACHE[lang] = (time.monotonic(), stories)
+                _write_shared_display_cache(lang, stories)
         logger.info(
             "Display story cache built on demand: language=%s stories=%d elapsed=%.3fs",
             lang, len(stories), elapsed,
