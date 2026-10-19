@@ -491,6 +491,73 @@ class SiteExperienceTests(unittest.TestCase):
         self.assertIn("Photographer Name", result["image_credit"])
         self.assertEqual(result["image_license_url"], candidate["image_license_url"])
 
+    def test_long_headline_uses_labelled_category_image_when_specific_match_is_unavailable(self):
+        candidate = {
+            "image_url": "https://images.example.test/gaming-category.jpg",
+            "image_source": "openverse_licensed",
+            "image_credit": "Photographer Name",
+            "image_credit_url": "https://photos.example.test/item",
+            "image_provider_url": "https://photos.example.test/item",
+            "image_license_url": "https://creativecommons.org/licenses/by/4.0/",
+            "image_title": "Gaming setup with a controller",
+            "_image_relevance_evidence": "Video game hardware console controller setup for gaming",
+            "_image_relevance_score": 0.31,
+        }
+        long_headline = (
+            "Several publishers describe a new console hardware and video game launch "
+            "that expands the gaming market after a major studio announcement"
+        )
+        with patch.object(
+            world_pulse,
+            "_image_search_query_variants",
+            return_value=["specific story query", "short headline query", "category query"],
+        ):
+            with patch.object(world_pulse, "_category_image_search_query", return_value="category query"):
+                with patch.object(
+                    world_pulse, "_search_any_reusable_image",
+                    side_effect=[{}, {}, dict(candidate)],
+                ):
+                    result = world_pulse._search_article_image_with_variants(
+                        long_headline, "", "en", "gaming"
+                    )
+
+        self.assertTrue(result)
+        self.assertIn("illustrative category image", result["image_credit"])
+        self.assertIn("Photographer Name", result["image_credit"])
+        self.assertEqual(result["image_license_url"], candidate["image_license_url"])
+        self.assertTrue(result["image_relevance_verified"])
+
+    def test_unrelated_portrait_does_not_match_an_oil_and_maritime_story_by_country_name_alone(self):
+        unrelated = {
+            "image_url": "https://images.example.test/iranian-politician.jpg",
+            "image_source": "wikimedia_relevant",
+            "image_credit": "Photographer",
+            "image_credit_url": "https://commons.wikimedia.org/wiki/File:Portrait.jpg",
+            "image_provider_url": "https://commons.wikimedia.org/wiki/File:Portrait.jpg",
+            "image_license_url": "https://creativecommons.org/licenses/by/4.0/",
+            "image_title": "Iranian politician portrait at a public event",
+            "_image_relevance_evidence": "Portrait of an Iranian politician speaking to an audience",
+            "_image_relevance_score": 0.95,
+        }
+        headline = (
+            "Iranian maritime blockade threatens oil tanker shipments and energy routes "
+            "through a major shipping corridor"
+        )
+        with patch.object(
+            world_pulse,
+            "_image_search_query_variants",
+            return_value=["Iran oil tanker maritime blockade"],
+        ):
+            with patch.object(world_pulse, "_category_image_search_query", return_value=""):
+                with patch.object(
+                    world_pulse, "_search_any_reusable_image", return_value=unrelated
+                ):
+                    result = world_pulse._search_article_image_with_variants(
+                        headline, "", "en", "world"
+                    )
+
+        self.assertEqual(result, {})
+
     def test_article_route_reuses_warm_display_pool_without_database_scan(self):
         stories = [
             {"slug": "story-one", "category": "technology", "title": "Short title"},

@@ -4198,15 +4198,19 @@ def _search_article_image_with_variants(
     """Try bounded image searches, then re-score candidates against the actual story."""
     variants = _image_search_query_variants(title, context, category)
     category_query = _category_image_search_query(title, context, category)
-    # Validate using the article's actual subject, not the current provider query.
-    # A country name or broad section term alone cannot validate an unrelated portrait.
-    story_reference = _clean_text(
-        " ".join(part for part in (
+    # Score several short, independently anchored views of the actual story.
+    # Combining the whole headline, excerpt and entity aliases into one long token set
+    # diluted valid matches, especially for long headlines and translated Arabic entities.
+    # A country/person name alone still cannot validate an unrelated documentary photo.
+    story_references = [
+        phrase for phrase in (
+            _image_search_phrase(title, 6),
             _image_search_query(title, context),
             _english_image_anchor_query(title, context),
-        ) if part),
-        320,
-    )
+        ) if phrase
+    ]
+    section_terms = CATEGORY_IMAGE_SEARCH_TERMS.get(str(category or "").casefold(), "")
+    section_tokens = _image_tokens(section_terms)
     best: dict[str, Any] = {}
     best_score = -1.0
     best_is_category_fallback = False
@@ -4224,9 +4228,35 @@ def _search_article_image_with_variants(
             result.get("_image_relevance_evidence") or result.get("image_title") or "",
             1800,
         )
-        story_score = _image_match_score(story_reference, evidence) if evidence and story_reference else 0.0
-        # Provider scores alone may be high because only a location or category word
-        # matched. Use the lower of catalogue relevance and article-topic relevance.
+        if not evidence:
+            continue
+
+        if is_category_fallback:
+            # Category photos are explicitly labelled illustrative, not documentary.
+            # Validate them against the section vocabulary instead of the entire
+            # long headline; otherwise legitimate generic gaming/art/science imagery
+            # nearly always fails despite matching the intended category.
+            evidence_tokens = _image_tokens(evidence)
+            section_overlap = len(section_tokens & evidence_tokens)
+            section_score = (
+                section_overlap / max(1, len(section_tokens))
+                + min(section_overlap, 4) * 0.025
+                if section_overlap >= 2 else 0.0
+            )
+            category_query_score = _image_match_score(category_query, evidence)
+            story_score = max(section_score, category_query_score)
+            # Category fallback still requires multiple unmistakable category terms.
+            if section_overlap < 2:
+                story_score = 0.0
+        else:
+            # Take the strongest independently anchored score rather than scoring a
+            # long concatenated query whose denominator penalizes real image matches.
+            story_score = max(
+                (_image_match_score(reference, evidence) for reference in story_references),
+                default=0.0,
+            )
+
+        # Never trust the provider score alone; topic or section evidence must also pass.
         score = min(provider_score, story_score) if provider_score > 0 and story_score > 0 else 0.0
         minimum_score = MIN_CATEGORY_IMAGE_RELEVANCE_SCORE if is_category_fallback else MIN_IMAGE_RELEVANCE_SCORE
         if score < minimum_score:
