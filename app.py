@@ -6820,7 +6820,8 @@ def _refresh_news_job() -> None:
                 "Archive image maintenance queued: candidates=%d remaining_lookup_budget=%d",
                 len(archive_image_candidates),
                 max(0, MAX_IMAGE_LOOKUPS_PER_REFRESH - len(image_candidates)),
-            )        image_updates = 0
+            )
+        image_updates = 0
         images_found = 0
         try:
             _enrich_article_images(image_candidates)
