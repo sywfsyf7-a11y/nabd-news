@@ -633,6 +633,33 @@ class SiteExperienceTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.get_data(as_text=True), "article rendered")
 
+    def test_cold_article_route_reuses_shared_display_pool_before_database_reads(self):
+        stories = [
+            {"slug": "shared-story-one", "category": "technology", "title": "Shared article"},
+            {"slug": "shared-story-two", "category": "technology", "title": "Related shared article"},
+        ]
+        with patch.object(world_pulse, "_ensure_background_scheduler"):
+            with patch.object(world_pulse, "current_language", return_value="en"):
+                with patch.object(world_pulse, "_DISPLAY_STORIES_CACHE", {}):
+                    with patch.object(world_pulse, "_read_shared_display_cache", return_value=(stories, 3.0, False)):
+                        with patch.object(
+                            world_pulse, "_db_fetch_article_by_slug",
+                            side_effect=AssertionError("shared display snapshot should find the article"),
+                        ) as article_lookup:
+                            with patch.object(
+                                world_pulse, "_db_fetch_related_articles",
+                                side_effect=AssertionError("shared display snapshot should supply related stories"),
+                            ) as related_lookup:
+                                with patch.object(world_pulse, "render_template", return_value="article rendered") as render:
+                                    response = world_pulse.app.test_client().get("/article/shared-story-one?lang=en")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_data(as_text=True), "article rendered")
+        self.assertEqual(render.call_args.kwargs["article"]["slug"], "shared-story-one")
+        self.assertEqual(render.call_args.kwargs["related_stories"][0]["slug"], "shared-story-two")
+        article_lookup.assert_not_called()
+        related_lookup.assert_not_called()
+
     def test_source_control_cache_primes_all_known_toggles_with_one_database_query(self):
         class FakeCursor:
             def __init__(self):
