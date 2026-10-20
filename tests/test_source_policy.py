@@ -1236,9 +1236,29 @@ class ExpandedSourceAndImageCatalogueTests(unittest.TestCase):
         ):
             self.assertTrue(world_pulse._is_headline_only_domain(domain), domain)
 
-    def test_editorial_pipeline_processes_one_story_per_tick_and_discovers_every_15_minutes(self):
-        self.assertEqual(world_pulse.NEWS_REFRESH_MINUTES, 5)
+    def test_base_article_recovers_a_missing_slug_after_publisher_url_resolution(self):
+        # Google News URL resolution can replace the original URL and must produce a
+        # fresh slug. The base builder also guards persisted queue items created before
+        # this repair, which may not have a slug at all.
+        raw = {
+            "source_url": "https://saudigamer.com/news/example-game-update",
+            "category": "gaming",
+            "source_name": "Saudi Gamer",
+            "source_domain": "saudigamer.com",
+            "original_title": "تحديث جديد للعبة",
+            "original_summary": "يتضمن الخبر تفاصيل موجزة عن التحديث الجديد للعبة.",
+            "original_language": "ar",
+        }
+        article = world_pulse._base_article(raw)
+        self.assertEqual(article["source_url"], raw["source_url"])
+        self.assertEqual(article["slug"], world_pulse._slug_for_url(raw["source_url"]))
+        self.assertTrue(article["slug"])
+
+    def test_editorial_pipeline_processes_one_story_per_15_minute_tick_without_queue_growth(self):
+        self.assertEqual(world_pulse.NEWS_REFRESH_MINUTES, 15)
+        self.assertEqual(world_pulse.NEWS_RETRY_MINUTES, 15)
         self.assertEqual(world_pulse.NEWS_DISCOVERY_REFRESH_MINUTES, 15)
+        self.assertEqual(world_pulse.MAX_QUEUE_ADDITIONS_PER_DISCOVERY, 1)
         # One article is processed per tick; the second permitted model call is a
         # fallback attempt for that same story, not a second editorial article.
         self.assertEqual(world_pulse.MAX_ARTICLES_PER_REFRESH, 1)
