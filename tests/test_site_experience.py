@@ -2666,5 +2666,130 @@ class AdSenseConsentReadinessTests(unittest.TestCase):
         self.assertNotIn("slug <>", cursor.execute.call_args.args[0])
         world_pulse._clear_related_article_cache()
 
+
+    def test_article_permalink_resolves_legacy_url_hash_when_stored_slug_differs(self):
+        from unittest.mock import MagicMock
+        import hashlib
+
+        source_url = "https://example.test/archive/story"
+        requested_slug = "story-" + hashlib.sha256(source_url.encode("utf-8")).hexdigest()[:18]
+        archived = {
+            "slug": "legacy-publisher-slug",
+            "source_url": source_url,
+            "category": "world",
+            "source_name": "Example News",
+            "source_domain": "example.test",
+            "original_language": "en",
+            "title_en": "A saved headline",
+            "title_ar": "",
+            "summary_en": "A distinct saved summary.",
+            "summary_ar": "",
+            "content_en": "Saved details about this story are available in the persistent archive.",
+            "content_ar": "",
+            "image_url": "",
+            "image_source": "none",
+            "image_license_url": "",
+            "published_at": None,
+            "fetched_at": None,
+            "read_minutes": 1,
+            "source_only": False,
+        }
+        with patch.object(world_pulse, "_ensure_background_scheduler"):
+            with patch.object(world_pulse, "current_language", return_value="en"):
+                with patch.object(
+                    world_pulse, "_DISPLAY_STORIES_CACHE",
+                    {"en": (world_pulse.time.monotonic(), [archived])},
+                ):
+                    with patch.object(world_pulse, "render_template", return_value="article rendered") as render:
+                        response = world_pulse.app.test_client().get(
+                            f"/article/{requested_slug}?lang=en"
+                        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_data(as_text=True), "article rendered")
+        self.assertEqual(render.call_args.kwargs["article"]["source_url"], source_url)
+        self.assertEqual(render.call_args.kwargs["related_stories"], [])
+
+    def test_database_permalink_lookup_recovers_url_hash_alias_from_full_persistent_archive(self):
+        import hashlib
+
+        source_url = "https://example.test/archive/old-story"
+        requested_slug = "story-" + hashlib.sha256(source_url.encode("utf-8")).hexdigest()[:18]
+        archived = {
+            "slug": "previous-slug-value",
+            "source_url": source_url,
+            "category": "world",
+            "source_name": "Example News",
+            "source_domain": "example.test",
+            "image_url": "",
+            "image_source": "none",
+            "image_credit": "",
+            "image_credit_url": "",
+            "image_provider_url": "",
+            "image_license_url": "",
+            "image_checked_at": None,
+            "image_relevance_verified": False,
+            "title_ar": "",
+            "title_en": "An archived headline",
+            "summary_ar": "",
+            "summary_en": "A saved summary.",
+            "content_ar": "",
+            "content_en": "Saved story details from the persistent archive.",
+            "published_at": None,
+            "fetched_at": None,
+            "read_minutes": 1,
+            "original_language": "en",
+            "is_demo": False,
+        }
+
+        class FakeCursor:
+            def __init__(self):
+                self.one = None
+                self.many = []
+                self.calls = []
+            def __enter__(self):
+                return self
+            def __exit__(self, *_args):
+                return False
+            def execute(self, query, params=None):
+                self.calls.append((query, params))
+                if "SELECT slug, source_url" in query:
+                    self.many = [{"slug": archived["slug"], "source_url": source_url}]
+                    self.one = None
+                elif "WHERE source_url = %s" in query:
+                    self.one = dict(archived)
+                    self.many = []
+                elif "WHERE slug = %s" in query:
+                    self.one = None
+                    self.many = []
+                else:
+                    raise AssertionError("Unexpected archive lookup query")
+            def fetchone(self):
+                return self.one
+            def fetchall(self):
+                return self.many
+
+        class FakeConnection:
+            def __init__(self):
+                self.fake_cursor = FakeCursor()
+            def cursor(self, **_kwargs):
+                return self.fake_cursor
+
+        connection = FakeConnection()
+        with patch.object(world_pulse, "_ensure_schema", return_value=True):
+            with patch.object(world_pulse, "_connect_db", return_value=connection):
+                with patch.object(world_pulse, "_release_db_connection") as release:
+                    result = world_pulse._db_fetch_article_by_slug(requested_slug)
+
+        self.assertEqual(result["source_url"], source_url)
+        self.assertEqual(result["slug"], "previous-slug-value")
+        self.assertEqual(len(connection.fake_cursor.calls), 3)
+        release.assert_called_once_with(connection)
+
+    def test_favicon_ico_uses_existing_svg_instead_of_returning_404(self):
+        response = world_pulse.app.test_client().get("/favicon.ico")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("<svg", response.get_data(as_text=True)[:300])
+
 if __name__ == "__main__":
     unittest.main()
