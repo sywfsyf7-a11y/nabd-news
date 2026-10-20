@@ -2614,5 +2614,30 @@ class AdSenseConsentReadinessTests(unittest.TestCase):
         self.assertIn("{% endif %}", template)
 
 
+
+    def test_related_article_pool_is_cached_and_excludes_clicked_slug_per_request(self):
+        from unittest.mock import MagicMock
+
+        connection = MagicMock()
+        cursor = connection.cursor.return_value.__enter__.return_value
+        cursor.fetchall.return_value = [
+            {"slug": "story-a", "category": "world", "original_language": "en"},
+            {"slug": "story-b", "category": "world", "original_language": "en"},
+            {"slug": "story-c", "category": "world", "original_language": "en"},
+        ]
+        world_pulse._clear_related_article_cache()
+
+        with patch.object(world_pulse, "_ensure_schema", return_value=True):
+            with patch.object(world_pulse, "_connect_db", return_value=connection) as connect:
+                with patch.object(world_pulse, "_release_db_connection"):
+                    first = world_pulse._db_fetch_related_articles("world", "en", "story-a", limit=12)
+                    second = world_pulse._db_fetch_related_articles("world", "en", "story-b", limit=12)
+
+        self.assertEqual([row["slug"] for row in first], ["story-b", "story-c"])
+        self.assertEqual([row["slug"] for row in second], ["story-a", "story-c"])
+        connect.assert_called_once()
+        self.assertNotIn("slug <>", cursor.execute.call_args.args[0])
+        world_pulse._clear_related_article_cache()
+
 if __name__ == "__main__":
     unittest.main()
