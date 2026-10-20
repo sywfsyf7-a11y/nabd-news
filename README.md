@@ -5,8 +5,8 @@ A bilingual news portal that discovers real stories from publisher sources, crea
 ## Live deployment
 - Website: https://nabd-news.onrender.com/
 - Hosting: Render Python web service, connected to the `main` branch with automatic deploys.
-- Build command: `npm install --no-audit --no-fund && npm run build:css && pip install -r requirements.txt`
-- Start command: `gunicorn --workers 2 --threads 4 --timeout 90 --bind 0.0.0.0:$PORT app:app`
+- Build command in the live Render Dashboard: `pip install -r requirements.txt`. The compiled `static/css/site.css` is committed to the repository; CI also rebuilds it to verify the stylesheet.
+- Start command currently configured in the live Render Dashboard: `gunicorn --workers 2 --threads 4 --timeout 90 --bind 0.0.0.0:$PORT app:app`. The `render.yaml` Blueprint target is now set to one worker, but the existing Dashboard command must be changed separately for that reduction to take effect.
 - Frontend styles: production uses the checked-in compiled `static/css/site.css`; developers/CI can regenerate it with `npm run build:css`. Pages load local CSS rather than Tailwind's browser-side Play CDN.
 - Health endpoint: `/healthz`; non-secret news/image readiness: `/api/news-status`.
 

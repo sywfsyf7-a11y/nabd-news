@@ -18,7 +18,7 @@ The current changes reduce the in-memory archive window, cap downloaded/uploaded
 
 ## Important deployment configuration note
 
-The existing Render service's Dashboard configuration has historically differed from `render.yaml`: the live service reports a Python-only build command and an explicit Gunicorn command with two workers. A Blueprint file change does not guarantee the live Dashboard's start command has changed. After merging, the memory-capping environment variables should be applied to the existing service and the live deployment verified. The service should be moved to one Gunicorn worker through the Render service's actual Start Command configuration when possible; this repository alone cannot assert that Dashboard setting has changed.
+The existing Render service's Dashboard configuration differs from `render.yaml`: the live service uses the Python-only build command and an explicit Gunicorn command with two workers. Memory-capping environment variables were applied directly to the live service on 20 October 2026, and deployment `dep-dbbp96gm7kps73d2iat0` is live. Post-deploy logs show `/`, `/?lang=ar`, and `/?lang=en` returning HTTP 200; CSS returns HTTP 200/304 and stored/generated image routes return HTTP 200. Early post-deploy memory samples were about 199–202 MB on a newer instance, with one concurrent rollout instance around 252 MB, compared with a pre-fix sample near 481 MB and prior OOM kills. These samples are early and are not a stabilized load test. HTTP latency metrics were unavailable. The live Start Command still uses two workers; the one-worker target in `render.yaml` must be applied separately in the Render Dashboard.
 
 ## Performance evidence and remaining validation
 
