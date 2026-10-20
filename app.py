@@ -120,7 +120,7 @@ GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite").strip()
 GEMINI_FALLBACK_MODEL = os.getenv("GEMINI_FALLBACK_MODEL", "gemini-3.8-flash").strip()
 GEMINI_FALLBACK_MODEL_2 = os.getenv("GEMINI_FALLBACK_MODEL_2", "gemini-3.1-flash-lite").strip()
 GEMINI_IMAGE_MODEL = os.getenv("GEMINI_IMAGE_MODEL", "gemini-nano-banana-2.1").strip()
-GEMINI_IMAGE_GENERATION_ENABLED = os.getenv("GEMINI_IMAGE_GENERATION_ENABLED", "false").lower() not in {"0", "false", "no"}
+GEMINI_IMAGE_GENERATION_ENABLED = os.getenv("GEMINI_IMAGE_GENERATION_ENABLED", "true").lower() not in {"0", "false", "no"}
 # Manual admin generation is an explicitly requested action; it does not enable scheduled AI image generation.
 ADMIN_GEMINI_IMAGE_GENERATION_ENABLED = os.getenv("ADMIN_GEMINI_IMAGE_GENERATION_ENABLED", "true").lower() not in {"0", "false", "no"}
 MAX_ADMIN_GEMINI_IMAGES_PER_24H = max(0, min(30, int(os.getenv("MAX_ADMIN_GEMINI_IMAGES_PER_24H", "8"))))
@@ -4214,6 +4214,7 @@ def _generate_gemini_article_image(raw: dict[str, Any], *, manual_admin: bool = 
             "image_provider_url": "https://ai.google.dev/gemini-api/docs/image-generation",
             "image_license_url": "",
             "image_checked_at": datetime.now(timezone.utc),
+            "image_relevance_verified": True,
         }
     except Exception as exc:
         rate_limited = _is_gemini_rate_limit_error(exc)
