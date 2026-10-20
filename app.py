@@ -7830,9 +7830,11 @@ def article(slug: str):
             related_pool.append(_normalise_story(related_row, lang))
     else:
         related_pool = pool
+    selected_url_key = _canonical_story_url(selected.get("source_url"))
     related = [
         story for story in related_pool
-        if story.get("slug") != slug
+        if not _article_slug_matches_story(story, slug)
+        and _canonical_story_url(story.get("source_url")) != selected_url_key
         and story.get("category") == selected.get("category")
         and not story.get("source_only")
     ][:3]
@@ -7841,7 +7843,8 @@ def article(slug: str):
         related.extend([
             story for story in related_pool
             if story.get("slug") not in related_ids
-            and story.get("slug") != slug
+            and not _article_slug_matches_story(story, slug)
+            and _canonical_story_url(story.get("source_url")) != selected_url_key
             and not story.get("source_only")
         ][:3 - len(related)])
     return render_template(
