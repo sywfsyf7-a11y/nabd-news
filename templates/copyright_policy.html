@@ -11,11 +11,11 @@ button{margin-top:16px;background:#172033;color:white;border:0;border-radius:9px
 <a href="{{ url_for('index', lang=lang) }}">← {{ 'العودة إلى الأخبار' if lang == 'ar' else 'Back to news' }}</a>
 <h1>{{ 'سياسة حقوق الصور وطلب الإزالة' if lang == 'ar' else 'Image Copyright & Takedown Policy' }}</h1>
 {% if lang == 'ar' %}
-<p>تسعى نبض العالم إلى عرض صور يمكن التحقق من شروط استخدامها. نفضّل الصور ذات ترخيص واضح أو المصرّح باستخدامها، ونحتفظ ببيانات المصدر وصاحب الصورة ورابط الترخيص وتاريخ الفحص عندما تكون متاحة.</p>
+<p>تسعى نبض نيوز إلى عرض صور يمكن التحقق من شروط استخدامها. نفضّل الصور ذات ترخيص واضح أو المصرّح باستخدامها، ونحتفظ ببيانات المصدر وصاحب الصورة ورابط الترخيص وتاريخ الفحص عندما تكون متاحة.</p>
 <ul><li>وجود الصورة على الإنترنت أو ظهورها في نتائج البحث لا يعني أنها مجانية الاستخدام.</li><li>لا ينبغي عرض صورة خارجية ما لم يُحفظ رابط ترخيص قابل للتحقق. عند غياب الترخيص الواضح، تُستخدم صورة تحريرية محلية بديلة أو تُترك المادة بلا صورة.</li><li>البيانات الوصفية للصورة تساعد على التحقق، لكنها ليست ضماناً قانونياً مستقلاً؛ راجع شروط الترخيص الأصلي.</li><li>إذا كنت صاحب حق وتعتقد أن صورة تخالف حقوقك، أرسل رابط الخبر ورابط الصورة وسبب البلاغ. سنراجع البلاغ ونعطّل الصورة أو نستبدلها عند الحاجة.</li></ul>
 <h2>الإبلاغ عن صورة</h2><p>يمكنك أيضاً مراسلتنا مباشرة عبر <a href="mailto:{{ contact_email }}">{{ contact_email }}</a>.</p>
 {% else %}
-<p>World Pulse aims to display images whose reuse terms can be checked. Where available, we retain source, creator, license URL, and review date metadata.</p>
+<p>Nabd News aims to display images whose reuse terms can be checked. Where available, we retain source, creator, license URL, and review date metadata.</p>
 <ul><li>Being available online or in search results does not make an image free to use.</li><li>Third-party images should not be displayed without a verifiable license URL. If rights are unclear, use a locally hosted editorial fallback or show no image.</li><li>Metadata helps review a license but is not, by itself, a legal guarantee. Please consult the original license terms.</li><li>Rights holders can report a suspected issue using the form below. We will review it and remove or replace the image when appropriate.</li></ul>
 <h2>Report an image</h2><p>You can also contact us at <a href="mailto:{{ contact_email }}">{{ contact_email }}</a>.</p>
 {% endif %}
