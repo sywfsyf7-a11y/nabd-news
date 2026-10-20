@@ -7671,8 +7671,34 @@ def article(slug: str):
     now = time.monotonic()
     with _DISPLAY_STORIES_CACHE_LOCK:
         cached_pool = _DISPLAY_STORIES_CACHE.get(lang)
+        cache_generation = _DISPLAY_STORIES_CACHE_GENERATION
         if cached_pool and now - cached_pool[0] < _DISPLAY_STORIES_CACHE_TTL_SECONDS:
             pool = [dict(row) for row in cached_pool[1]]
+
+    # Each Gunicorn worker has its own memory cache, but all workers share the most
+    # recent display snapshot on disk. Reuse that snapshot on a cold worker before
+    # opening PostgreSQL connections for an individual article and related stories.
+    # The shared snapshot is already language-filtered, de-duplicated, normalized,
+    # and bounded by the background display builder.
+    shared_age = 0.0
+    shared_stale = False
+    if pool is None:
+        shared_display = _read_shared_display_cache(lang)
+        if shared_display is not None:
+            shared_stories, shared_age, shared_stale = shared_display
+            with _DISPLAY_STORIES_CACHE_LOCK:
+                cached_pool = _DISPLAY_STORIES_CACHE.get(lang)
+                cache_generation = _DISPLAY_STORIES_CACHE_GENERATION
+                if cached_pool and time.monotonic() - cached_pool[0] < _DISPLAY_STORIES_CACHE_TTL_SECONDS:
+                    pool = [dict(row) for row in cached_pool[1]]
+                else:
+                    pool = [dict(row) for row in shared_stories]
+                    _DISPLAY_STORIES_CACHE[lang] = (
+                        time.monotonic() - shared_age, [dict(row) for row in shared_stories]
+                    )
+            if shared_stale or shared_age >= _DISPLAY_STORIES_CACHE_TTL_SECONDS:
+                _refresh_display_stories_cache_async(lang, cache_generation)
+
     selected = next((story for story in pool or [] if story.get("slug") == slug), None)
     if selected is None:
         stored = _db_fetch_article_by_slug(slug)
