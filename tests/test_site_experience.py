@@ -46,6 +46,35 @@ class SiteExperienceTests(unittest.TestCase):
                     {f"https://example.com/memory-{index}" for index in (4, 5, 6)},
                 )
 
+    def test_public_brand_is_localized_in_titles_and_metadata(self):
+        for lang, expected_name in (("ar", "نبض نيوز"), ("en", "Nabd News")):
+            with self.subTest(lang=lang):
+                with patch.object(world_pulse, "_maybe_start_refresh"):
+                    with patch.object(world_pulse, "_get_display_stories", return_value=[]):
+                        response = world_pulse.app.test_client().get(f"/?lang={lang}")
+
+                self.assertEqual(response.status_code, 200)
+                html = response.get_data(as_text=True)
+                self.assertIn(f'<meta property="og:site_name" content="{expected_name}">', html)
+                self.assertIn(f"<title>{expected_name}</title>", html)
+                if lang == "ar":
+                    self.assertIn("الأخبار · السياق · الرؤية", html)
+                    self.assertNotIn("World Pulse", html)
+                else:
+                    self.assertIn("NEWS · CONTEXT · PERSPECTIVE", html)
+                    self.assertNotIn("نبض العالم", html)
+
+    def test_image_and_archive_memory_limits_remain_bounded(self):
+        self.assertLessEqual(world_pulse.MAX_IMAGE_PIXELS, 8_000_000)
+        self.assertLessEqual(world_pulse.MAX_SOURCE_IMAGE_BYTES, 20 * 1024 * 1024)
+        self.assertLessEqual(world_pulse.MAX_IMAGE_UPLOAD_BYTES, 30 * 1024 * 1024)
+        self.assertLessEqual(world_pulse.ARCHIVE_ROWS_PER_CATEGORY_LANGUAGE, 90)
+        self.assertLessEqual(world_pulse._CATALOGUED_IMAGE_MEMORY_CACHE_MAX_BYTES, 16 * 1024 * 1024)
+        self.assertLessEqual(
+            world_pulse._CATALOGUED_IMAGE_MEMORY_CACHE_MAX_ITEM_BYTES,
+            world_pulse._CATALOGUED_IMAGE_MEMORY_CACHE_MAX_BYTES,
+        )
+
     def test_homepage_hides_manual_refresh_and_status_ui_but_keeps_compiled_css(self):
         template_path = os.path.join(os.path.dirname(world_pulse.__file__), "templates", "index.html")
         with open(template_path, encoding="utf-8") as handle:
@@ -325,7 +354,7 @@ class SiteExperienceTests(unittest.TestCase):
             "original_language": "ar",
             "title_ar": "عنوان عربي من الجزيرة",
             "title_en": "",
-            "summary_ar": "يعرض نبض العالم العنوان ورابط الناشر فقط لهذا المصدر. افتح المصدر الأصلي لقراءة التفاصيل والسياق وآخر التحديثات.",
+            "summary_ar": "يعرض نبض نيوز العنوان ورابط الناشر فقط لهذا المصدر. افتح المصدر الأصلي لقراءة التفاصيل والسياق وآخر التحديثات.",
             "summary_en": "",
             "content_ar": "",
             "content_en": "",

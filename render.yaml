@@ -2,8 +2,8 @@ services:
   - type: web
     name: world-pulse
     runtime: python
-    buildCommand: npm install --no-audit --no-fund && npm run build:css && pip install -r requirements.txt
-    startCommand: gunicorn --workers 2 --threads 4 --timeout 90 --bind 0.0.0.0:$PORT app:app
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn --workers 1 --threads 4 --timeout 90 --bind 0.0.0.0:$PORT app:app
     healthCheckPath: /healthz
     envVars:
       - key: FLASK_SECRET_KEY
@@ -20,6 +20,20 @@ services:
         generateValue: true
       - key: NEWS_REFRESH_MINUTES
         value: "5"
+      - key: MAX_IMAGE_PIXELS
+        value: "8000000"
+      - key: MAX_SOURCE_IMAGE_BYTES
+        value: "12582912"
+      - key: MAX_IMAGE_UPLOAD_BYTES
+        value: "20971520"
+      - key: ARCHIVE_ROWS_PER_CATEGORY_LANGUAGE
+        value: "60"
+      - key: CATALOGUED_IMAGE_MEMORY_CACHE_MAX_BYTES
+        value: "8388608"
+      - key: CATALOGUED_IMAGE_MEMORY_CACHE_MAX_ITEM_BYTES
+        value: "3145728"
+      - key: MALLOC_ARENA_MAX
+        value: "2"
       - key: NEWS_RETRY_MINUTES
         value: "5"
       - key: NEWS_DISCOVERY_REFRESH_MINUTES
@@ -27,7 +41,7 @@ services:
       - key: MAX_PENDING_NEWS_CANDIDATES
         value: "60"
       - key: MAX_QUEUE_ADDITIONS_PER_DISCOVERY
-        value: "6"
+        value: "3"
       - key: RSS_BATCH_TIMEOUT_SECONDS
         value: "35"
       - key: GEMINI_MODEL
@@ -53,7 +67,7 @@ services:
       - key: MAX_ARTICLES_PER_CATEGORY
         value: "3"
       - key: MAX_IMAGE_LOOKUPS_PER_REFRESH
-        value: "4"
+        value: "2"
       - key: IMAGE_REVALIDATION_BATCH_SIZE
         value: "3"
       - key: SOURCE_LINK_REPAIR_BATCH_SIZE

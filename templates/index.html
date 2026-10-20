@@ -158,7 +158,7 @@
         </span>
         <span class="block">
           <span class="block text-xl font-extrabold leading-tight tracking-tight sm:text-2xl">{{ site_name }}</span>
-          <span class="mt-0.5 block text-[10px] font-semibold uppercase tracking-[.22em] text-slate-500">{{ 'WORLD PULSE' if lang == 'ar' else 'NEWS · CONTEXT · PERSPECTIVE' }}</span>
+          <span class="mt-0.5 block text-[10px] font-semibold uppercase tracking-[.22em] text-slate-500">{{ 'الأخبار · السياق · الرؤية' if lang == 'ar' else 'NEWS · CONTEXT · PERSPECTIVE' }}</span>
         </span>
       </a>
       <form action="{{ url_for('search', lang=lang) }}" method="get" role="search" class="hidden min-w-0 max-w-sm flex-1 items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 md:flex">
@@ -543,7 +543,7 @@
 
   <footer class="border-t border-slate-200 bg-white">
     <div class="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-8 sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
-      <a href="{{ url_for('index', lang=lang) }}" class="flex items-center gap-2 font-extrabold"><span class="grid h-8 w-8 place-items-center rounded-xl bg-pulse text-white">WP</span>{{ site_name }}</a>
+      <a href="{{ url_for('index', lang=lang) }}" class="flex items-center gap-2 font-extrabold"><span class="grid h-8 w-8 place-items-center rounded-xl bg-pulse text-white text-xs">{{ 'نبض' if lang == 'ar' else 'NN' }}</span>{{ site_name }}</a>
       <div class="flex flex-wrap gap-x-4 gap-y-2 text-xs font-semibold text-slate-500">
         <a class="hover:text-pulse" href="{{ url_for('static_page', page_key='privacy', lang=lang) }}">{{ 'سياسة الخصوصية' if lang == 'ar' else 'Privacy Policy' }}</a>
         <a class="hover:text-pulse" href="{{ url_for('static_page', page_key='terms', lang=lang) }}">{{ 'شروط الاستخدام' if lang == 'ar' else 'Terms of Service' }}</a>

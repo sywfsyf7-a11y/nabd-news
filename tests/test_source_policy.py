@@ -448,7 +448,7 @@ class SourcePolicyTests(unittest.TestCase):
             "original_summary": "أجهزة جديدة تتصل بالشبكة وتعمل مع المنزل الذكي.",
         })
         self.assertIn("شركة تكشف عن أجهزة منزل ذكية جديدة", prompt)
-        self.assertIn("نبض العالم", prompt)
+        self.assertIn("نبض نيوز", prompt)
         self.assertIn("2D vector infographic", prompt)
         self.assertIn("generic smart devices", prompt)
         self.assertIn("third-party brand logos", prompt)
@@ -462,7 +462,7 @@ class SourcePolicyTests(unittest.TestCase):
         from PIL import Image
 
         png_buffer = io.BytesIO()
-        Image.new("RGB", (48, 27), "white").save(png_buffer, format="PNG")
+        Image.new("RGB", (640, 360), "white").save(png_buffer, format="PNG")
         encoded_png = base64.b64encode(png_buffer.getvalue()).decode("ascii")
         fake_client = MagicMock()
         fake_client.interactions.create.return_value = SimpleNamespace(
@@ -906,7 +906,7 @@ class SourcePolicyTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("image/svg+xml", response.content_type)
         self.assertIn(b"<svg", response.data)
-        self.assertIn(b"WORLD PULSE", response.data)
+        self.assertIn(b"NABD NEWS", response.data)
         self.assertIn(b"Artemis", response.data)
 
     def test_editorial_fallback_escapes_untrusted_title_markup(self):
@@ -1243,7 +1243,7 @@ class ExpandedSourceAndImageCatalogueTests(unittest.TestCase):
         # fallback attempt for that same story, not a second editorial article.
         self.assertEqual(world_pulse.MAX_ARTICLES_PER_REFRESH, 1)
         self.assertLessEqual(world_pulse.MAX_GEMINI_API_CALLS_PER_REFRESH, 2)
-        self.assertEqual(world_pulse.MAX_IMAGE_LOOKUPS_PER_REFRESH, 4)
+        self.assertEqual(world_pulse.MAX_IMAGE_LOOKUPS_PER_REFRESH, 2)
 
     def test_cleveland_museum_adapter_uses_only_cc0_images_and_culture_category(self):
         import json

@@ -1,4 +1,4 @@
-# World Pulse / نبض العالم
+# Nabd News / نبض نيوز
 
 A bilingual news portal that discovers real stories from publisher sources, creates short Arabic/English editorial briefs from the available source metadata, links to the original report, and attempts to find a topic-relevant image with recorded reuse information.
 
