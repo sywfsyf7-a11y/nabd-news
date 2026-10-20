@@ -117,6 +117,8 @@ async function measurePage(page, label, url, expectedLanguage) {
     browserErrors: pageErrors.slice(0, 5),
     warnings,
     passed: status === 200
+      && !navigationError
+      && pageErrors.length === 0
       && browserData.documentLanguage === expectedLanguage
       && finalOrigin === expectedOrigin
       && cssResponses.some((entry) => entry.status === 200 || entry.status === 304),
