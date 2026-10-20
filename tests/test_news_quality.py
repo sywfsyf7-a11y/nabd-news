@@ -192,11 +192,12 @@ class NewsQualityTests(unittest.TestCase):
         self.assertEqual(batch[0]["source_url"], fresh["source_url"])
         self.assertEqual(selected_queue_keys, {world_pulse._canonical_story_url(fresh["source_url"])})
 
-    def test_discovery_additions_are_capped_to_five_minute_publication_capacity(self):
+    def test_discovery_additions_match_fifteen_minute_publication_capacity(self):
         self.assertEqual(world_pulse.NEWS_DISCOVERY_REFRESH_MINUTES, 15)
-        self.assertEqual(world_pulse.NEWS_REFRESH_MINUTES, 5)
+        self.assertEqual(world_pulse.NEWS_REFRESH_MINUTES, 15)
+        self.assertEqual(world_pulse.NEWS_RETRY_MINUTES, 15)
         self.assertEqual(world_pulse.MAX_ARTICLES_PER_REFRESH, 1)
-        self.assertLessEqual(world_pulse.MAX_QUEUE_ADDITIONS_PER_DISCOVERY, 3)
+        self.assertEqual(world_pulse.MAX_QUEUE_ADDITIONS_PER_DISCOVERY, 1)
 
     def test_borderline_image_relevance_is_rejected_to_prevent_misleading_photos(self):
         candidate = {
