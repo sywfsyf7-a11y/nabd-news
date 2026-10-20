@@ -462,7 +462,7 @@ class SourcePolicyTests(unittest.TestCase):
         from PIL import Image
 
         png_buffer = io.BytesIO()
-        Image.new("RGB", (48, 27), "white").save(png_buffer, format="PNG")
+        Image.new("RGB", (640, 360), "white").save(png_buffer, format="PNG")
         encoded_png = base64.b64encode(png_buffer.getvalue()).decode("ascii")
         fake_client = MagicMock()
         fake_client.interactions.create.return_value = SimpleNamespace(
@@ -1243,7 +1243,7 @@ class ExpandedSourceAndImageCatalogueTests(unittest.TestCase):
         # fallback attempt for that same story, not a second editorial article.
         self.assertEqual(world_pulse.MAX_ARTICLES_PER_REFRESH, 1)
         self.assertLessEqual(world_pulse.MAX_GEMINI_API_CALLS_PER_REFRESH, 2)
-        self.assertEqual(world_pulse.MAX_IMAGE_LOOKUPS_PER_REFRESH, 4)
+        self.assertEqual(world_pulse.MAX_IMAGE_LOOKUPS_PER_REFRESH, 2)
 
     def test_cleveland_museum_adapter_uses_only_cc0_images_and_culture_category(self):
         import json
