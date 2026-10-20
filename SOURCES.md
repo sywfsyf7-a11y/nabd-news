@@ -1,4 +1,4 @@
-# World Pulse / نبض العالم — publisher and image-source policy
+# Nabd News / نبض نيوز — publisher and image-source policy
 
 Google News RSS is the discovery transport. The publisher named on a story and the verified publisher URL are the attribution; Google News is not presented as the reporter. Only the curated publisher lists below are eligible. Results are checked against the article's native language and section before they enter the permanent Supabase queue.
 
