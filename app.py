@@ -7834,7 +7834,7 @@ def article(slug: str):
     related = [
         story for story in related_pool
         if not _article_slug_matches_story(story, slug)
-        and _canonical_story_url(story.get("source_url")) != selected_url_key
+        and (not selected_url_key or _canonical_story_url(story.get("source_url")) != selected_url_key)
         and story.get("category") == selected.get("category")
         and not story.get("source_only")
     ][:3]
@@ -7844,7 +7844,7 @@ def article(slug: str):
             story for story in related_pool
             if story.get("slug") not in related_ids
             and not _article_slug_matches_story(story, slug)
-            and _canonical_story_url(story.get("source_url")) != selected_url_key
+            and (not selected_url_key or _canonical_story_url(story.get("source_url")) != selected_url_key)
             and not story.get("source_only")
         ][:3 - len(related)])
     return render_template(
