@@ -869,6 +869,7 @@ def _mark_shared_display_cache_stale(*, hard: bool = False) -> None:
 def _clear_display_stories_cache(*, hard: bool = False) -> None:
     """Keep old display snapshots usable while asynchronously rebuilding after changes."""
     global _DISPLAY_STORIES_CACHE_GENERATION
+    _clear_related_article_cache()
     with _DISPLAY_STORIES_CACHE_LOCK:
         _DISPLAY_STORIES_CACHE_GENERATION += 1
         if hard:
@@ -2200,52 +2201,104 @@ def _db_fetch_article_by_slug(slug: str) -> dict[str, Any] | None:
     finally:
         _release_db_connection(conn)
 
+# Cache the small recommendation pool independently from the full archive snapshot.
+# This avoids a new PostgreSQL connection for every article click while retaining
+# language and section filtering. Cache invalidation follows the archive/display cache.
+_RELATED_ARTICLES_CACHE_TTL_SECONDS = max(
+    15, min(300, int(os.getenv("RELATED_ARTICLES_CACHE_TTL_SECONDS", "120")))
+)
+_RELATED_ARTICLES_CACHE: dict[tuple[str, str, int], tuple[float, list[dict[str, Any]]]] = {}
+_RELATED_ARTICLES_CACHE_LOCK = threading.RLock()
+_RELATED_ARTICLES_BUILD_LOCKS = {
+    (category, lang): threading.Lock()
+    for category in CATEGORY_NAMES
+    for lang in ("ar", "en")
+}
+
+
+def _clear_related_article_cache() -> None:
+    with _RELATED_ARTICLES_CACHE_LOCK:
+        _RELATED_ARTICLES_CACHE.clear()
+
+
 def _db_fetch_related_articles(
-    category: str, lang: str, exclude_slug: str, limit: int = 48
+    category: str, lang: str, exclude_slug: str, limit: int = 12
 ) -> list[dict[str, Any]]:
-    """Fetch a small, indexed pool for article recommendations without rebuilding the homepage."""
-    if lang not in {"ar", "en"} or not _ensure_schema():
+    """Return cached, language-safe suggestions; coalesce cold reads per category/language."""
+    if lang not in {"ar", "en"}:
         return []
-    conn = _connect_db()
-    if conn is None:
-        return []
-    title_col = "title_ar" if lang == "ar" else "title_en"
-    summary_col = "summary_ar" if lang == "ar" else "summary_en"
-    domains, host_patterns, name_patterns = _archive_source_filter_params(lang)
-    try:
-        with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute(f"""
-                SELECT slug, source_url, category, source_name, source_domain, image_url,
-                       image_source, image_credit, image_credit_url, image_provider_url,
-                       image_license_url, image_checked_at, image_relevance_verified, title_ar, title_en, summary_ar,
-                       summary_en, content_ar, content_en, published_at, fetched_at,
-                       read_minutes, original_language, is_demo
-                FROM world_pulse_articles
-                 WHERE is_demo = FALSE
-                   AND is_hidden = FALSE
-                   AND original_language = %s
-                  AND slug <> %s
-                  AND COALESCE(source_url, '') <> ''
-                  AND LENGTH(TRIM(COALESCE({title_col}, ''))) > 0
-                  AND LENGTH(TRIM(COALESCE({summary_col}, ''))) > 0
-                  AND (
-                      LOWER(source_domain) = ANY(%s)
-                      OR LOWER(source_domain) LIKE ANY(%s)
-                      OR (COALESCE(source_domain, '') = '' AND LOWER(source_name) LIKE ANY(%s))
-                  )
-                ORDER BY (category = %s) DESC,
-                         COALESCE(published_at, fetched_at) DESC, fetched_at DESC
-                LIMIT %s
-            """, (
-                lang, exclude_slug, domains, host_patterns, name_patterns,
-                category, max(3, min(64, int(limit))),
-            ))
-            return [dict(row) for row in cur.fetchall()]
-    except Exception as exc:
-        logger.warning("Related article lookup failed (%s)", type(exc).__name__)
-        return []
-    finally:
-        _release_db_connection(conn)
+    if category not in CATEGORY_NAMES:
+        category = "world"
+    requested_limit = max(3, min(24, int(limit)))
+    cache_key = (category, lang, requested_limit)
+    now = time.monotonic()
+
+    with _RELATED_ARTICLES_CACHE_LOCK:
+        cached = _RELATED_ARTICLES_CACHE.get(cache_key)
+        if cached and now - cached[0] < _RELATED_ARTICLES_CACHE_TTL_SECONDS:
+            return [dict(row) for row in cached[1] if str(row.get("slug") or "") != exclude_slug]
+        stale_rows = [dict(row) for row in cached[1]] if cached else None
+
+    # Several people can click stories from the same section at once. The second
+    # visitor rechecks the cache after taking this lock, instead of issuing the same SQL.
+    with _RELATED_ARTICLES_BUILD_LOCKS[(category, lang)]:
+        now = time.monotonic()
+        with _RELATED_ARTICLES_CACHE_LOCK:
+            cached = _RELATED_ARTICLES_CACHE.get(cache_key)
+            if cached and now - cached[0] < _RELATED_ARTICLES_CACHE_TTL_SECONDS:
+                return [dict(row) for row in cached[1] if str(row.get("slug") or "") != exclude_slug]
+            if cached:
+                stale_rows = [dict(row) for row in cached[1]]
+
+        if not _ensure_schema():
+            rows = stale_rows or []
+            return [dict(row) for row in rows if str(row.get("slug") or "") != exclude_slug]
+
+        conn = _connect_db()
+        if conn is None:
+            rows = stale_rows or []
+            return [dict(row) for row in rows if str(row.get("slug") or "") != exclude_slug]
+
+        title_col = "title_ar" if lang == "ar" else "title_en"
+        summary_col = "summary_ar" if lang == "ar" else "summary_en"
+        domains, host_patterns, name_patterns = _archive_source_filter_params(lang)
+        try:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(f"""
+                    SELECT slug, source_url, category, source_name, source_domain, image_url,
+                           image_source, image_credit, image_credit_url, image_provider_url,
+                           image_license_url, image_checked_at, image_relevance_verified,
+                           title_ar, title_en, summary_ar, summary_en, content_ar, content_en,
+                           published_at, fetched_at, read_minutes, original_language, is_demo
+                    FROM world_pulse_articles
+                    WHERE is_demo = FALSE
+                      AND is_hidden = FALSE
+                      AND original_language = %s
+                      AND COALESCE(source_url, '') <> ''
+                      AND LENGTH(TRIM(COALESCE({title_col}, ''))) > 0
+                      AND LENGTH(TRIM(COALESCE({summary_col}, ''))) > 0
+                      AND (
+                          LOWER(source_domain) = ANY(%s)
+                          OR LOWER(source_domain) LIKE ANY(%s)
+                          OR (COALESCE(source_domain, '') = '' AND LOWER(source_name) LIKE ANY(%s))
+                      )
+                    ORDER BY (category = %s) DESC,
+                             COALESCE(published_at, fetched_at) DESC, fetched_at DESC
+                    LIMIT %s
+                """, (
+                    lang, domains, host_patterns, name_patterns,
+                    category, requested_limit,
+                ))
+                rows = [dict(row) for row in cur.fetchall()]
+            with _RELATED_ARTICLES_CACHE_LOCK:
+                _RELATED_ARTICLES_CACHE[cache_key] = (time.monotonic(), rows)
+            return [dict(row) for row in rows if str(row.get("slug") or "") != exclude_slug]
+        except Exception as exc:
+            logger.warning("Related article lookup failed (%s)", type(exc).__name__)
+            rows = stale_rows or []
+            return [dict(row) for row in rows if str(row.get("slug") or "") != exclude_slug]
+        finally:
+            _release_db_connection(conn)
 
 
 def _db_search_articles(query: str, limit: int = 60) -> list[dict[str, Any]] | None:
@@ -7682,7 +7735,7 @@ def article(slug: str):
     # instead of sorting/deduplicating the entire homepage archive on every article click.
     if pool is None:
         related_rows = _db_fetch_related_articles(
-            str(selected.get("category") or "world"), lang, slug, limit=48
+            str(selected.get("category") or "world"), lang, slug, limit=12
         )
         related_pool: list[dict[str, Any]] = []
         for related_row in related_rows:
