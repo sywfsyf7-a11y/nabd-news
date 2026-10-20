@@ -2174,7 +2174,7 @@ def _db_fetch_all() -> list[dict[str, Any]]:
 
 
 def _db_fetch_article_by_slug(slug: str) -> dict[str, Any] | None:
-    """Fetch a saved story directly so old permanent links survive the homepage window."""
+    """Resolve a permanent article permalink even if its stored slug is a legacy alias."""
     slug = _clean_text(slug, 220)
     if not slug or not _ensure_schema():
         return None
@@ -2183,18 +2183,55 @@ def _db_fetch_article_by_slug(slug: str) -> dict[str, Any] | None:
         return None
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute("""
-                SELECT slug, source_url, category, source_name, source_domain, image_url,
-                       image_source, image_credit, image_credit_url, image_provider_url, image_license_url, image_checked_at, image_relevance_verified,
-                       title_ar, title_en, summary_ar, summary_en,
-                       content_ar, content_en, published_at, fetched_at,
-                       read_minutes, original_language, is_demo
+            columns = """
+                slug, source_url, category, source_name, source_domain, image_url,
+                image_source, image_credit, image_credit_url, image_provider_url, image_license_url,
+                image_checked_at, image_relevance_verified, title_ar, title_en, summary_ar, summary_en,
+                content_ar, content_en, published_at, fetched_at, read_minutes, original_language, is_demo
+            """
+            cur.execute(f"""
+                SELECT {columns}
                 FROM world_pulse_articles
                 WHERE slug = %s AND is_demo = FALSE AND is_hidden = FALSE
                 LIMIT 1
             """, (slug,))
             row = cur.fetchone()
-            return dict(row) if row else None
+            if row:
+                return dict(row)
+
+            # Legacy homepage snapshots sometimes carried a URL-derived slug while an older
+            # database row retained a different stored slug. Only on a slug miss, scan the
+            # small URL/slug index projection and compute the stable alias in Python; then
+            # fetch the matching article by its indexed source_url. Normal clicks still use
+            # the fast indexed slug lookup above.
+            if not re.fullmatch(r"story-[0-9a-f]{18}", slug):
+                return None
+            cur.execute("""
+                SELECT slug, source_url
+                FROM world_pulse_articles
+                WHERE is_demo = FALSE AND is_hidden = FALSE AND source_url IS NOT NULL
+            """)
+            matched_url = ""
+            for candidate in cur.fetchall():
+                candidate_row = dict(candidate)
+                if _article_slug_matches_story(candidate_row, slug):
+                    matched_url = str(candidate_row.get("source_url") or "")
+                    if matched_url:
+                        break
+            if not matched_url:
+                logger.info("Article permalink not found after legacy slug lookup")
+                return None
+            cur.execute(f"""
+                SELECT {columns}
+                FROM world_pulse_articles
+                WHERE source_url = %s AND is_demo = FALSE AND is_hidden = FALSE
+                LIMIT 1
+            """, (matched_url,))
+            row = cur.fetchone()
+            if row:
+                logger.info("Resolved legacy URL-derived article permalink from persistent archive")
+                return dict(row)
+            return None
     except Exception as exc:
         logger.warning("Could not load archived article by slug (%s)", type(exc).__name__)
         return None
@@ -4833,6 +4870,18 @@ def _parse_feed_task(
 
 def _slug_for_url(url: str) -> str:
     return "story-" + hashlib.sha256(url.encode("utf-8")).hexdigest()[:18]
+
+
+def _article_slug_matches_story(row: dict[str, Any], slug: str) -> bool:
+    """Match the stored permalink or its URL-derived stable alias for legacy records."""
+    requested = str(slug or "").strip()
+    if not requested:
+        return False
+    if str(row.get("slug") or "").strip() == requested:
+        return True
+    source_url = str(row.get("source_url") or "").strip()
+    return bool(source_url and _slug_for_url(source_url) == requested)
+
 
 def _canonical_story_url(value: Any) -> str:
     """Build a stable deduplication key without changing the publisher URL we display."""
@@ -7699,16 +7748,19 @@ def article(slug: str):
             if shared_stale or shared_age >= _DISPLAY_STORIES_CACHE_TTL_SECONDS:
                 _refresh_display_stories_cache_async(lang, cache_generation)
 
-    selected = next((story for story in pool or [] if story.get("slug") == slug), None)
+    selected = next(
+        (story for story in pool or [] if _article_slug_matches_story(story, slug)),
+        None,
+    )
     if selected is None:
         stored = _db_fetch_article_by_slug(slug)
         if stored is None:
-            # Legacy records can have no stored slug even when their cards derive a stable one from source_url.
-            stored = next((
-                row for row in _all_live_articles()
-                if str(row.get("slug") or "") == slug
-                or (row.get("source_url") and _slug_for_url(str(row.get("source_url"))) == slug)
-            ), None)
+            # The hot archive snapshot can be older/narrower than a visitor's saved homepage
+            # link. Keep this fallback alias-aware so cold workers resolve the same URL.
+            stored = next(
+                (row for row in _all_live_articles() if _article_slug_matches_story(row, slug)),
+                None,
+            )
         stored_language = str((stored or {}).get("original_language") or "").casefold()
         if (
             stored
@@ -8286,6 +8338,13 @@ def generated_image(image_id: str):
     response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
     response.headers["X-Content-Type-Options"] = "nosniff"
     return response
+
+@app.get("/favicon.ico")
+def favicon_ico():
+    # Some browsers and older bookmarks still request the conventional favicon path.
+    # Serve the existing SVG brand icon instead of returning a noisy 404.
+    return app.send_static_file("favicon.svg")
+
 
 @app.get("/healthz")
 def healthz():
