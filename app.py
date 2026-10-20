@@ -99,15 +99,15 @@ def add_security_headers(response):
 SITE_NAME_AR = "نبض نيوز"
 SITE_NAME_EN = "Nabd News"
 TIMEZONE = ZoneInfo(os.getenv("SITE_TIMEZONE", "Asia/Amman"))
-# Keep the publishing tick and its retry interval fixed even if Render has stale environment values.
-NEWS_REFRESH_MINUTES = 5
-NEWS_RETRY_MINUTES = 5
-# Discover new publisher stories every 15 minutes; publishing itself remains a smaller five-minute tick.
+# The production cadence is intentionally fixed at 15 minutes to keep RSS, Gemini,
+# image lookups and database writes predictable even if Render retains stale overrides.
+NEWS_REFRESH_MINUTES = 15
+NEWS_RETRY_MINUTES = 15
 NEWS_DISCOVERY_REFRESH_MINUTES = 15
 MAX_PENDING_NEWS_CANDIDATES = max(24, min(160, int(os.getenv("MAX_PENDING_NEWS_CANDIDATES", "60"))))
-# One story is published every five-minute tick; cap new candidates to the three slots
-# available in a 15-minute discovery window, even if Render has a stale higher override.
-MAX_QUEUE_ADDITIONS_PER_DISCOVERY = max(1, min(3, int(os.getenv("MAX_QUEUE_ADDITIONS_PER_DISCOVERY", "3"))))
+# Publish one story per discovery window: discovery and publishing are aligned, so the
+# durable queue cannot grow faster than the site can process it.
+MAX_QUEUE_ADDITIONS_PER_DISCOVERY = 1
 NEWS_AUTO_FETCH = os.getenv("NEWS_AUTO_FETCH", "true").lower() not in {"0", "false", "no"}
 NEWS_SCHEDULER_ENABLED = os.getenv("NEWS_SCHEDULER_ENABLED", "true").lower() not in {"0", "false", "no"}
 NEWS_SCHEDULER_POLL_SECONDS = max(15, min(120, int(os.getenv("NEWS_SCHEDULER_POLL_SECONDS", "30"))))
@@ -5327,6 +5327,12 @@ def _fallback_summary_from_excerpt(title: Any, excerpt: Any, lang: str) -> str:
 
 def _base_article(raw: dict[str, Any]) -> dict[str, Any]:
     title = raw.get("original_title", "").strip()
+    source_url = str(raw.get("source_url") or "").strip()
+    if not source_url:
+        raise ValueError("A source URL is required to persist a news article")
+    # Older queue entries or URL-repair paths may have no slug. Derive a stable one
+    # from the verified publisher URL instead of failing the entire refresh with KeyError.
+    slug = str(raw.get("slug") or _slug_for_url(source_url))
     original_lang = raw.get("original_language", "ar" if _looks_arabic(title) else "en")
     headline_only = bool(raw.get("headline_only"))
     source_excerpt = _clean_text(raw.get("original_summary", ""), 1200)
@@ -5340,9 +5346,9 @@ def _base_article(raw: dict[str, Any]) -> dict[str, Any]:
     else:
         summary = _fallback_summary_from_excerpt(title, usable_excerpt, original_lang)
     return {
-        "slug": raw["slug"],
-        "source_url": raw["source_url"],
-        "category": raw["category"],
+        "slug": slug,
+        "source_url": source_url,
+        "category": raw.get("category") or "world",
         "source_name": raw.get("source_name") or "",
         "source_domain": raw.get("source_domain") or "",
         "image_url": raw.get("image_url") or "",
@@ -6585,8 +6591,8 @@ def _refresh_news_job() -> None:
         queue_items: list[dict[str, Any]] = list(queue_state.get("items") or [])
         discovery_due = _news_queue_discovery_due(queue_state)
         if discovery_due:
-            # RSS discovery is intentionally less frequent than publication. The queue lives
-            # in Supabase, so each five-minute publishing tick does not fan out to dozens of feeds.
+            # Discovery and publication both run on the 15-minute cadence. The queue lives
+            # in Supabase, so ordinary page visits never fan out to dozens of RSS feeds.
             rss_candidates = _collect_rss_articles()
             repaired_excerpts = _repair_existing_articles_from_rss(
                 rss_candidates, database_rows, limit=min(1, MAX_ARTICLES_PER_REFRESH)
@@ -6624,7 +6630,9 @@ def _refresh_news_job() -> None:
                         str(candidate.get("original_language") or "en"),
                         (urlparse(resolved_url).hostname or "").casefold(),
                     )
-                    candidate.pop("slug", None)
+                    # The slug must correspond to the final publisher URL. Dropping it here
+                    # caused KeyError when the queued item was converted into a DB row.
+                    candidate["slug"] = _slug_for_url(resolved_url)
                 key = _canonical_story_url(candidate.get("source_url"))
                 if not key or key in known_keys or key in queued_keys:
                     continue
@@ -6665,7 +6673,7 @@ def _refresh_news_job() -> None:
         # Preserve the known database URL set for the later fallback/retry guards.
         existing_url_keys = known_keys
 
-        # Publish at most one NEW queued story per five-minute tick, while using
+        # Publish at most one NEW queued story per 15-minute tick, while using
         # the same bounded Gemini request to repair one older eligible story. The repair
         # is not counted as a new publication and is never selected from headline-only or
         # rights-restricted publishers. This keeps the permanent archive from starving
@@ -6815,7 +6823,7 @@ def _refresh_news_job() -> None:
         _LAST_REFRESH_AT = datetime.now(timezone.utc)
         _LAST_REFRESH_STATE = "error"
         _LAST_REFRESH_ERROR = "Refresh failed (%s); check server logs." % type(exc).__name__
-        logger.warning("News refresh failed (error=%s)", type(exc).__name__)
+        logger.error("News refresh failed (error=%s)", type(exc).__name__, exc_info=True)
     finally:
         with _STATE_LOCK:
             _REFRESHING = False
