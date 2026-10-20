@@ -448,7 +448,7 @@ class SourcePolicyTests(unittest.TestCase):
             "original_summary": "أجهزة جديدة تتصل بالشبكة وتعمل مع المنزل الذكي.",
         })
         self.assertIn("شركة تكشف عن أجهزة منزل ذكية جديدة", prompt)
-        self.assertIn("نبض العالم", prompt)
+        self.assertIn("نبض نيوز", prompt)
         self.assertIn("2D vector infographic", prompt)
         self.assertIn("generic smart devices", prompt)
         self.assertIn("third-party brand logos", prompt)
@@ -906,7 +906,7 @@ class SourcePolicyTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("image/svg+xml", response.content_type)
         self.assertIn(b"<svg", response.data)
-        self.assertIn(b"WORLD PULSE", response.data)
+        self.assertIn(b"NABD NEWS", response.data)
         self.assertIn(b"Artemis", response.data)
 
     def test_editorial_fallback_escapes_untrusted_title_markup(self):
