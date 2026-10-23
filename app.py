@@ -1795,6 +1795,10 @@ def _read_shared_archive_cache(*, max_age_seconds: int | None = None) -> tuple[l
             if not isinstance(stored, dict):
                 continue
             row = dict(stored)
+            # Snapshots written before the relevance-version migration must be treated
+            # as old image decisions, not trusted merely because their legacy boolean
+            # was true.
+            row.setdefault("image_relevance_version", 0)
             for key in ("published_at", "fetched_at", "image_checked_at"):
                 value = row.get(key)
                 if isinstance(value, str):
