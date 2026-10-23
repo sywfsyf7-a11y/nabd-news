@@ -6933,6 +6933,52 @@ def _refresh_news_job() -> None:
                 logger.warning("Story was saved, but its RSS queue acknowledgement will be retried")
 
         image_candidates = [raw for _index, raw in raw_to_publish]
+        # Reserve only the unused part of this tick's image-lookup budget for old
+        # saved images. This gradually rechecks legacy matches even while new stories
+        # remain queued, but never creates a second provider-search batch or increases
+        # the configured maximum number of lookups per refresh.
+        lookup_slots_left = max(
+            0,
+            MAX_IMAGE_LOOKUPS_PER_REFRESH
+            - sum(1 for item in image_candidates if not str(item.get("image_url") or "").strip()),
+        )
+        if lookup_slots_left:
+            already_selected = {
+                _canonical_story_url(item.get("source_url"))
+                for item in image_candidates
+                if _canonical_story_url(item.get("source_url"))
+            }
+            try:
+                review_rows = _db_fetch_articles_needing_images(
+                    limit=min(24, max(4, lookup_slots_left * 4, IMAGE_REVALIDATION_BATCH_SIZE))
+                )
+            except Exception as review_exc:
+                logger.debug("Legacy image revalidation selection failed (%s)", type(review_exc).__name__)
+                review_rows = []
+            reviewed = 0
+            for row in review_rows:
+                key = _canonical_story_url(row.get("source_url"))
+                if not key or key in already_selected:
+                    continue
+                old_image = _raw_from_stored_article(row)
+                native_lang = str(old_image.get("original_language") or "en").casefold()
+                title_value = str(old_image.get("original_title") or "").strip()
+                summary_value = str(old_image.get("original_summary") or "").strip()
+                if not title_value:
+                    continue
+                old_image["_revalidating_cached_image"] = True
+                old_image["image_search_title"] = title_value
+                old_image["image_search_context"] = summary_value
+                image_candidates.append(old_image)
+                already_selected.add(key)
+                reviewed += 1
+                if reviewed >= min(lookup_slots_left, IMAGE_REVALIDATION_BATCH_SIZE):
+                    break
+            if reviewed:
+                logger.info(
+                    "Legacy image decisions queued for stronger revalidation: candidates=%d remaining_lookup_budget=%d",
+                    reviewed, lookup_slots_left - reviewed,
+                )
         image_updates = 0
         images_found = 0
         try:
@@ -6942,6 +6988,7 @@ def _refresh_news_job() -> None:
             image_keys = (
                 "image_url", "image_source", "image_credit", "image_credit_url",
                 "image_provider_url", "image_license_url", "image_checked_at", "image_relevance_verified",
+                "image_relevance_version",
             )
             by_url = {str(item.get("source_url") or ""): item for item in image_candidates}
             for article_data in ready:
