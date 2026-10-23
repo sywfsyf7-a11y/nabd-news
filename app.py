@@ -2447,27 +2447,32 @@ def _db_fetch_articles_needing_images(limit: int = 6) -> list[dict[str, Any]]:
                    AND is_hidden = FALSE
                    AND source_url <> ''
                    AND (
-                    COALESCE(image_relevance_version, 0) < %s
-                     OR COALESCE(image_relevance_verified, FALSE) = FALSE
-                    OR 
-                    (
-                      (
-                        COALESCE(image_url, '') = ''
-                        OR image_source IN ('fallback_ar', 'fallback_en', 'language_fallback',
-                                            'pexels_api', 'unsplash_api', 'category',
-                                            'duplicate_removed', 'none')
-                        OR image_url IN ('/static/A.jpg', '/static/E.jpg')
-                      )
-                      AND (image_checked_at IS NULL OR image_checked_at < NOW() - (%s * INTERVAL '1 hour'))
-                    )
-                    OR (
-                      COALESCE(image_url, '') <> ''
-                      AND image_source NOT IN ('fallback_ar', 'fallback_en', 'language_fallback',
-                                               'pexels_api', 'unsplash_api', 'category',
-                                               'duplicate_removed', 'none')
-                      AND (image_checked_at IS NULL OR image_checked_at < NOW() - (%s * INTERVAL '1 second'))
-                    )
-                  )
+                     (
+                       COALESCE(image_relevance_version, 0) < %s
+                       AND COALESCE(image_url, '') <> ''
+                       AND image_source NOT IN ('fallback_ar', 'fallback_en', 'language_fallback',
+                                                'pexels_api', 'unsplash_api', 'category',
+                                                'duplicate_removed', 'none')
+                     )
+                     OR (
+                       (
+                         COALESCE(image_relevance_verified, FALSE) = FALSE
+                         OR COALESCE(image_url, '') = ''
+                         OR image_source IN ('fallback_ar', 'fallback_en', 'language_fallback',
+                                             'pexels_api', 'unsplash_api', 'category',
+                                             'duplicate_removed', 'none')
+                         OR image_url IN ('/static/A.jpg', '/static/E.jpg')
+                       )
+                       AND (image_checked_at IS NULL OR image_checked_at < NOW() - (%s * INTERVAL '1 hour'))
+                     )
+                     OR (
+                       COALESCE(image_url, '') <> ''
+                       AND image_source NOT IN ('fallback_ar', 'fallback_en', 'language_fallback',
+                                                'pexels_api', 'unsplash_api', 'category',
+                                                'duplicate_removed', 'none')
+                       AND (image_checked_at IS NULL OR image_checked_at < NOW() - (%s * INTERVAL '1 second'))
+                     )
+                   )
                 ORDER BY image_relevance_version ASC, image_relevance_verified ASC, image_checked_at ASC NULLS FIRST,
                          COALESCE(published_at, fetched_at) DESC, fetched_at DESC
                 LIMIT %s
