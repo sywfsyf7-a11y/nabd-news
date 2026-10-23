@@ -1076,6 +1076,7 @@ class SourcePolicyTests(unittest.TestCase):
             result = world_pulse._search_openverse_image("NASA Artemis lunar rocket launch", "en", "science")
         self.assertEqual(result["image_source"], "openverse_licensed")
         self.assertEqual(result["image_credit"], "Example photographer")
+        self.assertNotIn("Example photographer", result["_image_relevance_evidence"])
         self.assertEqual(result["image_provider_url"], "https://commons.example.test/artemis")
         self.assertEqual(result["image_license_url"], "https://creativecommons.org/licenses/by-sa/4.0/")
         request = mock_open.call_args.args[0]
