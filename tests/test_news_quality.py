@@ -224,7 +224,7 @@ class NewsQualityTests(unittest.TestCase):
                                 )
 
         self.assertEqual(result, {})
-        self.assertEqual(world_pulse.MIN_IMAGE_RELEVANCE_SCORE, 0.40)
+        self.assertEqual(world_pulse.MIN_IMAGE_RELEVANCE_SCORE, 0.46)
 
 if __name__ == "__main__":
     unittest.main()
