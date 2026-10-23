@@ -2951,7 +2951,7 @@ def _image_relevance_is_current(row: dict[str, Any]) -> bool:
     version = row.get("image_relevance_version")
     if version is None:
         # Compatibility for temporary in-memory objects. PostgreSQL rows are migrated
-# with version 0, so saved matches from previous code cannot bypass the version check.
+        # with version 0, so saved matches from previous code cannot bypass the version check.
         return row.get("image_relevance_verified") is True
     try:
         return int(version) == IMAGE_RELEVANCE_VERSION
@@ -3031,7 +3031,7 @@ def _image_search_query(title: str, context: str = "") -> str:
     context_phrase = _image_search_phrase(context, 4)
     seen = _image_tokens(headline_phrase)
     tail: list[str] = []
-    for word in re.findall(r"[A-Za-z0-9][A-Za-z0-9'’-]*|[\\u0600-\\u06ff]{3,}", context_phrase):
+    for word in re.findall(r"[A-Za-z0-9][A-Za-z0-9'’-]*|[\u0600-\u06ff]{3,}", context_phrase):
         key = word.casefold().strip("'-’")
         if len(key) < 3 or key in seen:
             continue
@@ -4485,7 +4485,9 @@ def _search_article_image_with_variants(
             best = dict(result)
             best["_image_relevance_score"] = score
             best_is_category_fallback = is_category_fallback
-        if score >= 0.42:
+        if score >= 0.72 and not is_category_fallback:
+            # Only skip alternate searches when metadata strongly matches the story.
+            # Medium-score results must compete with more specific query variants.
             break
     if not best:
         return {}
@@ -7229,6 +7231,7 @@ def _normalise_story(row: dict[str, Any], lang: str) -> dict[str, Any]:
         story.get("image_source") not in TRUSTED_REUSABLE_IMAGE_SOURCES
         or not _image_license_verified(story)
         or story.get("image_relevance_verified") is not True
+        or not _image_relevance_is_current(story)
     ):
         story.update({"image_url": "", "image_source": "none", "image_credit": "",
                       "image_credit_url": "", "image_provider_url": "", "image_license_url": "",
@@ -8714,7 +8717,7 @@ def _admin_store_uploaded_image(
                 WHERE slug = %s AND is_demo = FALSE
             """, (
                 "/media/catalogued/" + image_id, credit, source_page_url,
-                source_page_url, license_url, slug,
+                source_page_url, license_url, IMAGE_RELEVANCE_VERSION, slug,
             ))
             changed = cur.rowcount > 0
             if not changed:
