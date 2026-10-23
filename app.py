@@ -2456,7 +2456,7 @@ def _db_fetch_articles_needing_images(limit: int = 6) -> list[dict[str, Any]]:
                        AND COALESCE(image_url, '') <> ''
                        AND image_source NOT IN ('fallback_ar', 'fallback_en', 'language_fallback',
                                                 'pexels_api', 'unsplash_api', 'category',
-                                                'duplicate_removed', 'none')
+                                                'duplicate_removed', 'none', 'gemini_generated')
                      )
                      OR (
                        (
@@ -2473,7 +2473,7 @@ def _db_fetch_articles_needing_images(limit: int = 6) -> list[dict[str, Any]]:
                        COALESCE(image_url, '') <> ''
                        AND image_source NOT IN ('fallback_ar', 'fallback_en', 'language_fallback',
                                                 'pexels_api', 'unsplash_api', 'category',
-                                                'duplicate_removed', 'none')
+                                                'duplicate_removed', 'none', 'gemini_generated')
                        AND (image_checked_at IS NULL OR image_checked_at < NOW() - (%s * INTERVAL '1 second'))
                      )
                    )
@@ -2957,10 +2957,18 @@ IMAGE_RELEVANCE_VERSION = 2
 
 
 def _image_relevance_is_current(row: dict[str, Any]) -> bool:
+    # First-party AI illustrations are generated/uploaded specifically for an article.
+    # They are not catalogue-search matches, so a catalogue scoring-version bump must
+    # never hide them from readers or queue them for external-photo replacement.
+    if (
+        str(row.get("image_source") or "").casefold() == "gemini_generated"
+        and _image_license_verified(row)
+    ):
+        return True
     version = row.get("image_relevance_version")
     if version is None:
         # Compatibility for temporary in-memory objects. PostgreSQL rows are migrated
-        # with version 0, so saved matches from previous code cannot bypass the version check.
+        # with version 0, so saved external matches must pass the version check.
         return row.get("image_relevance_verified") is True
     try:
         return int(version) == IMAGE_RELEVANCE_VERSION

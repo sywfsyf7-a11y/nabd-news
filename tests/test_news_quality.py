@@ -226,5 +226,40 @@ class NewsQualityTests(unittest.TestCase):
         self.assertEqual(result, {})
         self.assertEqual(world_pulse.MIN_IMAGE_RELEVANCE_SCORE, 0.46)
 
+    def test_ai_generated_illustration_survives_catalogue_relevance_version_bump(self):
+        generated_url = "/media/generated/" + ("a" * 32)
+        stored = {
+            "slug": "admin-ai-story",
+            "source_url": "https://example.test/admin-ai-story",
+            "category": "technology",
+            "source_name": "Nabd News",
+            "source_domain": "example.test",
+            "title_ar": "رسم توضيحي مولد بالذكاء الاصطناعي",
+            "title_en": "AI-generated editorial illustration",
+            "summary_ar": "ملخص عربي مستقل عن الخبر.",
+            "summary_en": "A distinct English summary of the story.",
+            "content_ar": "تفاصيل تحريرية موجزة تدعمها المعلومات المتاحة من المصدر.",
+            "content_en": "Concise editorial details supported by the available source information.",
+            "original_language": "en",
+            "image_url": generated_url,
+            "image_source": "gemini_generated",
+            "image_credit": "AI-generated illustration uploaded by site administrator",
+            "image_credit_url": "",
+            "image_provider_url": "https://ai.google.dev/gemini-api/docs/image-generation",
+            "image_license_url": "",
+            "image_relevance_verified": True,
+            "image_relevance_version": world_pulse.IMAGE_RELEVANCE_VERSION - 1,
+            "published_at": datetime(2026, 10, 22, tzinfo=timezone.utc),
+            "fetched_at": datetime(2026, 10, 22, tzinfo=timezone.utc),
+            "read_minutes": 1,
+            "is_demo": False,
+        }
+
+        self.assertTrue(world_pulse._image_relevance_is_current(stored))
+        self.assertEqual(world_pulse._raw_from_stored_article(stored)["image_url"], generated_url)
+        visible = world_pulse._normalise_story(stored, "en")
+        self.assertEqual(visible["image_url"], generated_url)
+        self.assertEqual(visible["image_source"], "gemini_generated")
+
 if __name__ == "__main__":
     unittest.main()
