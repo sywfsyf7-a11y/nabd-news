@@ -110,7 +110,8 @@ def search_openverse_image(
                 )
             else:
                 tag_text = clean_text_fn(tags, 500)
-            evidence = " ".join((item_title, tag_text, creator))
+            # Creator names are attribution metadata, not evidence that the image depicts the story.
+            evidence = " ".join((item_title, tag_text))
             score = max(
                 match_score_fn(query, evidence),
                 match_score_fn(title, evidence),

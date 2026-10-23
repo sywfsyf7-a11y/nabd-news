@@ -921,6 +921,7 @@ CREATE TABLE IF NOT EXISTS world_pulse_articles (
     image_license_url TEXT NOT NULL DEFAULT '',
     image_checked_at TIMESTAMPTZ NULL,
     image_relevance_verified BOOLEAN NOT NULL DEFAULT FALSE,
+    image_relevance_version INTEGER NOT NULL DEFAULT 0,
     title_ar TEXT NOT NULL DEFAULT '',
     title_en TEXT NOT NULL DEFAULT '',
     summary_ar TEXT NOT NULL DEFAULT '',
@@ -935,6 +936,7 @@ CREATE TABLE IF NOT EXISTS world_pulse_articles (
     is_hidden BOOLEAN NOT NULL DEFAULT FALSE
 );
 ALTER TABLE world_pulse_articles ADD COLUMN IF NOT EXISTS image_relevance_verified BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE world_pulse_articles ADD COLUMN IF NOT EXISTS image_relevance_version INTEGER NOT NULL DEFAULT 0;
 CREATE INDEX IF NOT EXISTS idx_world_pulse_published
     ON world_pulse_articles (published_at DESC NULLS LAST);
 CREATE INDEX IF NOT EXISTS idx_world_pulse_category
@@ -1793,6 +1795,10 @@ def _read_shared_archive_cache(*, max_age_seconds: int | None = None) -> tuple[l
             if not isinstance(stored, dict):
                 continue
             row = dict(stored)
+            # Snapshots written before the relevance-version migration must be treated
+            # as old image decisions, not trusted merely because their legacy boolean
+            # was true.
+            row.setdefault("image_relevance_version", 0)
             for key in ("published_at", "fetched_at", "image_checked_at"):
                 value = row.get(key)
                 if isinstance(value, str):
@@ -1965,7 +1971,7 @@ def _query_persistent_archive_rows() -> list[dict[str, Any]] | None:
                 WITH arabic_ranked AS (
                     SELECT slug, source_url, category, source_name, source_domain, image_url,
                            image_source, image_credit, image_credit_url, image_provider_url,
-                           image_license_url, image_checked_at, image_relevance_verified,
+                           image_license_url, image_checked_at, image_relevance_verified, image_relevance_version,
                            title_ar, title_en, summary_ar, summary_en,
                            content_ar, content_en, published_at, fetched_at,
                            read_minutes, original_language, is_demo,
@@ -1988,7 +1994,7 @@ def _query_persistent_archive_rows() -> list[dict[str, Any]] | None:
                 english_ranked AS (
                     SELECT slug, source_url, category, source_name, source_domain, image_url,
                            image_source, image_credit, image_credit_url, image_provider_url,
-                           image_license_url, image_checked_at, image_relevance_verified,
+                           image_license_url, image_checked_at, image_relevance_verified, image_relevance_version,
                            title_ar, title_en, summary_ar, summary_en,
                            content_ar, content_en, published_at, fetched_at,
                            read_minutes, original_language, is_demo,
@@ -2011,7 +2017,7 @@ def _query_persistent_archive_rows() -> list[dict[str, Any]] | None:
                 SELECT * FROM (
                     SELECT slug, source_url, category, source_name, source_domain, image_url,
                            image_source, image_credit, image_credit_url, image_provider_url,
-                           image_license_url, image_checked_at, image_relevance_verified,
+                           image_license_url, image_checked_at, image_relevance_verified, image_relevance_version,
                            title_ar, title_en, summary_ar, summary_en,
                            content_ar, content_en, published_at, fetched_at,
                            read_minutes, original_language, is_demo
@@ -2020,7 +2026,7 @@ def _query_persistent_archive_rows() -> list[dict[str, Any]] | None:
                     UNION ALL
                     SELECT slug, source_url, category, source_name, source_domain, image_url,
                            image_source, image_credit, image_credit_url, image_provider_url,
-                           image_license_url, image_checked_at, image_relevance_verified,
+                           image_license_url, image_checked_at, image_relevance_verified, image_relevance_version,
                            title_ar, title_en, summary_ar, summary_en,
                            content_ar, content_en, published_at, fetched_at,
                            read_minutes, original_language, is_demo
@@ -2186,7 +2192,7 @@ def _db_fetch_article_by_slug(slug: str) -> dict[str, Any] | None:
             columns = """
                 slug, source_url, category, source_name, source_domain, image_url,
                 image_source, image_credit, image_credit_url, image_provider_url, image_license_url,
-                image_checked_at, image_relevance_verified, title_ar, title_en, summary_ar, summary_en,
+                image_checked_at, image_relevance_verified, image_relevance_version, title_ar, title_en, summary_ar, summary_en,
                 content_ar, content_en, published_at, fetched_at, read_minutes, original_language, is_demo
             """
             cur.execute(f"""
@@ -2304,7 +2310,7 @@ def _db_fetch_related_articles(
                 cur.execute(f"""
                     SELECT slug, source_url, category, source_name, source_domain, image_url,
                            image_source, image_credit, image_credit_url, image_provider_url,
-                           image_license_url, image_checked_at, image_relevance_verified,
+                           image_license_url, image_checked_at, image_relevance_verified, image_relevance_version,
                            title_ar, title_en, summary_ar, summary_en, content_ar, content_en,
                            published_at, fetched_at, read_minutes, original_language, is_demo
                     FROM world_pulse_articles
@@ -2362,7 +2368,7 @@ def _db_search_articles(query: str, limit: int = 60) -> list[dict[str, Any]] | N
         params.extend([like_value] * len(fields))
     sql = """
         SELECT slug, source_url, category, source_name, source_domain, image_url,
-               image_source, image_credit, image_credit_url, image_provider_url, image_license_url, image_checked_at, image_relevance_verified,
+               image_source, image_credit, image_credit_url, image_provider_url, image_license_url, image_checked_at, image_relevance_verified, image_relevance_version,
                title_ar, title_en, summary_ar, summary_en, content_ar, content_en,
                published_at, fetched_at, read_minutes, original_language, is_demo
         FROM world_pulse_articles
@@ -2437,7 +2443,7 @@ def _db_fetch_articles_needing_images(limit: int = 6) -> list[dict[str, Any]]:
             cur.execute("""
                 SELECT slug, source_url, category, source_name, source_domain, image_url,
                        image_source, image_credit, image_credit_url, image_provider_url,
-                       image_license_url, image_checked_at, image_relevance_verified, title_ar, title_en,
+                       image_license_url, image_checked_at, image_relevance_verified, image_relevance_version, title_ar, title_en,
                        summary_ar, summary_en, content_ar, content_en, published_at,
                        fetched_at, read_minutes, original_language, is_demo
                 FROM world_pulse_articles
@@ -2445,30 +2451,36 @@ def _db_fetch_articles_needing_images(limit: int = 6) -> list[dict[str, Any]]:
                    AND is_hidden = FALSE
                    AND source_url <> ''
                    AND (
-                    COALESCE(image_relevance_verified, FALSE) = FALSE
-                    OR 
-                    (
-                      (
-                        COALESCE(image_url, '') = ''
-                        OR image_source IN ('fallback_ar', 'fallback_en', 'language_fallback',
-                                            'pexels_api', 'unsplash_api', 'category',
-                                            'duplicate_removed', 'none')
-                        OR image_url IN ('/static/A.jpg', '/static/E.jpg')
-                      )
-                      AND (image_checked_at IS NULL OR image_checked_at < NOW() - (%s * INTERVAL '1 hour'))
-                    )
-                    OR (
-                      COALESCE(image_url, '') <> ''
-                      AND image_source NOT IN ('fallback_ar', 'fallback_en', 'language_fallback',
-                                               'pexels_api', 'unsplash_api', 'category',
-                                               'duplicate_removed', 'none')
-                      AND (image_checked_at IS NULL OR image_checked_at < NOW() - (%s * INTERVAL '1 second'))
-                    )
-                  )
-                ORDER BY image_relevance_verified ASC, image_checked_at ASC NULLS FIRST,
+                     (
+                       COALESCE(image_relevance_version, 0) < %s
+                       AND COALESCE(image_url, '') <> ''
+                       AND image_source NOT IN ('fallback_ar', 'fallback_en', 'language_fallback',
+                                                'pexels_api', 'unsplash_api', 'category',
+                                                'duplicate_removed', 'none')
+                     )
+                     OR (
+                       (
+                         COALESCE(image_relevance_verified, FALSE) = FALSE
+                         OR COALESCE(image_url, '') = ''
+                         OR image_source IN ('fallback_ar', 'fallback_en', 'language_fallback',
+                                             'pexels_api', 'unsplash_api', 'category',
+                                             'duplicate_removed', 'none')
+                         OR image_url IN ('/static/A.jpg', '/static/E.jpg')
+                       )
+                       AND (image_checked_at IS NULL OR image_checked_at < NOW() - (%s * INTERVAL '1 hour'))
+                     )
+                     OR (
+                       COALESCE(image_url, '') <> ''
+                       AND image_source NOT IN ('fallback_ar', 'fallback_en', 'language_fallback',
+                                                'pexels_api', 'unsplash_api', 'category',
+                                                'duplicate_removed', 'none')
+                       AND (image_checked_at IS NULL OR image_checked_at < NOW() - (%s * INTERVAL '1 second'))
+                     )
+                   )
+                ORDER BY image_relevance_version ASC, image_relevance_verified ASC, image_checked_at ASC NULLS FIRST,
                          COALESCE(published_at, fetched_at) DESC, fetched_at DESC
                 LIMIT %s
-            """, (IMAGE_RETRY_AFTER_HOURS, IMAGE_CACHE_MAX_AGE_SECONDS, max(1, min(24, int(limit)))))
+            """, (IMAGE_RELEVANCE_VERSION, IMAGE_RETRY_AFTER_HOURS, IMAGE_CACHE_MAX_AGE_SECONDS, max(1, min(24, int(limit)))))
             return [dict(row) for row in cur.fetchall()]
     except Exception as exc:
         logger.debug("Image backfill query failed (%s)", type(exc).__name__)
@@ -2481,6 +2493,7 @@ def _sync_cached_image_metadata(articles: list[dict[str, Any]]) -> None:
     image_fields = (
         "image_url", "image_source", "image_credit", "image_credit_url",
         "image_provider_url", "image_license_url", "image_checked_at", "image_relevance_verified",
+        "image_relevance_version",
     )
     by_url: dict[str, dict[str, Any]] = {}
     for item in articles:
@@ -2488,7 +2501,7 @@ def _sync_cached_image_metadata(articles: list[dict[str, Any]]) -> None:
         if not key:
             continue
         source = str(item.get("image_source") or "none")
-        allowed = (source in TRUSTED_REUSABLE_IMAGE_SOURCES and item.get("image_relevance_verified") is True and bool(item.get("image_url")) and _image_license_verified(item))
+        allowed = (source in TRUSTED_REUSABLE_IMAGE_SOURCES and item.get("image_relevance_verified") is True and _image_relevance_is_current(item) and bool(item.get("image_url")) and _image_license_verified(item))
         by_url[key] = {
             "image_url": str(item.get("image_url") or "") if allowed else "",
             "image_source": source if allowed else "none",
@@ -2498,6 +2511,7 @@ def _sync_cached_image_metadata(articles: list[dict[str, Any]]) -> None:
             "image_license_url": str(item.get("image_license_url") or "") if allowed else "",
             "image_checked_at": item.get("image_checked_at") or datetime.now(timezone.utc),
             "image_relevance_verified": bool(allowed),
+            "image_relevance_version": IMAGE_RELEVANCE_VERSION if allowed else 0,
         }
     if not by_url:
         return
@@ -2570,13 +2584,14 @@ def _db_update_article_images(articles: list[dict[str, Any]]) -> int:
                         image_url = %s, image_source = %s, image_credit = %s,
                         image_credit_url = %s, image_provider_url = %s,
                         image_license_url = %s, image_checked_at = %s,
-                        image_relevance_verified = %s
+                        image_relevance_verified = %s, image_relevance_version = %s
                     WHERE source_url = %s AND is_demo = FALSE
                 """, (
                     image_url, source, str(item.get("image_credit") or ""),
                     str(item.get("image_credit_url") or ""), str(item.get("image_provider_url") or ""),
                     str(item.get("image_license_url") or ""), item.get("image_checked_at") or datetime.now(timezone.utc),
                     bool(item.get("image_relevance_verified") is True and image_url and source in TRUSTED_REUSABLE_IMAGE_SOURCES and _image_license_verified(item)),
+                    IMAGE_RELEVANCE_VERSION if item.get("image_relevance_verified") is True and image_url and source in TRUSTED_REUSABLE_IMAGE_SOURCES and _image_license_verified(item) else 0,
                     item["source_url"],
                 ))
                 updated += cur.rowcount
@@ -2629,14 +2644,15 @@ def _raw_from_stored_article(row: dict[str, Any]) -> dict[str, Any]:
         "category": row.get("category", "world"),
         "source_name": row.get("source_name", ""),
         "source_domain": row.get("source_domain", ""),
-        "image_url": row.get("image_url", "") if row.get("image_source") in TRUSTED_REUSABLE_IMAGE_SOURCES else "",
-        "image_source": row.get("image_source", "") if row.get("image_source") in TRUSTED_REUSABLE_IMAGE_SOURCES else "none",
+        "image_url": row.get("image_url", "") if row.get("image_source") in TRUSTED_REUSABLE_IMAGE_SOURCES and row.get("image_relevance_verified") is True and _image_relevance_is_current(row) else "",
+        "image_source": row.get("image_source", "") if row.get("image_source") in TRUSTED_REUSABLE_IMAGE_SOURCES and row.get("image_relevance_verified") is True and _image_relevance_is_current(row) else "none",
         "image_credit": row.get("image_credit", "") if row.get("image_source") in TRUSTED_REUSABLE_IMAGE_SOURCES else "",
         "image_credit_url": row.get("image_credit_url", "") if row.get("image_source") in TRUSTED_REUSABLE_IMAGE_SOURCES else "",
         "image_provider_url": row.get("image_provider_url", "") if row.get("image_source") in TRUSTED_REUSABLE_IMAGE_SOURCES else "",
         "image_license_url": row.get("image_license_url", "") if row.get("image_source") in TRUSTED_REUSABLE_IMAGE_SOURCES else "",
         "image_checked_at": row.get("image_checked_at"),
         "image_relevance_verified": row.get("image_relevance_verified") is True,
+        "image_relevance_version": row.get("image_relevance_version", 0),
         "original_title": title,
         "original_summary": summary,
         "original_language": original_language,
@@ -2933,8 +2949,23 @@ def _image_tokens(value: str) -> set[str]:
 
 # Reject borderline matches for photos presented as documenting the specific story.
 # A separate, lower threshold is allowed only for explicitly labelled category art.
-MIN_IMAGE_RELEVANCE_SCORE = 0.40
-MIN_CATEGORY_IMAGE_RELEVANCE_SCORE = 0.26
+MIN_IMAGE_RELEVANCE_SCORE = 0.46
+MIN_CATEGORY_IMAGE_RELEVANCE_SCORE = 0.30
+# Increment whenever matching semantics change. Old saved decisions are rechecked
+# gradually rather than trusting image matches made by an older, looser matcher.
+IMAGE_RELEVANCE_VERSION = 2
+
+
+def _image_relevance_is_current(row: dict[str, Any]) -> bool:
+    version = row.get("image_relevance_version")
+    if version is None:
+        # Compatibility for temporary in-memory objects. PostgreSQL rows are migrated
+        # with version 0, so saved matches from previous code cannot bypass the version check.
+        return row.get("image_relevance_verified") is True
+    try:
+        return int(version) == IMAGE_RELEVANCE_VERSION
+    except (TypeError, ValueError):
+        return False
 
 
 def _image_match_score(title: str, description: str) -> float:
@@ -2945,14 +2976,31 @@ def _image_match_score(title: str, description: str) -> float:
     image_tokens = _image_tokens(description)
     overlap = title_tokens & image_tokens
     overlap_count = len(overlap)
-    # A country/person name alone is not enough for a long news headline. Otherwise,
-    # a generic portrait mentioning "Iran" can pass for a story about oil tankers or a
-    # maritime blockade. Require at least two matching topic terms for longer queries.
+    # A shared country name or office title is not enough to document a specific event.
+    # For longer headlines, require a matching subject/action term beyond generic
+    # location and press-conference language before accepting the photo.
+    non_subject = {
+        "iran", "iranian", "iraq", "iraqi", "syria", "syrian", "russia", "russian",
+        "ukraine", "ukrainian", "china", "chinese", "israel", "israeli", "palestine",
+        "palestinian", "gaza", "american", "america", "united", "states", "britain",
+        "british", "france", "french", "germany", "german", "saudi", "arabia",
+        "jordan", "jordanian", "egypt", "egyptian", "turkey", "turkish", "official",
+        "officials", "politician", "politicians", "president", "minister", "ministers",
+        "leader", "leaders", "government", "spokesperson", "spokesman", "spokeswoman",
+        "meeting", "talks", "statement", "statements", "إيران", "ايران", "العراق",
+        "سوريا", "روسيا", "أوكرانيا", "الصين", "إسرائيل", "اسرائيل", "فلسطين",
+        "غزة", "الأردن", "الاردن", "مصر", "السعودية", "مسؤول", "مسؤولون",
+        "الرئيس", "وزير", "وزراء", "حكومة", "سياسي", "سياسيون", "متحدث",
+        "قادة", "اجتماع", "محادثات",
+    }
+    subject_overlap = overlap - non_subject
     required = 1 if len(title_tokens) <= 2 else 2
-    overlap_ratio = overlap_count / max(1, len(title_tokens))
     if overlap_count < required:
         return 0.0
-    if overlap_ratio < 0.08:
+    if len(title_tokens) >= 4 and not subject_overlap:
+        return 0.0
+    overlap_ratio = overlap_count / max(1, len(title_tokens))
+    if overlap_ratio < 0.10:
         return 0.0
     return overlap_ratio + min(overlap_count, 4) * 0.025
 
@@ -2992,7 +3040,7 @@ def _image_search_query(title: str, context: str = "") -> str:
     context_phrase = _image_search_phrase(context, 4)
     seen = _image_tokens(headline_phrase)
     tail: list[str] = []
-    for word in re.findall(r"[A-Za-z0-9][A-Za-z0-9'’-]*|[\\u0600-\\u06ff]{3,}", context_phrase):
+    for word in re.findall(r"[A-Za-z0-9][A-Za-z0-9'’-]*|[\u0600-\u06ff]{3,}", context_phrase):
         key = word.casefold().strip("'-’")
         if len(key) < 3 or key in seen:
             continue
@@ -4446,7 +4494,9 @@ def _search_article_image_with_variants(
             best = dict(result)
             best["_image_relevance_score"] = score
             best_is_category_fallback = is_category_fallback
-        if score >= 0.42:
+        if score >= 0.72 and not is_category_fallback:
+            # Only skip alternate searches when metadata strongly matches the story.
+            # Medium-score results must compete with more specific query variants.
             break
     if not best:
         return {}
@@ -4458,6 +4508,7 @@ def _search_article_image_with_variants(
     best.pop("_image_relevance_score", None)
     best.pop("_image_relevance_evidence", None)
     best["image_relevance_verified"] = bool(best.get("image_url"))
+    best["image_relevance_version"] = IMAGE_RELEVANCE_VERSION if best.get("image_url") else 0
     if best.get("image_url"):
         logger.info(
             "Image search selected source=%s relevance=%.3f",
@@ -4506,6 +4557,7 @@ def _resolve_article_image(raw: dict[str, Any]) -> dict[str, Any]:
     source = str(raw.get("image_source") or "")
     if (existing and source in TRUSTED_REUSABLE_IMAGE_SOURCES and existing not in LEGACY_IMAGE_URLS
             and raw.get("image_relevance_verified") is True
+            and _image_relevance_is_current(raw)
             and _image_license_verified(raw) and _control_enabled(f"image:{source}", True)):
         checked = raw.get("image_checked_at")
         if isinstance(checked, str):
@@ -4525,6 +4577,7 @@ def _resolve_article_image(raw: dict[str, Any]) -> dict[str, Any]:
                 "image_license_url": raw.get("image_license_url") or "",
                 "image_checked_at": checked,
                 "image_relevance_verified": True,
+                "image_relevance_version": IMAGE_RELEVANCE_VERSION,
             }
 
     search_title = _clean_text(raw.get("image_search_title") or raw.get("original_title") or "", 240)
@@ -4555,6 +4608,7 @@ def _resolve_article_image(raw: dict[str, Any]) -> dict[str, Any]:
         if (
             fallback_url and fallback_source in TRUSTED_REUSABLE_IMAGE_SOURCES
             and fallback.get("image_relevance_verified") is True
+            and _image_relevance_is_current(fallback)
             and _image_license_verified(fallback)
             and _control_enabled(f"image:{fallback_source}", True)
         ):
@@ -4604,6 +4658,7 @@ def _enrich_article_images(raw_articles: list[dict[str, Any]], *, force_refresh:
             not force_refresh
             and input_source in TRUSTED_REUSABLE_IMAGE_SOURCES
             and item.get("image_relevance_verified") is True
+            and _image_relevance_is_current(item)
             and not item.get("_revalidating_cached_image")
             and _control_enabled(f"image:{input_source}", True)
             and item.get("image_url") and isinstance(input_checked, datetime)
@@ -4621,6 +4676,7 @@ def _enrich_article_images(raw_articles: list[dict[str, Any]], *, force_refresh:
         if (
             cached and cached.get("image_url") and cached_source in TRUSTED_REUSABLE_IMAGE_SOURCES
             and cached.get("image_relevance_verified") is True
+            and _image_relevance_is_current(cached)
             and not item.get("_revalidating_cached_image")
             and _control_enabled(f"image:{cached_source}", True)
         ):
@@ -6881,6 +6937,52 @@ def _refresh_news_job() -> None:
                 logger.warning("Story was saved, but its RSS queue acknowledgement will be retried")
 
         image_candidates = [raw for _index, raw in raw_to_publish]
+        # Reserve only the unused part of this tick's image-lookup budget for old
+        # saved images. This gradually rechecks legacy matches even while new stories
+        # remain queued, but never creates a second provider-search batch or increases
+        # the configured maximum number of lookups per refresh.
+        lookup_slots_left = max(
+            0,
+            MAX_IMAGE_LOOKUPS_PER_REFRESH
+            - sum(1 for item in image_candidates if not str(item.get("image_url") or "").strip()),
+        )
+        if lookup_slots_left:
+            already_selected = {
+                _canonical_story_url(item.get("source_url"))
+                for item in image_candidates
+                if _canonical_story_url(item.get("source_url"))
+            }
+            try:
+                review_rows = _db_fetch_articles_needing_images(
+                    limit=min(24, max(4, lookup_slots_left * 4, IMAGE_REVALIDATION_BATCH_SIZE))
+                )
+            except Exception as review_exc:
+                logger.debug("Legacy image revalidation selection failed (%s)", type(review_exc).__name__)
+                review_rows = []
+            reviewed = 0
+            for row in review_rows:
+                key = _canonical_story_url(row.get("source_url"))
+                if not key or key in already_selected:
+                    continue
+                old_image = _raw_from_stored_article(row)
+                native_lang = str(old_image.get("original_language") or "en").casefold()
+                title_value = str(old_image.get("original_title") or "").strip()
+                summary_value = str(old_image.get("original_summary") or "").strip()
+                if not title_value:
+                    continue
+                old_image["_revalidating_cached_image"] = True
+                old_image["image_search_title"] = title_value
+                old_image["image_search_context"] = summary_value
+                image_candidates.append(old_image)
+                already_selected.add(key)
+                reviewed += 1
+                if reviewed >= min(lookup_slots_left, IMAGE_REVALIDATION_BATCH_SIZE):
+                    break
+            if reviewed:
+                logger.info(
+                    "Legacy image decisions queued for stronger revalidation: candidates=%d remaining_lookup_budget=%d",
+                    reviewed, lookup_slots_left - reviewed,
+                )
         image_updates = 0
         images_found = 0
         try:
@@ -6890,6 +6992,7 @@ def _refresh_news_job() -> None:
             image_keys = (
                 "image_url", "image_source", "image_credit", "image_credit_url",
                 "image_provider_url", "image_license_url", "image_checked_at", "image_relevance_verified",
+                "image_relevance_version",
             )
             by_url = {str(item.get("source_url") or ""): item for item in image_candidates}
             for article_data in ready:
@@ -7184,6 +7287,7 @@ def _normalise_story(row: dict[str, Any], lang: str) -> dict[str, Any]:
         story.get("image_source") not in TRUSTED_REUSABLE_IMAGE_SOURCES
         or not _image_license_verified(story)
         or story.get("image_relevance_verified") is not True
+        or not _image_relevance_is_current(story)
     ):
         story.update({"image_url": "", "image_source": "none", "image_credit": "",
                       "image_credit_url": "", "image_provider_url": "", "image_license_url": "",
@@ -8614,9 +8718,9 @@ def _admin_store_uploaded_image(
                         image_credit = %s, image_credit_url = '',
                         image_provider_url = 'https://ai.google.dev/gemini-api/docs/image-generation',
                         image_license_url = '', image_checked_at = NOW(),
-                        image_relevance_verified = TRUE
+                        image_relevance_verified = TRUE, image_relevance_version = %s
                     WHERE slug = %s AND is_demo = FALSE
-                """, ("/media/generated/" + image_id, "AI-generated illustration uploaded by site administrator", slug))
+                """, ("/media/generated/" + image_id, "AI-generated illustration uploaded by site administrator", IMAGE_RELEVANCE_VERSION, slug))
                 if cur.rowcount <= 0:
                     conn.rollback()
                     return "article_not_found"
@@ -8665,11 +8769,11 @@ def _admin_store_uploaded_image(
                 SET image_url = %s, image_source = 'admin_verified',
                     image_credit = %s, image_credit_url = %s, image_provider_url = %s,
                     image_license_url = %s, image_checked_at = NOW(),
-                    image_relevance_verified = TRUE
+                    image_relevance_verified = TRUE, image_relevance_version = %s
                 WHERE slug = %s AND is_demo = FALSE
             """, (
                 "/media/catalogued/" + image_id, credit, source_page_url,
-                source_page_url, license_url, slug,
+                source_page_url, license_url, IMAGE_RELEVANCE_VERSION, slug,
             ))
             changed = cur.rowcount > 0
             if not changed:
@@ -8846,7 +8950,7 @@ def _remove_article_image(slug: str) -> bool:
             cur.execute("""UPDATE world_pulse_articles SET
                 image_url = '', image_source = 'none', image_credit = '', image_credit_url = '',
                 image_provider_url = '', image_license_url = '', image_checked_at = NOW(),
-                image_relevance_verified = FALSE
+                image_relevance_verified = FALSE, image_relevance_version = 0
                 WHERE slug = %s AND is_demo = FALSE""", (slug,))
             changed = changed or cur.rowcount > 0
         conn.commit()

@@ -1076,8 +1076,9 @@ class SiteExperienceTests(unittest.TestCase):
         self.assertEqual(result, [])
         self.assertIn("COALESCE(image_url, '') <> ''", connection.cursor_instance.query)
         self.assertIn("INTERVAL '1 second'", connection.cursor_instance.query)
-        self.assertEqual(connection.cursor_instance.params[0], world_pulse.IMAGE_RETRY_AFTER_HOURS)
-        self.assertEqual(connection.cursor_instance.params[1], world_pulse.IMAGE_CACHE_MAX_AGE_SECONDS)
+        self.assertEqual(connection.cursor_instance.params[0], world_pulse.IMAGE_RELEVANCE_VERSION)
+        self.assertEqual(connection.cursor_instance.params[1], world_pulse.IMAGE_RETRY_AFTER_HOURS)
+        self.assertEqual(connection.cursor_instance.params[2], world_pulse.IMAGE_CACHE_MAX_AGE_SECONDS)
         self.assertTrue(connection.closed)
 
     def test_news_is_persisted_before_image_provider_calls(self):
@@ -1133,14 +1134,15 @@ class SiteExperienceTests(unittest.TestCase):
                         with patch.object(world_pulse, "_save_persisted_news_queue", return_value=True):
                             with patch.object(world_pulse, "_collect_rss_articles", return_value=[dict(raw)]):
                                 with patch.object(world_pulse, "_db_fetch_articles_needing_editorial", return_value=[]):
-                                    with patch.object(world_pulse, "_db_fetch_all", return_value=[]):
-                                        with patch.object(world_pulse, "_translate_batch", return_value={0: translation}):
-                                            with patch.object(world_pulse, "_db_upsert_many", side_effect=save_news):
-                                                with patch.object(world_pulse, "_enrich_article_images", side_effect=enrich):
-                                                    with patch.object(world_pulse, "_avoid_repeated_news_photos"):
-                                                        with patch.object(world_pulse, "_db_update_article_images", return_value=1) as image_update:
-                                                            with patch.object(world_pulse, "_backfill_missing_article_images", return_value=0) as image_backfill:
-                                                                world_pulse._refresh_news_job()
+                                    with patch.object(world_pulse, "_db_fetch_articles_needing_images", return_value=[]):
+                                        with patch.object(world_pulse, "_db_fetch_all", return_value=[]):
+                                            with patch.object(world_pulse, "_translate_batch", return_value={0: translation}):
+                                                with patch.object(world_pulse, "_db_upsert_many", side_effect=save_news):
+                                                    with patch.object(world_pulse, "_enrich_article_images", side_effect=enrich):
+                                                        with patch.object(world_pulse, "_avoid_repeated_news_photos"):
+                                                            with patch.object(world_pulse, "_db_update_article_images", return_value=1) as image_update:
+                                                                with patch.object(world_pulse, "_backfill_missing_article_images", return_value=0) as image_backfill:
+                                                                    world_pulse._refresh_news_job()
         self.assertEqual(events, ["save", "images"])
         image_update.assert_called_once()
         image_backfill.assert_not_called()

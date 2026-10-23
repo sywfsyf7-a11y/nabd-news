@@ -50,6 +50,57 @@ class StructuredEditorialResponseTests(unittest.TestCase):
             0.0,
         )
 
+    def test_image_query_keeps_arabic_subject_terms_from_context(self):
+        query = world_pulse._image_search_query(
+            "أزمة بحرية وحصار نفطي في إيران",
+            "تتأثر ناقلات النفط وإمداداته في مضيق هرمز",
+        )
+        self.assertIn("ناقلات", query)
+        self.assertIn("النفط", query)
+
+    def test_image_match_rejects_country_and_official_terms_without_event_subject(self):
+        self.assertEqual(
+            world_pulse._image_match_score(
+                "Iran official discusses oil tanker blockade",
+                "Iran official statement at a conference",
+            ),
+            0.0,
+        )
+        self.assertGreater(
+            world_pulse._image_match_score(
+                "Iran oil tanker blockade",
+                "Oil tanker travelling through the Strait of Hormuz",
+            ),
+            0.0,
+        )
+
+    def test_stored_image_from_older_relevance_version_is_not_displayed(self):
+        row = {
+            "slug": "old-image-decision",
+            "source_url": "https://example.test/old-image-decision",
+            "category": "world",
+            "source_name": "Example News",
+            "source_domain": "example.test",
+            "original_language": "en",
+            "title_en": "Iran oil tanker blockade",
+            "summary_en": "Oil tankers face a blockade near a shipping corridor.",
+            "content_en": "Oil tankers face a blockade near a shipping corridor.",
+            "title_ar": "",
+            "summary_ar": "",
+            "content_ar": "",
+            "image_url": "https://images.example.test/old-portrait.jpg",
+            "image_source": "openverse_licensed",
+            "image_credit": "Photographer",
+            "image_credit_url": "https://photos.example.test/portrait",
+            "image_provider_url": "https://photos.example.test/portrait",
+            "image_license_url": "https://creativecommons.org/licenses/by/4.0/",
+            "image_relevance_verified": True,
+            "image_relevance_version": world_pulse.IMAGE_RELEVANCE_VERSION - 1,
+        }
+        story = world_pulse._normalise_story(row, "en")
+        self.assertFalse(story["image_relevance_verified"])
+        self.assertEqual(story["image_url"], story["image_fallback_url"])
+
     def test_gemini_invalid_json_tries_fallback_model(self):
         story = {
             "index": 0,
