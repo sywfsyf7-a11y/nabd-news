@@ -933,8 +933,10 @@ CREATE TABLE IF NOT EXISTS world_pulse_articles (
     read_minutes INTEGER NOT NULL DEFAULT 1,
     original_language TEXT NOT NULL DEFAULT 'en',
     is_demo BOOLEAN NOT NULL DEFAULT FALSE,
-    is_hidden BOOLEAN NOT NULL DEFAULT FALSE
+    is_hidden BOOLEAN NOT NULL DEFAULT FALSE,
+    editorial_layout TEXT NOT NULL DEFAULT 'summary_details'
 );
+ALTER TABLE world_pulse_articles ADD COLUMN IF NOT EXISTS editorial_layout TEXT NOT NULL DEFAULT 'summary_details';
 ALTER TABLE world_pulse_articles ADD COLUMN IF NOT EXISTS image_relevance_verified BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE world_pulse_articles ADD COLUMN IF NOT EXISTS image_relevance_version INTEGER NOT NULL DEFAULT 0;
 CREATE INDEX IF NOT EXISTS idx_world_pulse_published
@@ -1444,7 +1446,7 @@ def _run_content_quality_audit_once(*, force: bool = False) -> None:
         cursor.execute("""
             SELECT id, slug, source_url, category, source_name, source_domain, image_url,
                    image_source, image_credit, image_credit_url, image_provider_url,
-                   image_license_url, image_checked_at, title_ar, title_en, summary_ar,
+                   image_license_url, image_checked_at, editorial_layout, title_ar, title_en, summary_ar,
                    summary_en, content_ar, content_en, published_at, fetched_at,
                    original_language, is_demo
             FROM world_pulse_articles
@@ -1971,7 +1973,7 @@ def _query_persistent_archive_rows() -> list[dict[str, Any]] | None:
                 WITH arabic_ranked AS (
                     SELECT slug, source_url, category, source_name, source_domain, image_url,
                            image_source, image_credit, image_credit_url, image_provider_url,
-                           image_license_url, image_checked_at, image_relevance_verified, image_relevance_version,
+                           image_license_url, image_checked_at, image_relevance_verified, image_relevance_version, editorial_layout,
                            title_ar, title_en, summary_ar, summary_en,
                            content_ar, content_en, published_at, fetched_at,
                            read_minutes, original_language, is_demo,
@@ -1994,7 +1996,7 @@ def _query_persistent_archive_rows() -> list[dict[str, Any]] | None:
                 english_ranked AS (
                     SELECT slug, source_url, category, source_name, source_domain, image_url,
                            image_source, image_credit, image_credit_url, image_provider_url,
-                           image_license_url, image_checked_at, image_relevance_verified, image_relevance_version,
+                           image_license_url, image_checked_at, image_relevance_verified, image_relevance_version, editorial_layout,
                            title_ar, title_en, summary_ar, summary_en,
                            content_ar, content_en, published_at, fetched_at,
                            read_minutes, original_language, is_demo,
@@ -2017,7 +2019,7 @@ def _query_persistent_archive_rows() -> list[dict[str, Any]] | None:
                 SELECT * FROM (
                     SELECT slug, source_url, category, source_name, source_domain, image_url,
                            image_source, image_credit, image_credit_url, image_provider_url,
-                           image_license_url, image_checked_at, image_relevance_verified, image_relevance_version,
+                           image_license_url, image_checked_at, image_relevance_verified, image_relevance_version, editorial_layout,
                            title_ar, title_en, summary_ar, summary_en,
                            content_ar, content_en, published_at, fetched_at,
                            read_minutes, original_language, is_demo
@@ -2026,7 +2028,7 @@ def _query_persistent_archive_rows() -> list[dict[str, Any]] | None:
                     UNION ALL
                     SELECT slug, source_url, category, source_name, source_domain, image_url,
                            image_source, image_credit, image_credit_url, image_provider_url,
-                           image_license_url, image_checked_at, image_relevance_verified, image_relevance_version,
+                           image_license_url, image_checked_at, image_relevance_verified, image_relevance_version, editorial_layout,
                            title_ar, title_en, summary_ar, summary_en,
                            content_ar, content_en, published_at, fetched_at,
                            read_minutes, original_language, is_demo
@@ -2192,8 +2194,9 @@ def _db_fetch_article_by_slug(slug: str) -> dict[str, Any] | None:
             columns = """
                 slug, source_url, category, source_name, source_domain, image_url,
                 image_source, image_credit, image_credit_url, image_provider_url, image_license_url,
-                image_checked_at, image_relevance_verified, image_relevance_version, title_ar, title_en, summary_ar, summary_en,
-                content_ar, content_en, published_at, fetched_at, read_minutes, original_language, is_demo
+                image_checked_at, image_relevance_verified, image_relevance_version, editorial_layout,
+                title_ar, title_en, summary_ar, summary_en, content_ar, content_en, published_at, fetched_at,
+                read_minutes, original_language, is_demo
             """
             cur.execute(f"""
                 SELECT {columns}
@@ -2310,7 +2313,7 @@ def _db_fetch_related_articles(
                 cur.execute(f"""
                     SELECT slug, source_url, category, source_name, source_domain, image_url,
                            image_source, image_credit, image_credit_url, image_provider_url,
-                           image_license_url, image_checked_at, image_relevance_verified, image_relevance_version,
+                           image_license_url, image_checked_at, image_relevance_verified, image_relevance_version, editorial_layout,
                            title_ar, title_en, summary_ar, summary_en, content_ar, content_en,
                            published_at, fetched_at, read_minutes, original_language, is_demo
                     FROM world_pulse_articles
@@ -2409,13 +2412,14 @@ def _db_fetch_articles_needing_editorial(limit: int = 4) -> list[dict[str, Any]]
             cur.execute("""
                 SELECT slug, source_url, category, source_name, source_domain, image_url,
                        image_source, image_credit, image_credit_url, image_provider_url, image_license_url, image_checked_at,
-                       title_ar, title_en, summary_ar, summary_en,
+                       editorial_layout, title_ar, title_en, summary_ar, summary_en,
                        content_ar, content_en, published_at, fetched_at,
                        read_minutes, original_language, is_demo
                 FROM world_pulse_articles
                  WHERE is_demo = FALSE
                    AND is_hidden = FALSE
                    AND source_url <> ''
+                   AND COALESCE(image_source, '') <> 'gemini_generated'
                    AND (COALESCE(title_ar, '') <> '' OR COALESCE(title_en, '') <> '')
                   AND (
                     LENGTH(TRIM(COALESCE(content_ar, ''))) < 250
@@ -2450,6 +2454,7 @@ def _db_fetch_articles_needing_images(limit: int = 6) -> list[dict[str, Any]]:
                  WHERE is_demo = FALSE
                    AND is_hidden = FALSE
                    AND source_url <> ''
+                   AND COALESCE(image_source, '') <> 'gemini_generated'
                    AND (
                      (
                        COALESCE(image_relevance_version, 0) < %s
@@ -2653,6 +2658,7 @@ def _raw_from_stored_article(row: dict[str, Any]) -> dict[str, Any]:
         "image_checked_at": row.get("image_checked_at"),
         "image_relevance_verified": row.get("image_relevance_verified") is True,
         "image_relevance_version": row.get("image_relevance_version", 0),
+        "editorial_layout": str(row.get("editorial_layout") or "summary_details"),
         "original_title": title,
         "original_summary": summary,
         "original_language": original_language,
@@ -2703,12 +2709,12 @@ def _db_upsert_many(articles: list[dict[str, Any]]) -> bool:
         INSERT INTO world_pulse_articles (
             slug, source_url, category, source_name, source_domain, image_url,
             image_source, image_credit, image_credit_url, image_provider_url, image_license_url, image_checked_at,
-            title_ar, title_en, summary_ar, summary_en, content_ar, content_en,
+            editorial_layout, title_ar, title_en, summary_ar, summary_en, content_ar, content_en,
             published_at, fetched_at, read_minutes, original_language, is_demo
         ) VALUES (
             %(slug)s, %(source_url)s, %(category)s, %(source_name)s, %(source_domain)s, %(image_url)s,
             %(image_source)s, %(image_credit)s, %(image_credit_url)s, %(image_provider_url)s, %(image_license_url)s, %(image_checked_at)s,
-            %(title_ar)s, %(title_en)s, %(summary_ar)s, %(summary_en)s, %(content_ar)s, %(content_en)s,
+            %(editorial_layout)s, %(title_ar)s, %(title_en)s, %(summary_ar)s, %(summary_en)s, %(content_ar)s, %(content_en)s,
             %(published_at)s, NOW(),
             %(read_minutes)s, %(original_language)s, FALSE
         )
@@ -2717,30 +2723,43 @@ def _db_upsert_many(articles: list[dict[str, Any]]) -> bool:
             source_name = EXCLUDED.source_name,
             source_domain = CASE WHEN EXCLUDED.source_domain <> '' THEN EXCLUDED.source_domain ELSE world_pulse_articles.source_domain END,
             image_url = CASE
+                WHEN world_pulse_articles.image_source = 'gemini_generated' AND world_pulse_articles.image_url <> ''
+                    THEN world_pulse_articles.image_url
                 WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'openverse_licensed', 'loc_open_access', 'nasa_images', 'artic_open_access', 'met_open_access', 'cleveland_museum_open_access', 'wellcome_open_access', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
                     THEN world_pulse_articles.image_url
                 ELSE EXCLUDED.image_url END,
             image_source = CASE
+                WHEN world_pulse_articles.image_source = 'gemini_generated' AND world_pulse_articles.image_url <> ''
+                    THEN world_pulse_articles.image_source
                 WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'openverse_licensed', 'loc_open_access', 'nasa_images', 'artic_open_access', 'met_open_access', 'cleveland_museum_open_access', 'wellcome_open_access', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
                     THEN world_pulse_articles.image_source
                 ELSE EXCLUDED.image_source END,
             image_credit = CASE
+                WHEN world_pulse_articles.image_source = 'gemini_generated' AND world_pulse_articles.image_url <> ''
+                    THEN world_pulse_articles.image_credit
                 WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'openverse_licensed', 'loc_open_access', 'nasa_images', 'artic_open_access', 'met_open_access', 'cleveland_museum_open_access', 'wellcome_open_access', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
                     THEN world_pulse_articles.image_credit
                 ELSE EXCLUDED.image_credit END,
             image_credit_url = CASE
+                WHEN world_pulse_articles.image_source = 'gemini_generated' AND world_pulse_articles.image_url <> ''
+                    THEN world_pulse_articles.image_credit_url
                 WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'openverse_licensed', 'loc_open_access', 'nasa_images', 'artic_open_access', 'met_open_access', 'cleveland_museum_open_access', 'wellcome_open_access', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
                     THEN world_pulse_articles.image_credit_url
                 ELSE EXCLUDED.image_credit_url END,
             image_provider_url = CASE
+                WHEN world_pulse_articles.image_source = 'gemini_generated' AND world_pulse_articles.image_url <> ''
+                    THEN world_pulse_articles.image_provider_url
                 WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'openverse_licensed', 'loc_open_access', 'nasa_images', 'artic_open_access', 'met_open_access', 'cleveland_museum_open_access', 'wellcome_open_access', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
                     THEN world_pulse_articles.image_provider_url
                 ELSE EXCLUDED.image_provider_url END,
             image_license_url = CASE
+                WHEN world_pulse_articles.image_source = 'gemini_generated' AND world_pulse_articles.image_url <> ''
+                    THEN world_pulse_articles.image_license_url
                 WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'openverse_licensed', 'loc_open_access', 'nasa_images', 'artic_open_access', 'met_open_access', 'cleveland_museum_open_access', 'wellcome_open_access', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
                     THEN world_pulse_articles.image_license_url
                 ELSE EXCLUDED.image_license_url END,
             image_checked_at = COALESCE(EXCLUDED.image_checked_at, world_pulse_articles.image_checked_at),
+            editorial_layout = world_pulse_articles.editorial_layout,
             title_ar = CASE WHEN EXCLUDED.title_ar <> '' THEN EXCLUDED.title_ar ELSE world_pulse_articles.title_ar END,
             title_en = CASE WHEN EXCLUDED.title_en <> '' THEN EXCLUDED.title_en ELSE world_pulse_articles.title_en END,
             summary_ar = CASE WHEN EXCLUDED.summary_ar <> '' THEN EXCLUDED.summary_ar ELSE world_pulse_articles.summary_ar END,
@@ -2751,11 +2770,17 @@ def _db_upsert_many(articles: list[dict[str, Any]]) -> bool:
             fetched_at = NOW(),
             read_minutes = GREATEST(EXCLUDED.read_minutes, 1),
             original_language = EXCLUDED.original_language
+        RETURNING editorial_layout
     """
     try:
         with conn.cursor() as cur:
             for article in articles:
                 cur.execute(sql, article)
+                saved_layout = cur.fetchone()
+                if saved_layout and saved_layout[0]:
+                    # The database is authoritative if a queued URL turned out to be
+                    # an already archived story outside the warm display window.
+                    article["editorial_layout"] = str(saved_layout[0])
         conn.commit()
         # Update the shared warm snapshot rather than forcing the next page view to
         # reconnect to PostgreSQL and rebuild the complete article pool.
@@ -5535,6 +5560,7 @@ def _base_article(raw: dict[str, Any]) -> dict[str, Any]:
         "published_at": raw.get("published_at"),
         "read_minutes": 1,
         "original_language": original_lang,
+        "editorial_layout": str(raw.get("editorial_layout") or "summary_details"),
         "is_demo": False,
         "fetched_at": datetime.now(timezone.utc),
     }
@@ -5701,10 +5727,10 @@ Strict editorial rules:
 - Write an independent editorial synthesis, not a line-by-line paraphrase and not a synonym swap. Add value through clear selection, explanation of the reported change, and organization of supported facts—not by adding unsupported outside context.
 - Do not reproduce a publisher's article, distinctive long phrases, quotes, or its original paragraph structure. No fabricated quotes, citations, or claims of independent verification.
 - If the source is restricted to headline-and-link-only mode, do not summarize its body or invent supporting details. If the available excerpt is too thin for a useful brief, keep the item as a source link rather than padding a thin on-site page.
-- For a normal-mode source with enough evidence, write a substantive original report of 2–4 short paragraphs, usually 140–220 words in each language. Organize the supported facts in a clear order and explain what changed, who is involved, and what the source says happens next only when those points are actually present in the excerpt. If the source does not support a report of that length, write a shorter accurate brief and never pad it with generic background or invented context.
+- For a normal-mode source with enough evidence, write a substantive original details section of 3–5 well-paced paragraphs, usually 220–320 words in each language when the supplied headline and short excerpt genuinely support that level of detail. Organize supported facts in a clear order: what was reported, who or what is involved, the evidence stated by the source, and any next step or consequence mentioned by the source. Keep each detail traceable to the supplied excerpt. If the source does not support a report of that length, write a shorter accurate brief and never pad it with generic background, repeated claims, or invented context.
 - Write concise Arabic and English headlines, ideally no more than 70 characters in Arabic and 90 in English. Keep the title as a headline, not a sentence-length summary.
-- The executive summary must be distinct from the title, specific to the story, and limited to 1–2 sentences. Never copy the headline into the summary or merely restate it with minor wording changes.
-- The details section must add distinct, source-supported facts beyond the headline and summary where the excerpt permits. If only one verifiable fact is available, make that limitation clear instead of artificially expanding the article. The original publisher URL must remain visible as the source.
+- Keep the internal/card summary distinct from the title and limited to 1–2 sentences. It remains available for homepage cards and metadata, but new article pages display the headline and details without a separate executive-summary panel.
+- The details section is the main article body: develop the reported event using supported facts beyond the headline. If only one verifiable fact is available, make that limitation clear instead of artificially expanding the article. The original publisher URL must remain visible as the source.
 
 Stories to edit: {json.dumps(payload, ensure_ascii=False)}'''
 
@@ -5946,8 +5972,9 @@ def _translate_batch(raw_articles: list[dict[str, Any]]) -> dict[int, dict[str, 
         )
 
     result: dict[int, dict[str, str]] = {}
-    # Six stories per request keeps twelve-story refreshes within the existing bounded
-    # API budget. Structured outputs plus concise bodies reduce truncation and malformed JSON.
+    # Keep the established six-story batch for callers that legitimately process a wider
+    # repair set. The live publication queue normally sends just one new story plus at most
+    # one repair, and the larger output ceiling below gives those details more room.
     batch_size = 6
     client = None
     api_calls_used = 0
@@ -5992,7 +6019,7 @@ def _translate_batch(raw_articles: list[dict[str, Any]]) -> dict[int, dict[str, 
                 response_mime_type="application/json",
                 response_schema=EDITORIAL_RESPONSE_SCHEMA,
                 temperature=0.2,
-                max_output_tokens=4096,
+                max_output_tokens=6144,
             )
             # A syntactically invalid response is treated like a failed model attempt:
             # cool that model briefly, then try a different configured model if budget permits.
@@ -6917,6 +6944,15 @@ def _refresh_news_job() -> None:
         ready: list[dict[str, Any]] = []
         for index, raw in raw_to_publish:
             article_data = _base_article(raw)
+            # Only stories entering the archive from the persistent discovery queue use
+            # the new details-only article layout. Existing archive rows being repaired keep
+            # their saved/default layout and all previous editorial metadata.
+            article_key = _canonical_story_url(raw.get("source_url"))
+            article_data["editorial_layout"] = (
+                "details_only"
+                if article_key in selected_queue_keys and not raw.get("headline_only")
+                else str(raw.get("editorial_layout") or "summary_details")
+            )
             if index in translations:
                 article_data.update(translations[index])
             article_data["read_minutes"] = _reading_minutes(article_data)
@@ -7343,6 +7379,15 @@ def _normalise_story(row: dict[str, Any], lang: str) -> dict[str, Any]:
         story["content"] = _clean_text(raw_content, 1200)
     story["title"] = _compact_display_title(raw_title, display_lang)
     story["summary"] = _distinct_executive_summary(raw_title, raw_summary, story["content"], display_lang)
+    story["editorial_layout"] = (
+        "details_only" if str(story.get("editorial_layout") or "summary_details") == "details_only"
+        else "summary_details"
+    )
+    # Keep restricted-source disclosure visible, while hiding the summary panel for new
+    # details-first articles only. Missing layout values on old records default to legacy UI.
+    story["show_executive_summary"] = (
+        story["editorial_layout"] != "details_only" or source_headline_only
+    )
     story["headline_only"] = source_headline_only
     if story["headline_only"]:
         story["summary"] = (
@@ -8527,7 +8572,7 @@ def _admin_fetch_article_by_slug(slug: str) -> dict[str, Any] | None:
             cur.execute("""
                 SELECT slug, source_url, category, source_name, source_domain, image_url,
                        image_source, image_credit, image_credit_url, image_provider_url,
-                       image_license_url, image_checked_at, title_ar, title_en, summary_ar,
+                       image_license_url, image_checked_at, editorial_layout, title_ar, title_en, summary_ar,
                        summary_en, content_ar, content_en, published_at, fetched_at,
                        read_minutes, original_language, is_demo, is_hidden
                 FROM world_pulse_articles
@@ -8587,7 +8632,7 @@ def _admin_list_articles(
             cur.execute("""
                 SELECT slug, source_url, category, source_name, source_domain, image_url,
                        image_source, image_credit, image_credit_url, image_provider_url,
-                       image_license_url, image_checked_at, title_ar, title_en, summary_ar,
+                       image_license_url, image_checked_at, editorial_layout, title_ar, title_en, summary_ar,
                        summary_en, content_ar, content_en, published_at, fetched_at,
                        read_minutes, original_language, is_demo, is_hidden
                 FROM world_pulse_articles
@@ -8872,7 +8917,7 @@ def _admin_create_article(values: dict[str, Any]) -> str:
                 INSERT INTO world_pulse_articles (
                     slug, source_url, category, source_name, source_domain, image_url,
                     image_source, image_credit, image_credit_url, image_provider_url,
-                    image_license_url, image_checked_at, title_ar, title_en, summary_ar,
+                    image_license_url, image_checked_at, editorial_layout, title_ar, title_en, summary_ar,
                     summary_en, content_ar, content_en, published_at, fetched_at,
                     read_minutes, original_language, is_demo, is_hidden
                 ) VALUES (
