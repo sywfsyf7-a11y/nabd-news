@@ -2048,6 +2048,7 @@ class BoundedImageProviderSearchTests(unittest.TestCase):
     def test_archive_upsert_has_a_guard_to_preserve_saved_gemini_images(self):
         fake_connection = MagicMock()
         fake_cursor = MagicMock()
+        fake_cursor.fetchone.return_value = ("details_only",)
         fake_connection.cursor.return_value.__enter__.return_value = fake_cursor
         article = {
             "slug": "ai-upsert-guard",
