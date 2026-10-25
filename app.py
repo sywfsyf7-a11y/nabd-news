@@ -704,6 +704,7 @@ _LAST_DB_STATUS: dict[str, Any] = {"state": "unknown", "error_code": "", "checke
 _DB_LAST_FETCHED_VALUE: datetime | None = None
 _DB_LAST_FETCHED_CHECKED = 0.0
 _DB_LAST_FETCHED_LOCK = threading.Lock()
+_DB_LAST_FETCHED_REFRESHING = False
 _DB_ARTICLE_CACHE_TTL_SECONDS = max(1, min(60, int(os.getenv("DB_ARTICLE_CACHE_TTL_SECONDS", "60"))))
 # Keep the active archive bounded, but reserve space for each news section and language.
 # A single newest-120-per-language window made Gaming/Science/etc. disappear behind
@@ -724,6 +725,9 @@ _DISPLAY_STORIES_CACHE_GENERATION = 0
 _DISPLAY_STORIES_BUILD_LOCKS = {lang: threading.Lock() for lang in ("ar", "en")}
 _DISPLAY_STORIES_REFRESHING: set[str] = set()
 _DISPLAY_STORIES_REFRESHING_LOCK = threading.Lock()
+_DISPLAY_CACHE_WARMUP_ENABLED = os.getenv("DISPLAY_CACHE_STARTUP_WARMUP", "true").lower() not in {"0", "false", "no"}
+_DISPLAY_CACHE_WARMUP_LOCK = threading.Lock()
+_DISPLAY_CACHE_WARMUP_STARTED = False
 # Gunicorn workers do not share Python dictionaries. Reuse normalized display pools from
 # the shared instance filesystem so sibling workers do not repeat cold display builds.
 _DISPLAY_SHARED_CACHE_PATH = os.getenv("WORLD_PULSE_DISPLAY_CACHE_FILE", "/tmp/world-pulse-display-cache.json")
@@ -2667,14 +2671,45 @@ def _raw_from_stored_article(row: dict[str, Any]) -> dict[str, Any]:
         "headline_only": _is_headline_only_domain(str(row.get("source_domain") or "")),
     }
 
-def _db_last_fetched_at() -> datetime | None:
-    global _DB_LAST_FETCHED_CHECKED, _DB_LAST_FETCHED_VALUE
+def _refresh_db_last_fetched_at_in_background() -> None:
+    global _DB_LAST_FETCHED_REFRESHING
+    try:
+        _db_last_fetched_at(nonblocking=False)
+    finally:
+        with _DB_LAST_FETCHED_LOCK:
+            _DB_LAST_FETCHED_REFRESHING = False
+
+
+def _db_last_fetched_at(*, nonblocking: bool = False) -> datetime | None:
+    """Read the latest fetch timestamp; public status polling may opt into stale-while-revalidate."""
+    global _DB_LAST_FETCHED_CHECKED, _DB_LAST_FETCHED_VALUE, _DB_LAST_FETCHED_REFRESHING
     now = time.monotonic()
     with _DB_LAST_FETCHED_LOCK:
-        if now - _DB_LAST_FETCHED_CHECKED < 60:
+        if _DB_LAST_FETCHED_CHECKED > 0 and now - _DB_LAST_FETCHED_CHECKED < 60:
             return _DB_LAST_FETCHED_VALUE
-        _DB_LAST_FETCHED_CHECKED = now
         cached_value = _DB_LAST_FETCHED_VALUE
+        if nonblocking:
+            if _DB_LAST_FETCHED_REFRESHING:
+                return cached_value
+            _DB_LAST_FETCHED_REFRESHING = True
+        else:
+            _DB_LAST_FETCHED_CHECKED = now
+
+    if nonblocking:
+        # The public status endpoint should never occupy a Gunicorn request thread while
+        # waiting for a scarce Supabase connection. Return its last known value and refresh
+        # the optional timestamp in the background; news pages and archive reads are separate.
+        try:
+            threading.Thread(
+                target=_refresh_db_last_fetched_at_in_background,
+                name="world-pulse-last-fetched-refresh",
+                daemon=True,
+            ).start()
+        except RuntimeError:
+            with _DB_LAST_FETCHED_LOCK:
+                _DB_LAST_FETCHED_REFRESHING = False
+        return cached_value
+
     if not _ensure_schema():
         return cached_value
     conn = _connect_db()
@@ -7664,6 +7699,31 @@ def _get_display_stories(lang: str) -> list[dict[str, Any]]:
             _archive_unlock(build_handle)
 
 
+def _start_display_cache_warmup() -> None:
+    """Warm both language-specific display pools asynchronously after worker import.
+
+    A cold display build currently has to validate, classify, deduplicate, and normalize
+    hundreds of saved stories. Warming in the background avoids making the first ordinary
+    visitor pay that cost after a deploy or worker restart.
+    """
+    global _DISPLAY_CACHE_WARMUP_STARTED
+    if (
+        not _DISPLAY_CACHE_WARMUP_ENABLED
+        or not NEWS_AUTO_FETCH
+        or not NEWS_SCHEDULER_ENABLED
+        or "--refresh-news" in sys.argv
+    ):
+        return
+    with _DISPLAY_CACHE_WARMUP_LOCK:
+        if _DISPLAY_CACHE_WARMUP_STARTED:
+            return
+        _DISPLAY_CACHE_WARMUP_STARTED = True
+    with _DISPLAY_STORIES_CACHE_LOCK:
+        generation = _DISPLAY_STORIES_CACHE_GENERATION
+    for lang in ("ar", "en"):
+        _refresh_display_stories_cache_async(lang, generation)
+
+
 def _safe_saved_article_permalink(row: dict[str, Any]) -> bool:
     """Validate a previously stored archive row without reapplying today's ingestion allowlist.
 
@@ -8018,7 +8078,8 @@ def article(slug: str):
 @app.get("/api/news-status")
 def news_status():
     # The scheduler runs independently; this endpoint only reports current status.
-    persisted_at = _db_last_fetched_at()
+    # Timestamp is diagnostic only. Do not make an ordinary status poll wait for PostgreSQL.
+    persisted_at = _db_last_fetched_at(nonblocking=True)
     # Public polling is frequent; report the latest cached DB status instead of opening a
     # separate SELECT 1 connection for every status refresh. The protected admin monitor
     # retains an explicit active DB probe.
@@ -9609,6 +9670,11 @@ def copyright_policy():
 def not_found(_error):
     return render_template("index.html", page="404", stories=[], all_story_count=0,
                            active_category="all", breaking_story=None, related_stories=[], article=None), 404
+
+# Start both display-pool refreshes as background jobs, rather than waiting for a visitor
+# to request the English feed after the first Arabic request (or vice versa).
+_start_display_cache_warmup()
+
 
 if __name__ == "__main__":
     if "--refresh-news" in sys.argv:

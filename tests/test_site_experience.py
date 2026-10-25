@@ -1445,7 +1445,7 @@ class SiteExperienceTests(unittest.TestCase):
 
     def test_news_status_poll_reports_state_without_triggering_refresh(self):
         with patch.object(world_pulse, "_maybe_start_refresh") as maybe_refresh:
-            with patch.object(world_pulse, "_db_last_fetched_at", return_value=None):
+            with patch.object(world_pulse, "_db_last_fetched_at", return_value=None) as last_fetched:
                 with patch.object(world_pulse, "_probe_database", return_value={"state": "not_configured", "error_code": "", "checked_at": None}):
                     with patch.object(world_pulse, "_database_url", return_value=""):
                         with patch.object(world_pulse, "_control_enabled", return_value=True):
@@ -1454,6 +1454,35 @@ class SiteExperienceTests(unittest.TestCase):
                                     response = world_pulse.app.test_client().get("/api/news-status")
         self.assertEqual(response.status_code, 200)
         maybe_refresh.assert_not_called()
+        last_fetched.assert_called_once_with(nonblocking=True)
+
+    def test_nonblocking_last_fetched_timestamp_does_not_wait_for_database(self):
+        cached = datetime(2026, 10, 25, 12, 0, tzinfo=timezone.utc)
+        with patch.object(world_pulse, "_DB_LAST_FETCHED_VALUE", cached):
+            with patch.object(world_pulse, "_DB_LAST_FETCHED_CHECKED", 0.0):
+                with patch.object(world_pulse, "_DB_LAST_FETCHED_REFRESHING", False):
+                    with patch.object(world_pulse, "_ensure_schema") as ensure_schema:
+                        with patch.object(world_pulse.threading, "Thread") as thread:
+                            result = world_pulse._db_last_fetched_at(nonblocking=True)
+
+        self.assertEqual(result, cached)
+        ensure_schema.assert_not_called()
+        thread.assert_called_once()
+        thread.return_value.start.assert_called_once()
+        self.assertTrue(thread.call_args.kwargs["daemon"])
+
+    def test_display_cache_startup_warmup_schedules_both_languages(self):
+        with patch.object(world_pulse, "_DISPLAY_CACHE_WARMUP_ENABLED", True):
+            with patch.object(world_pulse, "NEWS_AUTO_FETCH", True):
+                with patch.object(world_pulse, "NEWS_SCHEDULER_ENABLED", True):
+                    with patch.object(world_pulse, "_DISPLAY_CACHE_WARMUP_STARTED", False):
+                        with patch.object(world_pulse, "_refresh_display_stories_cache_async") as refresh:
+                            world_pulse._start_display_cache_warmup()
+
+        self.assertEqual(
+            [call.args[0] for call in refresh.call_args_list],
+            ["ar", "en"],
+        )
 
     def test_image_provider_group_prefers_higher_relevance_over_provider_order(self):
         low_relevance = {
