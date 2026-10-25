@@ -2685,7 +2685,7 @@ def _db_last_fetched_at(*, nonblocking: bool = False) -> datetime | None:
     global _DB_LAST_FETCHED_CHECKED, _DB_LAST_FETCHED_VALUE, _DB_LAST_FETCHED_REFRESHING
     now = time.monotonic()
     with _DB_LAST_FETCHED_LOCK:
-        if now - _DB_LAST_FETCHED_CHECKED < 60:
+        if _DB_LAST_FETCHED_CHECKED > 0 and now - _DB_LAST_FETCHED_CHECKED < 60:
             return _DB_LAST_FETCHED_VALUE
         cached_value = _DB_LAST_FETCHED_VALUE
         if nonblocking:
