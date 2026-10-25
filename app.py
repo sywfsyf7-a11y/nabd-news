@@ -1623,6 +1623,18 @@ def _control_enabled(control_key: str, default: bool = True) -> bool:
     finally:
         _release_db_connection(conn)
 
+def _cached_control_enabled(control_key: str, default: bool = True) -> bool:
+    """Return a provider toggle without opening a database connection on a public request."""
+    now = time.monotonic()
+    with _CONTROL_CACHE_LOCK:
+        cached = _CONTROL_CACHE.get(control_key)
+        if cached and cached[1] > now:
+            return cached[0]
+    # Status is advisory. A missing/stale toggle falls back to the app default; source
+    # ingestion and the protected admin panel continue to refresh/persist the real setting.
+    return default
+
+
 def _set_control_enabled(control_key: str, enabled: bool) -> bool:
     if not _ensure_schema():
         return False
@@ -7699,13 +7711,20 @@ def _get_display_stories(lang: str) -> list[dict[str, Any]]:
             _archive_unlock(build_handle)
 
 
-def _start_display_cache_warmup() -> None:
-    """Warm both language-specific display pools asynchronously after worker import.
+def _warm_display_caches_in_background() -> None:
+    """Warm both language pools serially to avoid competing startup build threads."""
+    for lang in ("ar", "en"):
+        try:
+            _get_display_stories(lang)
+        except Exception as exc:
+            logger.warning(
+                "Startup display cache warmup failed: language=%s error=%s",
+                lang, type(exc).__name__,
+            )
 
-    A cold display build currently has to validate, classify, deduplicate, and normalize
-    hundreds of saved stories. Warming in the background avoids making the first ordinary
-    visitor pay that cost after a deploy or worker restart.
-    """
+
+def _start_display_cache_warmup() -> None:
+    """Warm both language-specific pools in a single background thread after import."""
     global _DISPLAY_CACHE_WARMUP_STARTED
     if (
         not _DISPLAY_CACHE_WARMUP_ENABLED
@@ -7718,10 +7737,16 @@ def _start_display_cache_warmup() -> None:
         if _DISPLAY_CACHE_WARMUP_STARTED:
             return
         _DISPLAY_CACHE_WARMUP_STARTED = True
-    with _DISPLAY_STORIES_CACHE_LOCK:
-        generation = _DISPLAY_STORIES_CACHE_GENERATION
-    for lang in ("ar", "en"):
-        _refresh_display_stories_cache_async(lang, generation)
+    try:
+        threading.Thread(
+            target=_warm_display_caches_in_background,
+            name="world-pulse-display-cache-warmup",
+            daemon=True,
+        ).start()
+    except RuntimeError as exc:
+        with _DISPLAY_CACHE_WARMUP_LOCK:
+            _DISPLAY_CACHE_WARMUP_STARTED = False
+        logger.warning("Could not start startup display cache warmup (%s)", type(exc).__name__)
 
 
 def _safe_saved_article_permalink(row: dict[str, Any]) -> bool:
@@ -8115,13 +8140,13 @@ def news_status():
             "per_24_hours": MAX_GEMINI_IMAGES_PER_24H,
         },
         "image_providers": {
-            "gemini_image_generation": GEMINI_IMAGE_GENERATION_ENABLED and _control_enabled("image:gemini_generated", True),
-            "wikimedia_commons": _control_enabled("image:wikimedia_relevant", True),
-            "loc_open_access": _control_enabled("image:loc_open_access", True),
-            "artic_open_access": _control_enabled("image:artic_open_access", True),
-            "met_open_access": _control_enabled("image:met_open_access", True),
-            "cleveland_museum_open_access": _control_enabled("image:cleveland_museum_open_access", True),
-            "wellcome_open_access": _control_enabled("image:wellcome_open_access", True),
+            "gemini_image_generation": GEMINI_IMAGE_GENERATION_ENABLED and _cached_control_enabled("image:gemini_generated", True),
+            "wikimedia_commons": _cached_control_enabled("image:wikimedia_relevant", True),
+            "loc_open_access": _cached_control_enabled("image:loc_open_access", True),
+            "artic_open_access": _cached_control_enabled("image:artic_open_access", True),
+            "met_open_access": _cached_control_enabled("image:met_open_access", True),
+            "cleveland_museum_open_access": _cached_control_enabled("image:cleveland_museum_open_access", True),
+            "wellcome_open_access": _cached_control_enabled("image:wellcome_open_access", True),
             "presskit_manifest_configured": _presskit_provider_configured(),
             "stock_image_apis_enabled": False,
         },
