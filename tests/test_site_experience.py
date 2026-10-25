@@ -2085,7 +2085,8 @@ class BoundedImageProviderSearchTests(unittest.TestCase):
             "WHEN world_pulse_articles.image_source = 'gemini_generated' AND world_pulse_articles.image_url <> ''",
             sql,
         )
-        self.assertIn("EXCLUDED.editorial_layout = 'details_only'", sql)
+        self.assertIn("editorial_layout = world_pulse_articles.editorial_layout", sql)
+        self.assertEqual(article["editorial_layout"], "details_only")
 
     def test_openverse_description_can_recover_a_specific_image_subject(self):
         import json
@@ -2247,7 +2248,7 @@ class BoundedImageProviderSearchTests(unittest.TestCase):
         self.assertIn("not a line-by-line paraphrase", prompt)
         self.assertIn("220–320 words", prompt)
         self.assertIn("without a separate executive-summary panel", prompt)
-        self.assertIn("never pad it with generic background or invented context", prompt)
+        self.assertIn("never pad it with generic background, repeated claims, or invented context", prompt)
 
 
 
