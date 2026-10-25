@@ -5972,10 +5972,10 @@ def _translate_batch(raw_articles: list[dict[str, Any]]) -> dict[int, dict[str, 
         )
 
     result: dict[int, dict[str, str]] = {}
-    # The publishing queue normally contains one fresh story and at most one archive repair.
-    # A smaller batch gives longer details room to fit in valid JSON without increasing the
-    # configured per-refresh model-call budget.
-    batch_size = 2
+    # Keep the established six-story batch for callers that legitimately process a wider
+    # repair set. The live publication queue normally sends just one new story plus at most
+    # one repair, and the larger output ceiling below gives those details more room.
+    batch_size = 6
     client = None
     api_calls_used = 0
 
