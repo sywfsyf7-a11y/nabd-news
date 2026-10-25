@@ -1984,6 +1984,146 @@ class BoundedImageProviderSearchTests(unittest.TestCase):
         )
         self.assertTrue(complete_story["ai_enriched"])
 
+    def test_new_details_only_articles_hide_summary_panel_but_legacy_articles_keep_it(self):
+        body = (
+            "The publisher reports a specific new technology change and describes the features "
+            "included in the update. The available source explains which users or products are "
+            "affected and records the stated next step. This summary uses only claims in the "
+            "provided source material and does not add unverified context, numbers or motives."
+        )
+        row = {
+            "slug": "details-first-story",
+            "source_url": "https://www.theverge.com/news/details-first-story",
+            "source_name": "The Verge",
+            "source_domain": "theverge.com",
+            "category": "technology",
+            "original_language": "en",
+            "title_en": "Technology platform announces a product update",
+            "summary_en": "The publisher describes the product change and who will receive it.",
+            "content_en": body,
+            "image_url": "",
+            "image_source": "none",
+            "is_demo": False,
+        }
+
+        new_story = world_pulse._normalise_story(
+            dict(row, editorial_layout="details_only"), "en"
+        )
+        legacy_story = world_pulse._normalise_story(dict(row), "en")
+
+        self.assertFalse(new_story["show_executive_summary"])
+        self.assertEqual(new_story["editorial_layout"], "details_only")
+        self.assertTrue(new_story["content"])
+        self.assertTrue(legacy_story["show_executive_summary"])
+        self.assertEqual(legacy_story["editorial_layout"], "summary_details")
+
+    def test_saved_gemini_article_illustration_remains_valid_and_visible(self):
+        image_id = "abcdef0123456789abcdef0123456789"
+        row = {
+            "slug": "ai-image-story",
+            "source_url": "https://www.theverge.com/news/ai-image-story",
+            "source_name": "The Verge",
+            "source_domain": "theverge.com",
+            "category": "technology",
+            "original_language": "en",
+            "title_en": "A new technology product is announced",
+            "summary_en": "The publisher describes the product announcement.",
+            "content_en": (
+                "The publisher describes the product announcement and says which capabilities "
+                "will be available. It also explains the stated availability plan and the "
+                "reported details, without extra claims beyond the source."
+            ),
+            "image_url": "/media/generated/" + image_id,
+            "image_source": "gemini_generated",
+            "image_relevance_verified": True,
+            "image_relevance_version": 0,
+            "image_license_url": "",
+            "is_demo": False,
+        }
+        story = world_pulse._normalise_story(row, "en")
+        self.assertEqual(story["image_url"], row["image_url"])
+        self.assertEqual(story["image_source"], "gemini_generated")
+        self.assertTrue(world_pulse._image_license_verified(story))
+
+    def test_archive_upsert_has_a_guard_to_preserve_saved_gemini_images(self):
+        fake_connection = MagicMock()
+        fake_cursor = MagicMock()
+        fake_connection.cursor.return_value.__enter__.return_value = fake_cursor
+        article = {
+            "slug": "ai-upsert-guard",
+            "source_url": "https://www.theverge.com/news/ai-upsert-guard",
+            "category": "technology",
+            "source_name": "The Verge",
+            "source_domain": "theverge.com",
+            "image_url": "",
+            "image_source": "none",
+            "image_credit": "",
+            "image_credit_url": "",
+            "image_provider_url": "",
+            "image_license_url": "",
+            "image_checked_at": None,
+            "editorial_layout": "details_only",
+            "title_ar": "تحديث تقني",
+            "title_en": "Technology update",
+            "summary_ar": "ملخص متاح من المصدر",
+            "summary_en": "An available source summary.",
+            "content_ar": "تفاصيل مدعومة من النص المتاح من المصدر.",
+            "content_en": "Source-supported details about the reported technology update.",
+            "published_at": None,
+            "read_minutes": 1,
+            "original_language": "en",
+        }
+        with patch.object(world_pulse, "_ensure_schema", return_value=True):
+            with patch.object(world_pulse, "_connect_db", return_value=fake_connection):
+                with patch.object(world_pulse, "_release_db_connection"):
+                    with patch.object(world_pulse, "_merge_article_rows_into_archive_cache", return_value=True):
+                        self.assertTrue(world_pulse._db_upsert_many([article]))
+
+        sql = fake_cursor.execute.call_args.args[0]
+        self.assertIn(
+            "WHEN world_pulse_articles.image_source = 'gemini_generated' AND world_pulse_articles.image_url <> ''",
+            sql,
+        )
+        self.assertIn("EXCLUDED.editorial_layout = 'details_only'", sql)
+
+    def test_openverse_description_can_recover_a_specific_image_subject(self):
+        import json
+
+        payload = {
+            "results": [{
+                "id": "tankerphoto123",
+                "title": "Shipping activity",
+                "description": "An oil tanker sailing through the Strait of Hormuz amid an oil blockade",
+                "url": "https://images.example.test/tanker.jpg",
+                "foreign_landing_url": "https://photos.example.test/tanker-item",
+                "license": "by",
+                "license_version": "4.0",
+                "license_url": "https://creativecommons.org/licenses/by/4.0/",
+                "creator": "Photographer",
+                "creator_url": "https://photos.example.test/photographer",
+                "width": 1600,
+                "height": 1000,
+                "tags": [],
+                "mature": False,
+            }]
+        }
+        response = MagicMock()
+        response.__enter__.return_value = response
+        response.read.return_value = json.dumps(payload).encode("utf-8")
+
+        def score(query, evidence):
+            return 0.82 if "tanker" in evidence.casefold() and "hormuz" in evidence.casefold() else 0.0
+
+        with patch.object(world_pulse, "urlopen", return_value=response):
+            with patch.object(world_pulse, "_image_match_score", side_effect=score):
+                result = world_pulse._search_openverse_image(
+                    "Iran oil tanker blockade", "en", "world"
+                )
+
+        self.assertEqual(result["image_source"], "openverse_licensed")
+        self.assertIn("oil tanker", result["image_description"].casefold())
+        self.assertIn("Strait of Hormuz", result["_image_relevance_evidence"])
+
     def test_sitemaps_exclude_short_or_headline_only_article_pages(self):
         published = datetime.now(timezone.utc)
         eligible = {
@@ -2104,7 +2244,8 @@ class BoundedImageProviderSearchTests(unittest.TestCase):
         }])
         self.assertIn("independent editorial synthesis", prompt)
         self.assertIn("not a line-by-line paraphrase", prompt)
-        self.assertIn("140–220 words", prompt)
+        self.assertIn("220–320 words", prompt)
+        self.assertIn("without a separate executive-summary panel", prompt)
         self.assertIn("never pad it with generic background or invented context", prompt)
 
 
