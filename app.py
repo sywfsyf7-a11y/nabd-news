@@ -2759,10 +2759,7 @@ def _db_upsert_many(articles: list[dict[str, Any]]) -> bool:
                     THEN world_pulse_articles.image_license_url
                 ELSE EXCLUDED.image_license_url END,
             image_checked_at = COALESCE(EXCLUDED.image_checked_at, world_pulse_articles.image_checked_at),
-            editorial_layout = CASE
-                WHEN EXCLUDED.editorial_layout = 'details_only' THEN 'details_only'
-                ELSE world_pulse_articles.editorial_layout
-            END,
+            editorial_layout = world_pulse_articles.editorial_layout,
             title_ar = CASE WHEN EXCLUDED.title_ar <> '' THEN EXCLUDED.title_ar ELSE world_pulse_articles.title_ar END,
             title_en = CASE WHEN EXCLUDED.title_en <> '' THEN EXCLUDED.title_en ELSE world_pulse_articles.title_en END,
             summary_ar = CASE WHEN EXCLUDED.summary_ar <> '' THEN EXCLUDED.summary_ar ELSE world_pulse_articles.summary_ar END,
@@ -2773,11 +2770,17 @@ def _db_upsert_many(articles: list[dict[str, Any]]) -> bool:
             fetched_at = NOW(),
             read_minutes = GREATEST(EXCLUDED.read_minutes, 1),
             original_language = EXCLUDED.original_language
+        RETURNING editorial_layout
     """
     try:
         with conn.cursor() as cur:
             for article in articles:
                 cur.execute(sql, article)
+                saved_layout = cur.fetchone()
+                if saved_layout and saved_layout[0]:
+                    # The database is authoritative if a queued URL turned out to be
+                    # an already archived story outside the warm display window.
+                    article["editorial_layout"] = str(saved_layout[0])
         conn.commit()
         # Update the shared warm snapshot rather than forcing the next page view to
         # reconnect to PostgreSQL and rebuild the complete article pool.
