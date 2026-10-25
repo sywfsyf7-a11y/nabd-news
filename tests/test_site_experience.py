@@ -1443,18 +1443,19 @@ class SiteExperienceTests(unittest.TestCase):
 
                 self.assertEqual(cache["en"][1], new_stories)
 
-    def test_news_status_poll_reports_state_without_triggering_refresh(self):
+    def test_news_status_poll_reports_state_without_triggering_refresh_or_database_toggle_reads(self):
         with patch.object(world_pulse, "_maybe_start_refresh") as maybe_refresh:
             with patch.object(world_pulse, "_db_last_fetched_at", return_value=None) as last_fetched:
                 with patch.object(world_pulse, "_probe_database", return_value={"state": "not_configured", "error_code": "", "checked_at": None}):
                     with patch.object(world_pulse, "_database_url", return_value=""):
-                        with patch.object(world_pulse, "_control_enabled", return_value=True):
+                        with patch.object(world_pulse, "_control_enabled", return_value=True) as control_enabled:
                             with patch.object(world_pulse, "_presskit_provider_configured", return_value=False):
                                 with patch.object(world_pulse, "_news_setup_issues", return_value=[]):
                                     response = world_pulse.app.test_client().get("/api/news-status")
         self.assertEqual(response.status_code, 200)
         maybe_refresh.assert_not_called()
         last_fetched.assert_called_once_with(nonblocking=True)
+        control_enabled.assert_not_called()
 
     def test_nonblocking_last_fetched_timestamp_does_not_wait_for_database(self):
         cached = datetime(2026, 10, 25, 12, 0, tzinfo=timezone.utc)
@@ -1471,16 +1472,24 @@ class SiteExperienceTests(unittest.TestCase):
         thread.return_value.start.assert_called_once()
         self.assertTrue(thread.call_args.kwargs["daemon"])
 
-    def test_display_cache_startup_warmup_schedules_both_languages(self):
+    def test_display_cache_startup_warmup_starts_one_background_worker(self):
         with patch.object(world_pulse, "_DISPLAY_CACHE_WARMUP_ENABLED", True):
             with patch.object(world_pulse, "NEWS_AUTO_FETCH", True):
                 with patch.object(world_pulse, "NEWS_SCHEDULER_ENABLED", True):
                     with patch.object(world_pulse, "_DISPLAY_CACHE_WARMUP_STARTED", False):
-                        with patch.object(world_pulse, "_refresh_display_stories_cache_async") as refresh:
+                        with patch.object(world_pulse.threading, "Thread") as thread:
                             world_pulse._start_display_cache_warmup()
 
+        thread.assert_called_once()
+        self.assertEqual(thread.call_args.kwargs["name"], "world-pulse-display-cache-warmup")
+        self.assertTrue(thread.call_args.kwargs["daemon"])
+
+    def test_display_cache_warmup_visits_both_languages_serially(self):
+        with patch.object(world_pulse, "_get_display_stories") as get_display:
+            world_pulse._warm_display_caches_in_background()
+
         self.assertEqual(
-            [call.args[0] for call in refresh.call_args_list],
+            [call.args[0] for call in get_display.call_args_list],
             ["ar", "en"],
         )
 
