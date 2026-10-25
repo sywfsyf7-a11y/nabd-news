@@ -704,7 +704,6 @@ _LAST_DB_STATUS: dict[str, Any] = {"state": "unknown", "error_code": "", "checke
 _DB_LAST_FETCHED_VALUE: datetime | None = None
 _DB_LAST_FETCHED_CHECKED = 0.0
 _DB_LAST_FETCHED_LOCK = threading.Lock()
-_DB_LAST_FETCHED_REFRESHING = False
 _DB_ARTICLE_CACHE_TTL_SECONDS = max(1, min(60, int(os.getenv("DB_ARTICLE_CACHE_TTL_SECONDS", "60"))))
 # Keep the active archive bounded, but reserve space for each news section and language.
 # A single newest-120-per-language window made Gaming/Science/etc. disappear behind
@@ -725,9 +724,6 @@ _DISPLAY_STORIES_CACHE_GENERATION = 0
 _DISPLAY_STORIES_BUILD_LOCKS = {lang: threading.Lock() for lang in ("ar", "en")}
 _DISPLAY_STORIES_REFRESHING: set[str] = set()
 _DISPLAY_STORIES_REFRESHING_LOCK = threading.Lock()
-_DISPLAY_CACHE_WARMUP_ENABLED = os.getenv("DISPLAY_CACHE_STARTUP_WARMUP", "true").lower() not in {"0", "false", "no"}
-_DISPLAY_CACHE_WARMUP_LOCK = threading.Lock()
-_DISPLAY_CACHE_WARMUP_STARTED = False
 # Gunicorn workers do not share Python dictionaries. Reuse normalized display pools from
 # the shared instance filesystem so sibling workers do not repeat cold display builds.
 _DISPLAY_SHARED_CACHE_PATH = os.getenv("WORLD_PULSE_DISPLAY_CACHE_FILE", "/tmp/world-pulse-display-cache.json")
@@ -925,7 +921,6 @@ CREATE TABLE IF NOT EXISTS world_pulse_articles (
     image_license_url TEXT NOT NULL DEFAULT '',
     image_checked_at TIMESTAMPTZ NULL,
     image_relevance_verified BOOLEAN NOT NULL DEFAULT FALSE,
-    image_relevance_version INTEGER NOT NULL DEFAULT 0,
     title_ar TEXT NOT NULL DEFAULT '',
     title_en TEXT NOT NULL DEFAULT '',
     summary_ar TEXT NOT NULL DEFAULT '',
@@ -937,12 +932,9 @@ CREATE TABLE IF NOT EXISTS world_pulse_articles (
     read_minutes INTEGER NOT NULL DEFAULT 1,
     original_language TEXT NOT NULL DEFAULT 'en',
     is_demo BOOLEAN NOT NULL DEFAULT FALSE,
-    is_hidden BOOLEAN NOT NULL DEFAULT FALSE,
-    editorial_layout TEXT NOT NULL DEFAULT 'summary_details'
+    is_hidden BOOLEAN NOT NULL DEFAULT FALSE
 );
-ALTER TABLE world_pulse_articles ADD COLUMN IF NOT EXISTS editorial_layout TEXT NOT NULL DEFAULT 'summary_details';
 ALTER TABLE world_pulse_articles ADD COLUMN IF NOT EXISTS image_relevance_verified BOOLEAN NOT NULL DEFAULT FALSE;
-ALTER TABLE world_pulse_articles ADD COLUMN IF NOT EXISTS image_relevance_version INTEGER NOT NULL DEFAULT 0;
 CREATE INDEX IF NOT EXISTS idx_world_pulse_published
     ON world_pulse_articles (published_at DESC NULLS LAST);
 CREATE INDEX IF NOT EXISTS idx_world_pulse_category
@@ -1450,7 +1442,7 @@ def _run_content_quality_audit_once(*, force: bool = False) -> None:
         cursor.execute("""
             SELECT id, slug, source_url, category, source_name, source_domain, image_url,
                    image_source, image_credit, image_credit_url, image_provider_url,
-                   image_license_url, image_checked_at, editorial_layout, title_ar, title_en, summary_ar,
+                   image_license_url, image_checked_at, title_ar, title_en, summary_ar,
                    summary_en, content_ar, content_en, published_at, fetched_at,
                    original_language, is_demo
             FROM world_pulse_articles
@@ -1801,10 +1793,6 @@ def _read_shared_archive_cache(*, max_age_seconds: int | None = None) -> tuple[l
             if not isinstance(stored, dict):
                 continue
             row = dict(stored)
-            # Snapshots written before the relevance-version migration must be treated
-            # as old image decisions, not trusted merely because their legacy boolean
-            # was true.
-            row.setdefault("image_relevance_version", 0)
             for key in ("published_at", "fetched_at", "image_checked_at"):
                 value = row.get(key)
                 if isinstance(value, str):
@@ -1977,7 +1965,7 @@ def _query_persistent_archive_rows() -> list[dict[str, Any]] | None:
                 WITH arabic_ranked AS (
                     SELECT slug, source_url, category, source_name, source_domain, image_url,
                            image_source, image_credit, image_credit_url, image_provider_url,
-                           image_license_url, image_checked_at, image_relevance_verified, image_relevance_version, editorial_layout,
+                           image_license_url, image_checked_at, image_relevance_verified,
                            title_ar, title_en, summary_ar, summary_en,
                            content_ar, content_en, published_at, fetched_at,
                            read_minutes, original_language, is_demo,
@@ -2000,7 +1988,7 @@ def _query_persistent_archive_rows() -> list[dict[str, Any]] | None:
                 english_ranked AS (
                     SELECT slug, source_url, category, source_name, source_domain, image_url,
                            image_source, image_credit, image_credit_url, image_provider_url,
-                           image_license_url, image_checked_at, image_relevance_verified, image_relevance_version, editorial_layout,
+                           image_license_url, image_checked_at, image_relevance_verified,
                            title_ar, title_en, summary_ar, summary_en,
                            content_ar, content_en, published_at, fetched_at,
                            read_minutes, original_language, is_demo,
@@ -2023,7 +2011,7 @@ def _query_persistent_archive_rows() -> list[dict[str, Any]] | None:
                 SELECT * FROM (
                     SELECT slug, source_url, category, source_name, source_domain, image_url,
                            image_source, image_credit, image_credit_url, image_provider_url,
-                           image_license_url, image_checked_at, image_relevance_verified, image_relevance_version, editorial_layout,
+                           image_license_url, image_checked_at, image_relevance_verified,
                            title_ar, title_en, summary_ar, summary_en,
                            content_ar, content_en, published_at, fetched_at,
                            read_minutes, original_language, is_demo
@@ -2032,7 +2020,7 @@ def _query_persistent_archive_rows() -> list[dict[str, Any]] | None:
                     UNION ALL
                     SELECT slug, source_url, category, source_name, source_domain, image_url,
                            image_source, image_credit, image_credit_url, image_provider_url,
-                           image_license_url, image_checked_at, image_relevance_verified, image_relevance_version, editorial_layout,
+                           image_license_url, image_checked_at, image_relevance_verified,
                            title_ar, title_en, summary_ar, summary_en,
                            content_ar, content_en, published_at, fetched_at,
                            read_minutes, original_language, is_demo
@@ -2198,9 +2186,8 @@ def _db_fetch_article_by_slug(slug: str) -> dict[str, Any] | None:
             columns = """
                 slug, source_url, category, source_name, source_domain, image_url,
                 image_source, image_credit, image_credit_url, image_provider_url, image_license_url,
-                image_checked_at, image_relevance_verified, image_relevance_version, editorial_layout,
-                title_ar, title_en, summary_ar, summary_en, content_ar, content_en, published_at, fetched_at,
-                read_minutes, original_language, is_demo
+                image_checked_at, image_relevance_verified, title_ar, title_en, summary_ar, summary_en,
+                content_ar, content_en, published_at, fetched_at, read_minutes, original_language, is_demo
             """
             cur.execute(f"""
                 SELECT {columns}
@@ -2317,7 +2304,7 @@ def _db_fetch_related_articles(
                 cur.execute(f"""
                     SELECT slug, source_url, category, source_name, source_domain, image_url,
                            image_source, image_credit, image_credit_url, image_provider_url,
-                           image_license_url, image_checked_at, image_relevance_verified, image_relevance_version, editorial_layout,
+                           image_license_url, image_checked_at, image_relevance_verified,
                            title_ar, title_en, summary_ar, summary_en, content_ar, content_en,
                            published_at, fetched_at, read_minutes, original_language, is_demo
                     FROM world_pulse_articles
@@ -2375,7 +2362,7 @@ def _db_search_articles(query: str, limit: int = 60) -> list[dict[str, Any]] | N
         params.extend([like_value] * len(fields))
     sql = """
         SELECT slug, source_url, category, source_name, source_domain, image_url,
-               image_source, image_credit, image_credit_url, image_provider_url, image_license_url, image_checked_at, image_relevance_verified, image_relevance_version,
+               image_source, image_credit, image_credit_url, image_provider_url, image_license_url, image_checked_at, image_relevance_verified,
                title_ar, title_en, summary_ar, summary_en, content_ar, content_en,
                published_at, fetched_at, read_minutes, original_language, is_demo
         FROM world_pulse_articles
@@ -2416,14 +2403,13 @@ def _db_fetch_articles_needing_editorial(limit: int = 4) -> list[dict[str, Any]]
             cur.execute("""
                 SELECT slug, source_url, category, source_name, source_domain, image_url,
                        image_source, image_credit, image_credit_url, image_provider_url, image_license_url, image_checked_at,
-                       editorial_layout, title_ar, title_en, summary_ar, summary_en,
+                       title_ar, title_en, summary_ar, summary_en,
                        content_ar, content_en, published_at, fetched_at,
                        read_minutes, original_language, is_demo
                 FROM world_pulse_articles
                  WHERE is_demo = FALSE
                    AND is_hidden = FALSE
                    AND source_url <> ''
-                   AND COALESCE(image_source, '') <> 'gemini_generated'
                    AND (COALESCE(title_ar, '') <> '' OR COALESCE(title_en, '') <> '')
                   AND (
                     LENGTH(TRIM(COALESCE(content_ar, ''))) < 250
@@ -2451,45 +2437,38 @@ def _db_fetch_articles_needing_images(limit: int = 6) -> list[dict[str, Any]]:
             cur.execute("""
                 SELECT slug, source_url, category, source_name, source_domain, image_url,
                        image_source, image_credit, image_credit_url, image_provider_url,
-                       image_license_url, image_checked_at, image_relevance_verified, image_relevance_version, title_ar, title_en,
+                       image_license_url, image_checked_at, image_relevance_verified, title_ar, title_en,
                        summary_ar, summary_en, content_ar, content_en, published_at,
                        fetched_at, read_minutes, original_language, is_demo
                 FROM world_pulse_articles
                  WHERE is_demo = FALSE
                    AND is_hidden = FALSE
                    AND source_url <> ''
-                   AND COALESCE(image_source, '') <> 'gemini_generated'
                    AND (
-                     (
-                       COALESCE(image_relevance_version, 0) < %s
-                       AND COALESCE(image_url, '') <> ''
-                       AND image_source NOT IN ('fallback_ar', 'fallback_en', 'language_fallback',
-                                                'pexels_api', 'unsplash_api', 'category',
-                                                'duplicate_removed', 'none', 'gemini_generated')
-                     )
-                     OR (
-                       (
-                         COALESCE(image_relevance_verified, FALSE) = FALSE
-                         OR COALESCE(image_url, '') = ''
-                         OR image_source IN ('fallback_ar', 'fallback_en', 'language_fallback',
-                                             'pexels_api', 'unsplash_api', 'category',
-                                             'duplicate_removed', 'none')
-                         OR image_url IN ('/static/A.jpg', '/static/E.jpg')
-                       )
-                       AND (image_checked_at IS NULL OR image_checked_at < NOW() - (%s * INTERVAL '1 hour'))
-                     )
-                     OR (
-                       COALESCE(image_url, '') <> ''
-                       AND image_source NOT IN ('fallback_ar', 'fallback_en', 'language_fallback',
-                                                'pexels_api', 'unsplash_api', 'category',
-                                                'duplicate_removed', 'none', 'gemini_generated')
-                       AND (image_checked_at IS NULL OR image_checked_at < NOW() - (%s * INTERVAL '1 second'))
-                     )
-                   )
-                ORDER BY image_relevance_version ASC, image_relevance_verified ASC, image_checked_at ASC NULLS FIRST,
+                    COALESCE(image_relevance_verified, FALSE) = FALSE
+                    OR 
+                    (
+                      (
+                        COALESCE(image_url, '') = ''
+                        OR image_source IN ('fallback_ar', 'fallback_en', 'language_fallback',
+                                            'pexels_api', 'unsplash_api', 'category',
+                                            'duplicate_removed', 'none')
+                        OR image_url IN ('/static/A.jpg', '/static/E.jpg')
+                      )
+                      AND (image_checked_at IS NULL OR image_checked_at < NOW() - (%s * INTERVAL '1 hour'))
+                    )
+                    OR (
+                      COALESCE(image_url, '') <> ''
+                      AND image_source NOT IN ('fallback_ar', 'fallback_en', 'language_fallback',
+                                               'pexels_api', 'unsplash_api', 'category',
+                                               'duplicate_removed', 'none')
+                      AND (image_checked_at IS NULL OR image_checked_at < NOW() - (%s * INTERVAL '1 second'))
+                    )
+                  )
+                ORDER BY image_relevance_verified ASC, image_checked_at ASC NULLS FIRST,
                          COALESCE(published_at, fetched_at) DESC, fetched_at DESC
                 LIMIT %s
-            """, (IMAGE_RELEVANCE_VERSION, IMAGE_RETRY_AFTER_HOURS, IMAGE_CACHE_MAX_AGE_SECONDS, max(1, min(24, int(limit)))))
+            """, (IMAGE_RETRY_AFTER_HOURS, IMAGE_CACHE_MAX_AGE_SECONDS, max(1, min(24, int(limit)))))
             return [dict(row) for row in cur.fetchall()]
     except Exception as exc:
         logger.debug("Image backfill query failed (%s)", type(exc).__name__)
@@ -2502,7 +2481,6 @@ def _sync_cached_image_metadata(articles: list[dict[str, Any]]) -> None:
     image_fields = (
         "image_url", "image_source", "image_credit", "image_credit_url",
         "image_provider_url", "image_license_url", "image_checked_at", "image_relevance_verified",
-        "image_relevance_version",
     )
     by_url: dict[str, dict[str, Any]] = {}
     for item in articles:
@@ -2510,7 +2488,7 @@ def _sync_cached_image_metadata(articles: list[dict[str, Any]]) -> None:
         if not key:
             continue
         source = str(item.get("image_source") or "none")
-        allowed = (source in TRUSTED_REUSABLE_IMAGE_SOURCES and item.get("image_relevance_verified") is True and _image_relevance_is_current(item) and bool(item.get("image_url")) and _image_license_verified(item))
+        allowed = (source in TRUSTED_REUSABLE_IMAGE_SOURCES and item.get("image_relevance_verified") is True and bool(item.get("image_url")) and _image_license_verified(item))
         by_url[key] = {
             "image_url": str(item.get("image_url") or "") if allowed else "",
             "image_source": source if allowed else "none",
@@ -2520,7 +2498,6 @@ def _sync_cached_image_metadata(articles: list[dict[str, Any]]) -> None:
             "image_license_url": str(item.get("image_license_url") or "") if allowed else "",
             "image_checked_at": item.get("image_checked_at") or datetime.now(timezone.utc),
             "image_relevance_verified": bool(allowed),
-            "image_relevance_version": IMAGE_RELEVANCE_VERSION if allowed else 0,
         }
     if not by_url:
         return
@@ -2593,14 +2570,13 @@ def _db_update_article_images(articles: list[dict[str, Any]]) -> int:
                         image_url = %s, image_source = %s, image_credit = %s,
                         image_credit_url = %s, image_provider_url = %s,
                         image_license_url = %s, image_checked_at = %s,
-                        image_relevance_verified = %s, image_relevance_version = %s
+                        image_relevance_verified = %s
                     WHERE source_url = %s AND is_demo = FALSE
                 """, (
                     image_url, source, str(item.get("image_credit") or ""),
                     str(item.get("image_credit_url") or ""), str(item.get("image_provider_url") or ""),
                     str(item.get("image_license_url") or ""), item.get("image_checked_at") or datetime.now(timezone.utc),
                     bool(item.get("image_relevance_verified") is True and image_url and source in TRUSTED_REUSABLE_IMAGE_SOURCES and _image_license_verified(item)),
-                    IMAGE_RELEVANCE_VERSION if item.get("image_relevance_verified") is True and image_url and source in TRUSTED_REUSABLE_IMAGE_SOURCES and _image_license_verified(item) else 0,
                     item["source_url"],
                 ))
                 updated += cur.rowcount
@@ -2653,16 +2629,14 @@ def _raw_from_stored_article(row: dict[str, Any]) -> dict[str, Any]:
         "category": row.get("category", "world"),
         "source_name": row.get("source_name", ""),
         "source_domain": row.get("source_domain", ""),
-        "image_url": row.get("image_url", "") if row.get("image_source") in TRUSTED_REUSABLE_IMAGE_SOURCES and row.get("image_relevance_verified") is True and _image_relevance_is_current(row) else "",
-        "image_source": row.get("image_source", "") if row.get("image_source") in TRUSTED_REUSABLE_IMAGE_SOURCES and row.get("image_relevance_verified") is True and _image_relevance_is_current(row) else "none",
+        "image_url": row.get("image_url", "") if row.get("image_source") in TRUSTED_REUSABLE_IMAGE_SOURCES else "",
+        "image_source": row.get("image_source", "") if row.get("image_source") in TRUSTED_REUSABLE_IMAGE_SOURCES else "none",
         "image_credit": row.get("image_credit", "") if row.get("image_source") in TRUSTED_REUSABLE_IMAGE_SOURCES else "",
         "image_credit_url": row.get("image_credit_url", "") if row.get("image_source") in TRUSTED_REUSABLE_IMAGE_SOURCES else "",
         "image_provider_url": row.get("image_provider_url", "") if row.get("image_source") in TRUSTED_REUSABLE_IMAGE_SOURCES else "",
         "image_license_url": row.get("image_license_url", "") if row.get("image_source") in TRUSTED_REUSABLE_IMAGE_SOURCES else "",
         "image_checked_at": row.get("image_checked_at"),
         "image_relevance_verified": row.get("image_relevance_verified") is True,
-        "image_relevance_version": row.get("image_relevance_version", 0),
-        "editorial_layout": str(row.get("editorial_layout") or "summary_details"),
         "original_title": title,
         "original_summary": summary,
         "original_language": original_language,
@@ -2671,45 +2645,14 @@ def _raw_from_stored_article(row: dict[str, Any]) -> dict[str, Any]:
         "headline_only": _is_headline_only_domain(str(row.get("source_domain") or "")),
     }
 
-def _refresh_db_last_fetched_at_in_background() -> None:
-    global _DB_LAST_FETCHED_REFRESHING
-    try:
-        _db_last_fetched_at(nonblocking=False)
-    finally:
-        with _DB_LAST_FETCHED_LOCK:
-            _DB_LAST_FETCHED_REFRESHING = False
-
-
-def _db_last_fetched_at(*, nonblocking: bool = False) -> datetime | None:
-    """Read the latest fetch timestamp; public status polling may opt into stale-while-revalidate."""
-    global _DB_LAST_FETCHED_CHECKED, _DB_LAST_FETCHED_VALUE, _DB_LAST_FETCHED_REFRESHING
+def _db_last_fetched_at() -> datetime | None:
+    global _DB_LAST_FETCHED_CHECKED, _DB_LAST_FETCHED_VALUE
     now = time.monotonic()
     with _DB_LAST_FETCHED_LOCK:
-        if _DB_LAST_FETCHED_CHECKED > 0 and now - _DB_LAST_FETCHED_CHECKED < 60:
+        if now - _DB_LAST_FETCHED_CHECKED < 60:
             return _DB_LAST_FETCHED_VALUE
+        _DB_LAST_FETCHED_CHECKED = now
         cached_value = _DB_LAST_FETCHED_VALUE
-        if nonblocking:
-            if _DB_LAST_FETCHED_REFRESHING:
-                return cached_value
-            _DB_LAST_FETCHED_REFRESHING = True
-        else:
-            _DB_LAST_FETCHED_CHECKED = now
-
-    if nonblocking:
-        # The public status endpoint should never occupy a Gunicorn request thread while
-        # waiting for a scarce Supabase connection. Return its last known value and refresh
-        # the optional timestamp in the background; news pages and archive reads are separate.
-        try:
-            threading.Thread(
-                target=_refresh_db_last_fetched_at_in_background,
-                name="world-pulse-last-fetched-refresh",
-                daemon=True,
-            ).start()
-        except RuntimeError:
-            with _DB_LAST_FETCHED_LOCK:
-                _DB_LAST_FETCHED_REFRESHING = False
-        return cached_value
-
     if not _ensure_schema():
         return cached_value
     conn = _connect_db()
@@ -2744,12 +2687,12 @@ def _db_upsert_many(articles: list[dict[str, Any]]) -> bool:
         INSERT INTO world_pulse_articles (
             slug, source_url, category, source_name, source_domain, image_url,
             image_source, image_credit, image_credit_url, image_provider_url, image_license_url, image_checked_at,
-            editorial_layout, title_ar, title_en, summary_ar, summary_en, content_ar, content_en,
+            title_ar, title_en, summary_ar, summary_en, content_ar, content_en,
             published_at, fetched_at, read_minutes, original_language, is_demo
         ) VALUES (
             %(slug)s, %(source_url)s, %(category)s, %(source_name)s, %(source_domain)s, %(image_url)s,
             %(image_source)s, %(image_credit)s, %(image_credit_url)s, %(image_provider_url)s, %(image_license_url)s, %(image_checked_at)s,
-            %(editorial_layout)s, %(title_ar)s, %(title_en)s, %(summary_ar)s, %(summary_en)s, %(content_ar)s, %(content_en)s,
+            %(title_ar)s, %(title_en)s, %(summary_ar)s, %(summary_en)s, %(content_ar)s, %(content_en)s,
             %(published_at)s, NOW(),
             %(read_minutes)s, %(original_language)s, FALSE
         )
@@ -2758,43 +2701,30 @@ def _db_upsert_many(articles: list[dict[str, Any]]) -> bool:
             source_name = EXCLUDED.source_name,
             source_domain = CASE WHEN EXCLUDED.source_domain <> '' THEN EXCLUDED.source_domain ELSE world_pulse_articles.source_domain END,
             image_url = CASE
-                WHEN world_pulse_articles.image_source = 'gemini_generated' AND world_pulse_articles.image_url <> ''
-                    THEN world_pulse_articles.image_url
                 WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'openverse_licensed', 'loc_open_access', 'nasa_images', 'artic_open_access', 'met_open_access', 'cleveland_museum_open_access', 'wellcome_open_access', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
                     THEN world_pulse_articles.image_url
                 ELSE EXCLUDED.image_url END,
             image_source = CASE
-                WHEN world_pulse_articles.image_source = 'gemini_generated' AND world_pulse_articles.image_url <> ''
-                    THEN world_pulse_articles.image_source
                 WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'openverse_licensed', 'loc_open_access', 'nasa_images', 'artic_open_access', 'met_open_access', 'cleveland_museum_open_access', 'wellcome_open_access', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
                     THEN world_pulse_articles.image_source
                 ELSE EXCLUDED.image_source END,
             image_credit = CASE
-                WHEN world_pulse_articles.image_source = 'gemini_generated' AND world_pulse_articles.image_url <> ''
-                    THEN world_pulse_articles.image_credit
                 WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'openverse_licensed', 'loc_open_access', 'nasa_images', 'artic_open_access', 'met_open_access', 'cleveland_museum_open_access', 'wellcome_open_access', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
                     THEN world_pulse_articles.image_credit
                 ELSE EXCLUDED.image_credit END,
             image_credit_url = CASE
-                WHEN world_pulse_articles.image_source = 'gemini_generated' AND world_pulse_articles.image_url <> ''
-                    THEN world_pulse_articles.image_credit_url
                 WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'openverse_licensed', 'loc_open_access', 'nasa_images', 'artic_open_access', 'met_open_access', 'cleveland_museum_open_access', 'wellcome_open_access', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
                     THEN world_pulse_articles.image_credit_url
                 ELSE EXCLUDED.image_credit_url END,
             image_provider_url = CASE
-                WHEN world_pulse_articles.image_source = 'gemini_generated' AND world_pulse_articles.image_url <> ''
-                    THEN world_pulse_articles.image_provider_url
                 WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'openverse_licensed', 'loc_open_access', 'nasa_images', 'artic_open_access', 'met_open_access', 'cleveland_museum_open_access', 'wellcome_open_access', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
                     THEN world_pulse_articles.image_provider_url
                 ELSE EXCLUDED.image_provider_url END,
             image_license_url = CASE
-                WHEN world_pulse_articles.image_source = 'gemini_generated' AND world_pulse_articles.image_url <> ''
-                    THEN world_pulse_articles.image_license_url
                 WHEN EXCLUDED.image_source IN ('category', 'none') AND world_pulse_articles.image_source IN ('wikimedia_relevant', 'openverse_licensed', 'loc_open_access', 'nasa_images', 'artic_open_access', 'met_open_access', 'cleveland_museum_open_access', 'wellcome_open_access', 'presskit_approved', 'gemini_generated') AND world_pulse_articles.image_url <> ''
                     THEN world_pulse_articles.image_license_url
                 ELSE EXCLUDED.image_license_url END,
             image_checked_at = COALESCE(EXCLUDED.image_checked_at, world_pulse_articles.image_checked_at),
-            editorial_layout = world_pulse_articles.editorial_layout,
             title_ar = CASE WHEN EXCLUDED.title_ar <> '' THEN EXCLUDED.title_ar ELSE world_pulse_articles.title_ar END,
             title_en = CASE WHEN EXCLUDED.title_en <> '' THEN EXCLUDED.title_en ELSE world_pulse_articles.title_en END,
             summary_ar = CASE WHEN EXCLUDED.summary_ar <> '' THEN EXCLUDED.summary_ar ELSE world_pulse_articles.summary_ar END,
@@ -2805,17 +2735,11 @@ def _db_upsert_many(articles: list[dict[str, Any]]) -> bool:
             fetched_at = NOW(),
             read_minutes = GREATEST(EXCLUDED.read_minutes, 1),
             original_language = EXCLUDED.original_language
-        RETURNING editorial_layout
     """
     try:
         with conn.cursor() as cur:
             for article in articles:
                 cur.execute(sql, article)
-                saved_layout = cur.fetchone()
-                if saved_layout and saved_layout[0]:
-                    # The database is authoritative if a queued URL turned out to be
-                    # an already archived story outside the warm display window.
-                    article["editorial_layout"] = str(saved_layout[0])
         conn.commit()
         # Update the shared warm snapshot rather than forcing the next page view to
         # reconnect to PostgreSQL and rebuild the complete article pool.
@@ -3009,31 +2933,8 @@ def _image_tokens(value: str) -> set[str]:
 
 # Reject borderline matches for photos presented as documenting the specific story.
 # A separate, lower threshold is allowed only for explicitly labelled category art.
-MIN_IMAGE_RELEVANCE_SCORE = 0.46
-MIN_CATEGORY_IMAGE_RELEVANCE_SCORE = 0.30
-# Increment whenever matching semantics change. Old saved decisions are rechecked
-# gradually rather than trusting image matches made by an older, looser matcher.
-IMAGE_RELEVANCE_VERSION = 2
-
-
-def _image_relevance_is_current(row: dict[str, Any]) -> bool:
-    # First-party AI illustrations are generated/uploaded specifically for an article.
-    # They are not catalogue-search matches, so a catalogue scoring-version bump must
-    # never hide them from readers or queue them for external-photo replacement.
-    if (
-        str(row.get("image_source") or "").casefold() == "gemini_generated"
-        and _image_license_verified(row)
-    ):
-        return True
-    version = row.get("image_relevance_version")
-    if version is None:
-        # Compatibility for temporary in-memory objects. PostgreSQL rows are migrated
-        # with version 0, so saved external matches must pass the version check.
-        return row.get("image_relevance_verified") is True
-    try:
-        return int(version) == IMAGE_RELEVANCE_VERSION
-    except (TypeError, ValueError):
-        return False
+MIN_IMAGE_RELEVANCE_SCORE = 0.40
+MIN_CATEGORY_IMAGE_RELEVANCE_SCORE = 0.26
 
 
 def _image_match_score(title: str, description: str) -> float:
@@ -3044,31 +2945,14 @@ def _image_match_score(title: str, description: str) -> float:
     image_tokens = _image_tokens(description)
     overlap = title_tokens & image_tokens
     overlap_count = len(overlap)
-    # A shared country name or office title is not enough to document a specific event.
-    # For longer headlines, require a matching subject/action term beyond generic
-    # location and press-conference language before accepting the photo.
-    non_subject = {
-        "iran", "iranian", "iraq", "iraqi", "syria", "syrian", "russia", "russian",
-        "ukraine", "ukrainian", "china", "chinese", "israel", "israeli", "palestine",
-        "palestinian", "gaza", "american", "america", "united", "states", "britain",
-        "british", "france", "french", "germany", "german", "saudi", "arabia",
-        "jordan", "jordanian", "egypt", "egyptian", "turkey", "turkish", "official",
-        "officials", "politician", "politicians", "president", "minister", "ministers",
-        "leader", "leaders", "government", "spokesperson", "spokesman", "spokeswoman",
-        "meeting", "talks", "statement", "statements", "إيران", "ايران", "العراق",
-        "سوريا", "روسيا", "أوكرانيا", "الصين", "إسرائيل", "اسرائيل", "فلسطين",
-        "غزة", "الأردن", "الاردن", "مصر", "السعودية", "مسؤول", "مسؤولون",
-        "الرئيس", "وزير", "وزراء", "حكومة", "سياسي", "سياسيون", "متحدث",
-        "قادة", "اجتماع", "محادثات",
-    }
-    subject_overlap = overlap - non_subject
+    # A country/person name alone is not enough for a long news headline. Otherwise,
+    # a generic portrait mentioning "Iran" can pass for a story about oil tankers or a
+    # maritime blockade. Require at least two matching topic terms for longer queries.
     required = 1 if len(title_tokens) <= 2 else 2
+    overlap_ratio = overlap_count / max(1, len(title_tokens))
     if overlap_count < required:
         return 0.0
-    if len(title_tokens) >= 4 and not subject_overlap:
-        return 0.0
-    overlap_ratio = overlap_count / max(1, len(title_tokens))
-    if overlap_ratio < 0.10:
+    if overlap_ratio < 0.08:
         return 0.0
     return overlap_ratio + min(overlap_count, 4) * 0.025
 
@@ -3108,7 +2992,7 @@ def _image_search_query(title: str, context: str = "") -> str:
     context_phrase = _image_search_phrase(context, 4)
     seen = _image_tokens(headline_phrase)
     tail: list[str] = []
-    for word in re.findall(r"[A-Za-z0-9][A-Za-z0-9'’-]*|[\u0600-\u06ff]{3,}", context_phrase):
+    for word in re.findall(r"[A-Za-z0-9][A-Za-z0-9'’-]*|[\\u0600-\\u06ff]{3,}", context_phrase):
         key = word.casefold().strip("'-’")
         if len(key) < 3 or key in seen:
             continue
@@ -4562,9 +4446,7 @@ def _search_article_image_with_variants(
             best = dict(result)
             best["_image_relevance_score"] = score
             best_is_category_fallback = is_category_fallback
-        if score >= 0.72 and not is_category_fallback:
-            # Only skip alternate searches when metadata strongly matches the story.
-            # Medium-score results must compete with more specific query variants.
+        if score >= 0.42:
             break
     if not best:
         return {}
@@ -4576,7 +4458,6 @@ def _search_article_image_with_variants(
     best.pop("_image_relevance_score", None)
     best.pop("_image_relevance_evidence", None)
     best["image_relevance_verified"] = bool(best.get("image_url"))
-    best["image_relevance_version"] = IMAGE_RELEVANCE_VERSION if best.get("image_url") else 0
     if best.get("image_url"):
         logger.info(
             "Image search selected source=%s relevance=%.3f",
@@ -4625,7 +4506,6 @@ def _resolve_article_image(raw: dict[str, Any]) -> dict[str, Any]:
     source = str(raw.get("image_source") or "")
     if (existing and source in TRUSTED_REUSABLE_IMAGE_SOURCES and existing not in LEGACY_IMAGE_URLS
             and raw.get("image_relevance_verified") is True
-            and _image_relevance_is_current(raw)
             and _image_license_verified(raw) and _control_enabled(f"image:{source}", True)):
         checked = raw.get("image_checked_at")
         if isinstance(checked, str):
@@ -4645,7 +4525,6 @@ def _resolve_article_image(raw: dict[str, Any]) -> dict[str, Any]:
                 "image_license_url": raw.get("image_license_url") or "",
                 "image_checked_at": checked,
                 "image_relevance_verified": True,
-                "image_relevance_version": IMAGE_RELEVANCE_VERSION,
             }
 
     search_title = _clean_text(raw.get("image_search_title") or raw.get("original_title") or "", 240)
@@ -4676,7 +4555,6 @@ def _resolve_article_image(raw: dict[str, Any]) -> dict[str, Any]:
         if (
             fallback_url and fallback_source in TRUSTED_REUSABLE_IMAGE_SOURCES
             and fallback.get("image_relevance_verified") is True
-            and _image_relevance_is_current(fallback)
             and _image_license_verified(fallback)
             and _control_enabled(f"image:{fallback_source}", True)
         ):
@@ -4726,7 +4604,6 @@ def _enrich_article_images(raw_articles: list[dict[str, Any]], *, force_refresh:
             not force_refresh
             and input_source in TRUSTED_REUSABLE_IMAGE_SOURCES
             and item.get("image_relevance_verified") is True
-            and _image_relevance_is_current(item)
             and not item.get("_revalidating_cached_image")
             and _control_enabled(f"image:{input_source}", True)
             and item.get("image_url") and isinstance(input_checked, datetime)
@@ -4744,7 +4621,6 @@ def _enrich_article_images(raw_articles: list[dict[str, Any]], *, force_refresh:
         if (
             cached and cached.get("image_url") and cached_source in TRUSTED_REUSABLE_IMAGE_SOURCES
             and cached.get("image_relevance_verified") is True
-            and _image_relevance_is_current(cached)
             and not item.get("_revalidating_cached_image")
             and _control_enabled(f"image:{cached_source}", True)
         ):
@@ -5595,7 +5471,6 @@ def _base_article(raw: dict[str, Any]) -> dict[str, Any]:
         "published_at": raw.get("published_at"),
         "read_minutes": 1,
         "original_language": original_lang,
-        "editorial_layout": str(raw.get("editorial_layout") or "summary_details"),
         "is_demo": False,
         "fetched_at": datetime.now(timezone.utc),
     }
@@ -5762,10 +5637,10 @@ Strict editorial rules:
 - Write an independent editorial synthesis, not a line-by-line paraphrase and not a synonym swap. Add value through clear selection, explanation of the reported change, and organization of supported facts—not by adding unsupported outside context.
 - Do not reproduce a publisher's article, distinctive long phrases, quotes, or its original paragraph structure. No fabricated quotes, citations, or claims of independent verification.
 - If the source is restricted to headline-and-link-only mode, do not summarize its body or invent supporting details. If the available excerpt is too thin for a useful brief, keep the item as a source link rather than padding a thin on-site page.
-- For a normal-mode source with enough evidence, write a substantive original details section of 3–5 well-paced paragraphs, usually 220–320 words in each language when the supplied headline and short excerpt genuinely support that level of detail. Organize supported facts in a clear order: what was reported, who or what is involved, the evidence stated by the source, and any next step or consequence mentioned by the source. Keep each detail traceable to the supplied excerpt. If the source does not support a report of that length, write a shorter accurate brief and never pad it with generic background, repeated claims, or invented context.
+- For a normal-mode source with enough evidence, write a substantive original report of 2–4 short paragraphs, usually 140–220 words in each language. Organize the supported facts in a clear order and explain what changed, who is involved, and what the source says happens next only when those points are actually present in the excerpt. If the source does not support a report of that length, write a shorter accurate brief and never pad it with generic background or invented context.
 - Write concise Arabic and English headlines, ideally no more than 70 characters in Arabic and 90 in English. Keep the title as a headline, not a sentence-length summary.
-- Keep the internal/card summary distinct from the title and limited to 1–2 sentences. It remains available for homepage cards and metadata, but new article pages display the headline and details without a separate executive-summary panel.
-- The details section is the main article body: develop the reported event using supported facts beyond the headline. If only one verifiable fact is available, make that limitation clear instead of artificially expanding the article. The original publisher URL must remain visible as the source.
+- The executive summary must be distinct from the title, specific to the story, and limited to 1–2 sentences. Never copy the headline into the summary or merely restate it with minor wording changes.
+- The details section must add distinct, source-supported facts beyond the headline and summary where the excerpt permits. If only one verifiable fact is available, make that limitation clear instead of artificially expanding the article. The original publisher URL must remain visible as the source.
 
 Stories to edit: {json.dumps(payload, ensure_ascii=False)}'''
 
@@ -6007,9 +5882,8 @@ def _translate_batch(raw_articles: list[dict[str, Any]]) -> dict[int, dict[str, 
         )
 
     result: dict[int, dict[str, str]] = {}
-    # Keep the established six-story batch for callers that legitimately process a wider
-    # repair set. The live publication queue normally sends just one new story plus at most
-    # one repair, and the larger output ceiling below gives those details more room.
+    # Six stories per request keeps twelve-story refreshes within the existing bounded
+    # API budget. Structured outputs plus concise bodies reduce truncation and malformed JSON.
     batch_size = 6
     client = None
     api_calls_used = 0
@@ -6054,7 +5928,7 @@ def _translate_batch(raw_articles: list[dict[str, Any]]) -> dict[int, dict[str, 
                 response_mime_type="application/json",
                 response_schema=EDITORIAL_RESPONSE_SCHEMA,
                 temperature=0.2,
-                max_output_tokens=6144,
+                max_output_tokens=4096,
             )
             # A syntactically invalid response is treated like a failed model attempt:
             # cool that model briefly, then try a different configured model if budget permits.
@@ -6979,15 +6853,6 @@ def _refresh_news_job() -> None:
         ready: list[dict[str, Any]] = []
         for index, raw in raw_to_publish:
             article_data = _base_article(raw)
-            # Only stories entering the archive from the persistent discovery queue use
-            # the new details-only article layout. Existing archive rows being repaired keep
-            # their saved/default layout and all previous editorial metadata.
-            article_key = _canonical_story_url(raw.get("source_url"))
-            article_data["editorial_layout"] = (
-                "details_only"
-                if article_key in selected_queue_keys and not raw.get("headline_only")
-                else str(raw.get("editorial_layout") or "summary_details")
-            )
             if index in translations:
                 article_data.update(translations[index])
             article_data["read_minutes"] = _reading_minutes(article_data)
@@ -7016,52 +6881,6 @@ def _refresh_news_job() -> None:
                 logger.warning("Story was saved, but its RSS queue acknowledgement will be retried")
 
         image_candidates = [raw for _index, raw in raw_to_publish]
-        # Reserve only the unused part of this tick's image-lookup budget for old
-        # saved images. This gradually rechecks legacy matches even while new stories
-        # remain queued, but never creates a second provider-search batch or increases
-        # the configured maximum number of lookups per refresh.
-        lookup_slots_left = max(
-            0,
-            MAX_IMAGE_LOOKUPS_PER_REFRESH
-            - sum(1 for item in image_candidates if not str(item.get("image_url") or "").strip()),
-        )
-        if lookup_slots_left:
-            already_selected = {
-                _canonical_story_url(item.get("source_url"))
-                for item in image_candidates
-                if _canonical_story_url(item.get("source_url"))
-            }
-            try:
-                review_rows = _db_fetch_articles_needing_images(
-                    limit=min(24, max(4, lookup_slots_left * 4, IMAGE_REVALIDATION_BATCH_SIZE))
-                )
-            except Exception as review_exc:
-                logger.debug("Legacy image revalidation selection failed (%s)", type(review_exc).__name__)
-                review_rows = []
-            reviewed = 0
-            for row in review_rows:
-                key = _canonical_story_url(row.get("source_url"))
-                if not key or key in already_selected:
-                    continue
-                old_image = _raw_from_stored_article(row)
-                native_lang = str(old_image.get("original_language") or "en").casefold()
-                title_value = str(old_image.get("original_title") or "").strip()
-                summary_value = str(old_image.get("original_summary") or "").strip()
-                if not title_value:
-                    continue
-                old_image["_revalidating_cached_image"] = True
-                old_image["image_search_title"] = title_value
-                old_image["image_search_context"] = summary_value
-                image_candidates.append(old_image)
-                already_selected.add(key)
-                reviewed += 1
-                if reviewed >= min(lookup_slots_left, IMAGE_REVALIDATION_BATCH_SIZE):
-                    break
-            if reviewed:
-                logger.info(
-                    "Legacy image decisions queued for stronger revalidation: candidates=%d remaining_lookup_budget=%d",
-                    reviewed, lookup_slots_left - reviewed,
-                )
         image_updates = 0
         images_found = 0
         try:
@@ -7071,7 +6890,6 @@ def _refresh_news_job() -> None:
             image_keys = (
                 "image_url", "image_source", "image_credit", "image_credit_url",
                 "image_provider_url", "image_license_url", "image_checked_at", "image_relevance_verified",
-                "image_relevance_version",
             )
             by_url = {str(item.get("source_url") or ""): item for item in image_candidates}
             for article_data in ready:
@@ -7366,7 +7184,6 @@ def _normalise_story(row: dict[str, Any], lang: str) -> dict[str, Any]:
         story.get("image_source") not in TRUSTED_REUSABLE_IMAGE_SOURCES
         or not _image_license_verified(story)
         or story.get("image_relevance_verified") is not True
-        or not _image_relevance_is_current(story)
     ):
         story.update({"image_url": "", "image_source": "none", "image_credit": "",
                       "image_credit_url": "", "image_provider_url": "", "image_license_url": "",
@@ -7414,15 +7231,6 @@ def _normalise_story(row: dict[str, Any], lang: str) -> dict[str, Any]:
         story["content"] = _clean_text(raw_content, 1200)
     story["title"] = _compact_display_title(raw_title, display_lang)
     story["summary"] = _distinct_executive_summary(raw_title, raw_summary, story["content"], display_lang)
-    story["editorial_layout"] = (
-        "details_only" if str(story.get("editorial_layout") or "summary_details") == "details_only"
-        else "summary_details"
-    )
-    # Keep restricted-source disclosure visible, while hiding the summary panel for new
-    # details-first articles only. Missing layout values on old records default to legacy UI.
-    story["show_executive_summary"] = (
-        story["editorial_layout"] != "details_only" or source_headline_only
-    )
     story["headline_only"] = source_headline_only
     if story["headline_only"]:
         story["summary"] = (
@@ -7697,31 +7505,6 @@ def _get_display_stories(lang: str) -> list[dict[str, Any]]:
             return [dict(row) for row in stories]
         finally:
             _archive_unlock(build_handle)
-
-
-def _start_display_cache_warmup() -> None:
-    """Warm both language-specific display pools asynchronously after worker import.
-
-    A cold display build currently has to validate, classify, deduplicate, and normalize
-    hundreds of saved stories. Warming in the background avoids making the first ordinary
-    visitor pay that cost after a deploy or worker restart.
-    """
-    global _DISPLAY_CACHE_WARMUP_STARTED
-    if (
-        not _DISPLAY_CACHE_WARMUP_ENABLED
-        or not NEWS_AUTO_FETCH
-        or not NEWS_SCHEDULER_ENABLED
-        or "--refresh-news" in sys.argv
-    ):
-        return
-    with _DISPLAY_CACHE_WARMUP_LOCK:
-        if _DISPLAY_CACHE_WARMUP_STARTED:
-            return
-        _DISPLAY_CACHE_WARMUP_STARTED = True
-    with _DISPLAY_STORIES_CACHE_LOCK:
-        generation = _DISPLAY_STORIES_CACHE_GENERATION
-    for lang in ("ar", "en"):
-        _refresh_display_stories_cache_async(lang, generation)
 
 
 def _safe_saved_article_permalink(row: dict[str, Any]) -> bool:
@@ -8078,8 +7861,7 @@ def article(slug: str):
 @app.get("/api/news-status")
 def news_status():
     # The scheduler runs independently; this endpoint only reports current status.
-    # Timestamp is diagnostic only. Do not make an ordinary status poll wait for PostgreSQL.
-    persisted_at = _db_last_fetched_at(nonblocking=True)
+    persisted_at = _db_last_fetched_at()
     # Public polling is frequent; report the latest cached DB status instead of opening a
     # separate SELECT 1 connection for every status refresh. The protected admin monitor
     # retains an explicit active DB probe.
@@ -8633,7 +8415,7 @@ def _admin_fetch_article_by_slug(slug: str) -> dict[str, Any] | None:
             cur.execute("""
                 SELECT slug, source_url, category, source_name, source_domain, image_url,
                        image_source, image_credit, image_credit_url, image_provider_url,
-                       image_license_url, image_checked_at, editorial_layout, title_ar, title_en, summary_ar,
+                       image_license_url, image_checked_at, title_ar, title_en, summary_ar,
                        summary_en, content_ar, content_en, published_at, fetched_at,
                        read_minutes, original_language, is_demo, is_hidden
                 FROM world_pulse_articles
@@ -8693,7 +8475,7 @@ def _admin_list_articles(
             cur.execute("""
                 SELECT slug, source_url, category, source_name, source_domain, image_url,
                        image_source, image_credit, image_credit_url, image_provider_url,
-                       image_license_url, image_checked_at, editorial_layout, title_ar, title_en, summary_ar,
+                       image_license_url, image_checked_at, title_ar, title_en, summary_ar,
                        summary_en, content_ar, content_en, published_at, fetched_at,
                        read_minutes, original_language, is_demo, is_hidden
                 FROM world_pulse_articles
@@ -8832,9 +8614,9 @@ def _admin_store_uploaded_image(
                         image_credit = %s, image_credit_url = '',
                         image_provider_url = 'https://ai.google.dev/gemini-api/docs/image-generation',
                         image_license_url = '', image_checked_at = NOW(),
-                        image_relevance_verified = TRUE, image_relevance_version = %s
+                        image_relevance_verified = TRUE
                     WHERE slug = %s AND is_demo = FALSE
-                """, ("/media/generated/" + image_id, "AI-generated illustration uploaded by site administrator", IMAGE_RELEVANCE_VERSION, slug))
+                """, ("/media/generated/" + image_id, "AI-generated illustration uploaded by site administrator", slug))
                 if cur.rowcount <= 0:
                     conn.rollback()
                     return "article_not_found"
@@ -8883,11 +8665,11 @@ def _admin_store_uploaded_image(
                 SET image_url = %s, image_source = 'admin_verified',
                     image_credit = %s, image_credit_url = %s, image_provider_url = %s,
                     image_license_url = %s, image_checked_at = NOW(),
-                    image_relevance_verified = TRUE, image_relevance_version = %s
+                    image_relevance_verified = TRUE
                 WHERE slug = %s AND is_demo = FALSE
             """, (
                 "/media/catalogued/" + image_id, credit, source_page_url,
-                source_page_url, license_url, IMAGE_RELEVANCE_VERSION, slug,
+                source_page_url, license_url, slug,
             ))
             changed = cur.rowcount > 0
             if not changed:
@@ -8978,7 +8760,7 @@ def _admin_create_article(values: dict[str, Any]) -> str:
                 INSERT INTO world_pulse_articles (
                     slug, source_url, category, source_name, source_domain, image_url,
                     image_source, image_credit, image_credit_url, image_provider_url,
-                    image_license_url, image_checked_at, editorial_layout, title_ar, title_en, summary_ar,
+                    image_license_url, image_checked_at, title_ar, title_en, summary_ar,
                     summary_en, content_ar, content_en, published_at, fetched_at,
                     read_minutes, original_language, is_demo, is_hidden
                 ) VALUES (
@@ -9064,7 +8846,7 @@ def _remove_article_image(slug: str) -> bool:
             cur.execute("""UPDATE world_pulse_articles SET
                 image_url = '', image_source = 'none', image_credit = '', image_credit_url = '',
                 image_provider_url = '', image_license_url = '', image_checked_at = NOW(),
-                image_relevance_verified = FALSE, image_relevance_version = 0
+                image_relevance_verified = FALSE
                 WHERE slug = %s AND is_demo = FALSE""", (slug,))
             changed = changed or cur.rowcount > 0
         conn.commit()
@@ -9670,11 +9452,6 @@ def copyright_policy():
 def not_found(_error):
     return render_template("index.html", page="404", stories=[], all_story_count=0,
                            active_category="all", breaking_story=None, related_stories=[], article=None), 404
-
-# Start both display-pool refreshes as background jobs, rather than waiting for a visitor
-# to request the English feed after the first Arabic request (or vice versa).
-_start_display_cache_warmup()
-
 
 if __name__ == "__main__":
     if "--refresh-news" in sys.argv:

@@ -620,8 +620,8 @@ class SourcePolicyTests(unittest.TestCase):
         self.assertIn("not a line-by-line paraphrase and not a synonym swap", prompt)
         self.assertIn("rather than padding a thin on-site page", prompt)
         self.assertIn("headline and RSS excerpt", prompt)
-        self.assertIn("usually 220–320 words", prompt)
-        self.assertIn("never pad it with generic background, repeated claims, or invented context", prompt)
+        self.assertIn("usually 140–220 words", prompt)
+        self.assertIn("never pad it with generic background", prompt)
 
     def test_library_of_congress_image_search_accepts_only_item_level_open_rights(self):
         import io
@@ -1076,7 +1076,6 @@ class SourcePolicyTests(unittest.TestCase):
             result = world_pulse._search_openverse_image("NASA Artemis lunar rocket launch", "en", "science")
         self.assertEqual(result["image_source"], "openverse_licensed")
         self.assertEqual(result["image_credit"], "Example photographer")
-        self.assertNotIn("Example photographer", result["_image_relevance_evidence"])
         self.assertEqual(result["image_provider_url"], "https://commons.example.test/artemis")
         self.assertEqual(result["image_license_url"], "https://creativecommons.org/licenses/by-sa/4.0/")
         request = mock_open.call_args.args[0]

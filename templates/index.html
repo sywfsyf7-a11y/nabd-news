@@ -449,18 +449,15 @@
             {% if article.translation_fallback %}
               <div class="mb-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs leading-6 text-slate-500">{{ 'المحتوى معروض بلغة المصدر لعدم توفر ترجمة مكتملة بهذه اللغة بعد.' if lang == 'ar' else 'This article is shown in its original language because a complete translation is not available yet.' }}</div>
             {% endif %}
-            {% if article.show_executive_summary %}
-              <div class="mb-8 rounded-2xl border-s-4 border-pulse bg-slate-50 p-5 sm:p-6">
-                <p class="mb-2 text-xs font-extrabold uppercase tracking-wider text-pulse">{{ 'ملخص تنفيذي' if lang == 'ar' else 'Executive summary' }}</p>
-                <p dir="{{ 'rtl' if article.display_language == 'ar' else 'ltr' }}" lang="{{ article.display_language or lang }}" class="text-base font-semibold leading-8 text-slate-700">{{ article.summary }}</p>
-                {% if not article.is_demo and article.ai_enriched %}
-                  <p class="mt-3 text-xs leading-6 text-slate-500">{{ 'ملخص وسياق تحريري بمساعدة الذكاء الاصطناعي استناداً إلى المعلومات المتاحة من المصدر؛ راجع المصدر الأصلي للتفاصيل والتحديثات.' if lang == 'ar' else 'AI-assisted editorial summary and context based on available source information; consult the original publisher for full details and updates.' }}</p>
-                {% elif not article.is_demo and article.headline_only %}
-                  <p class="mt-3 text-xs leading-6 text-slate-500">{{ 'هذا المصدر يتيح العنوان والرابط فقط؛ افتح الناشر للاطلاع على التفاصيل.' if lang == 'ar' else 'This source provides a headline and link only; open the publisher for details.' }}</p>
-                {% endif %}
-              </div>
-
-            {% endif %}
+            <div class="mb-8 rounded-2xl border-s-4 border-pulse bg-slate-50 p-5 sm:p-6">
+              <p class="mb-2 text-xs font-extrabold uppercase tracking-wider text-pulse">{{ 'ملخص تنفيذي' if lang == 'ar' else 'Executive summary' }}</p>
+              <p dir="{{ 'rtl' if article.display_language == 'ar' else 'ltr' }}" lang="{{ article.display_language or lang }}" class="text-base font-semibold leading-8 text-slate-700">{{ article.summary }}</p>
+              {% if not article.is_demo and article.ai_enriched %}
+                <p class="mt-3 text-xs leading-6 text-slate-500">{{ 'ملخص وسياق تحريري بمساعدة الذكاء الاصطناعي استناداً إلى المعلومات المتاحة من المصدر؛ راجع المصدر الأصلي للتفاصيل والتحديثات.' if lang == 'ar' else 'AI-assisted editorial summary and context based on available source information; consult the original publisher for full details and updates.' }}</p>
+              {% elif not article.is_demo and article.headline_only %}
+                <p class="mt-3 text-xs leading-6 text-slate-500">{{ 'هذا المصدر يتيح العنوان والرابط فقط؛ افتح الناشر للاطلاع على التفاصيل.' if lang == 'ar' else 'This source provides a headline and link only; open the publisher for details.' }}</p>
+              {% endif %}
+            </div>
             <h2 class="mb-4 text-xl font-extrabold tracking-tight sm:text-2xl">{{ ui.article_details }}</h2>
             {% if article.content %}
               <div dir="{{ 'rtl' if article.display_language == 'ar' else 'ltr' }}" lang="{{ article.display_language or lang }}" class="article-copy text-base leading-8 text-slate-700 sm:text-lg">{{ article.content }}</div>

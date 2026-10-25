@@ -102,13 +102,6 @@ def search_openverse_image(
             if license_code in {"by", "by-sa"} and not creator:
                 continue
             item_title = clean_text_fn(item.get("title") or "", 240)
-            # Openverse descriptions and alt text often capture the actual subject better
-            # than the short catalogue title. Include them as matching evidence, but never
-            # treat the creator's name or licence data as evidence that a photo is relevant.
-            item_description = clean_text_fn(
-                item.get("description") or item.get("alt") or item.get("caption") or "",
-                700,
-            )
             tags = item.get("tags") or []
             if isinstance(tags, list):
                 tag_text = " ".join(
@@ -117,7 +110,7 @@ def search_openverse_image(
                 )
             else:
                 tag_text = clean_text_fn(tags, 500)
-            evidence = " ".join(part for part in (item_title, item_description, tag_text) if part)
+            evidence = " ".join((item_title, tag_text, creator))
             score = max(
                 match_score_fn(query, evidence),
                 match_score_fn(title, evidence),
@@ -151,7 +144,6 @@ def search_openverse_image(
                 "image_license_url": license_url,
                 "image_checked_at": now_fn(),
                 "image_title": item_title,
-                "image_description": item_description,
                 "_image_relevance_evidence": evidence,
                 "image_license_label": license_label,
                 "_image_relevance_score": score,
