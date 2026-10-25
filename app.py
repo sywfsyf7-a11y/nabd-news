@@ -2194,8 +2194,9 @@ def _db_fetch_article_by_slug(slug: str) -> dict[str, Any] | None:
             columns = """
                 slug, source_url, category, source_name, source_domain, image_url,
                 image_source, image_credit, image_credit_url, image_provider_url, image_license_url,
-                image_checked_at, image_relevance_verified, image_relevance_version, title_ar, title_en, summary_ar, summary_en,
-                content_ar, content_en, published_at, fetched_at, read_minutes, original_language, is_demo
+                image_checked_at, image_relevance_verified, image_relevance_version, editorial_layout,
+                title_ar, title_en, summary_ar, summary_en, content_ar, content_en, published_at, fetched_at,
+                read_minutes, original_language, is_demo
             """
             cur.execute(f"""
                 SELECT {columns}
@@ -2411,7 +2412,7 @@ def _db_fetch_articles_needing_editorial(limit: int = 4) -> list[dict[str, Any]]
             cur.execute("""
                 SELECT slug, source_url, category, source_name, source_domain, image_url,
                        image_source, image_credit, image_credit_url, image_provider_url, image_license_url, image_checked_at,
-                       title_ar, title_en, summary_ar, summary_en,
+                       editorial_layout, title_ar, title_en, summary_ar, summary_en,
                        content_ar, content_en, published_at, fetched_at,
                        read_minutes, original_language, is_demo
                 FROM world_pulse_articles
