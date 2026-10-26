@@ -20,11 +20,14 @@ class HomepagePaginationTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.get_data(as_text=True), "home rendered")
         kwargs = render.call_args.kwargs
-        self.assertEqual(len(kwargs["stories"]), 24)
-        self.assertEqual(kwargs["stories"][0]["slug"], "story-25")
-        self.assertEqual(kwargs["stories"][-1]["slug"], "story-48")
+        page_size = world_pulse.HOME_STORIES_PER_PAGE
+        first_index = page_size + 1
+        last_index = min(60, page_size * 2)
+        self.assertEqual(len(kwargs["stories"]), last_index - page_size)
+        self.assertEqual(kwargs["stories"][0]["slug"], f"story-{first_index}")
+        self.assertEqual(kwargs["stories"][-1]["slug"], f"story-{last_index}")
         self.assertEqual(kwargs["home_page"], 2)
-        self.assertEqual(kwargs["home_pages"], 3)
+        self.assertEqual(kwargs["home_pages"], (60 + page_size - 1) // page_size)
         self.assertEqual(kwargs["home_total_stories"], 60)
 
     def test_invalid_homepage_page_number_is_clamped_safely(self):
@@ -41,7 +44,7 @@ class HomepagePaginationTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         kwargs = render.call_args.kwargs
         self.assertEqual(kwargs["home_page"], 2)
-        self.assertEqual(len(kwargs["stories"]), 5)
+        self.assertEqual(len(kwargs["stories"]), 29 - world_pulse.HOME_STORIES_PER_PAGE)
 
     def test_pagination_controls_are_present_in_the_home_template(self):
         source, _filename, _uptodate = world_pulse.app.jinja_env.loader.get_source(
