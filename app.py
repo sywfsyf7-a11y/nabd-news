@@ -99,15 +99,13 @@ def add_security_headers(response):
 SITE_NAME_AR = "نبض نيوز"
 SITE_NAME_EN = "Nabd News"
 TIMEZONE = ZoneInfo(os.getenv("SITE_TIMEZONE", "Asia/Amman"))
-# The production cadence is intentionally fixed at 15 minutes to keep RSS, Gemini,
-# image lookups and database writes predictable even if Render retains stale overrides.
-NEWS_REFRESH_MINUTES = 15
-NEWS_RETRY_MINUTES = 15
+# Keep the publishing tick small (one story every five minutes). Discovery remains a
+# bounded scan every fifteen minutes and fills up to three items in the durable queue.
+NEWS_REFRESH_MINUTES = 5
+NEWS_RETRY_MINUTES = 5
 NEWS_DISCOVERY_REFRESH_MINUTES = 15
 MAX_PENDING_NEWS_CANDIDATES = max(24, min(160, int(os.getenv("MAX_PENDING_NEWS_CANDIDATES", "60"))))
-# Publish one story per discovery window: discovery and publishing are aligned, so the
-# durable queue cannot grow faster than the site can process it.
-MAX_QUEUE_ADDITIONS_PER_DISCOVERY = 1
+MAX_QUEUE_ADDITIONS_PER_DISCOVERY = 3
 NEWS_AUTO_FETCH = os.getenv("NEWS_AUTO_FETCH", "true").lower() not in {"0", "false", "no"}
 NEWS_SCHEDULER_ENABLED = os.getenv("NEWS_SCHEDULER_ENABLED", "true").lower() not in {"0", "false", "no"}
 NEWS_SCHEDULER_POLL_SECONDS = max(15, min(120, int(os.getenv("NEWS_SCHEDULER_POLL_SECONDS", "30"))))
@@ -660,10 +658,13 @@ def _has_complete_display_translation(row: dict[str, Any], lang: str) -> bool:
 
 
 def _story_allowed_in_display_language(row: dict[str, Any], lang: str) -> bool:
-    """Keep the combined newsroom feed, but never show an untranslated card in the wrong UI language."""
-    if not _row_allowed_on_language_site(row, lang):
-        return False
-    return _has_complete_display_translation(row, lang)
+    """Allow verified Arabic and English sources in the shared feed.
+
+    _normalise_story uses a complete, script-validated translation when available.
+    Otherwise it clearly marks and displays the original-language text instead of
+    hiding the story or presenting an incomplete translation.
+    """
+    return _row_allowed_on_language_site(row, lang)
 
 
 LICENSE_REQUIRED_SOURCE_NAMES = (
@@ -6693,8 +6694,8 @@ def _refresh_news_job() -> None:
         queue_items: list[dict[str, Any]] = list(queue_state.get("items") or [])
         discovery_due = _news_queue_discovery_due(queue_state)
         if discovery_due:
-            # Discovery and publication both run on the 15-minute cadence. The queue lives
-            # in Supabase, so ordinary page visits never fan out to dozens of RSS feeds.
+            # Discovery runs every fifteen minutes, independently of the five-minute publishing
+            # tick. The queue lives in Supabase, so ordinary page visits never fan out to RSS feeds.
             rss_candidates = _collect_rss_articles()
             repaired_excerpts = _repair_existing_articles_from_rss(
                 rss_candidates, database_rows, limit=min(1, MAX_ARTICLES_PER_REFRESH)
@@ -6775,7 +6776,7 @@ def _refresh_news_job() -> None:
         # Preserve the known database URL set for the later fallback/retry guards.
         existing_url_keys = known_keys
 
-        # Publish at most one NEW queued story per 15-minute tick, while using
+        # Publish at most one NEW queued story per five-minute tick, while using
         # the same bounded Gemini request to repair one older eligible story. The repair
         # is not counted as a new publication and is never selected from headline-only or
         # rights-restricted publishers. This keeps the permanent archive from starving
@@ -7260,6 +7261,13 @@ def _normalise_story(row: dict[str, Any], lang: str) -> dict[str, Any]:
         story["image_source"] = "editorial_generated"
     story["image_license_name"] = _image_license_label(str(story.get("image_license_url") or ""), str(story.get("image_source") or ""))
     story["image_provider_name"] = _image_provider_label(str(story.get("image_source") or ""))
+    # A generic-but-topic-related, openly licensed image is an illustration, not proof
+    # of the reported event. The templates expose that distinction on cards and articles.
+    image_credit_text = str(story.get("image_credit") or "").casefold()
+    story["image_is_illustrative"] = bool(
+        "illustrative category image" in image_credit_text
+        or "صورة توضيحية للقسم" in image_credit_text
+    )
     # Do not label a partial/error fallback as a complete AI-assisted article.
     # The public editorial badge is earned only when both language bodies are substantive
     # and their writing systems match the claimed language.
@@ -7311,11 +7319,9 @@ def _build_display_stories(lang: str) -> list[dict[str, Any]]:
             or _looks_like_feed_section_title(source_title, original.get("source_name", ""))
         ):
             continue
-        # Cross-language legacy rows must have a complete, script-valid translation.
-        # Filter these out before keyword classification and duplicate analysis, which is
-        # expensive and cannot make an incomplete card publishable anyway.
-        if not _has_complete_display_translation(original, lang):
-            continue
+        # Both source languages belong in the combined feed. _normalise_story chooses a
+        # complete, script-valid translation or falls back to the verified native-language
+        # text with a visible language notice.
         row = original
         corrected_category = _display_category(original, lang)
         if corrected_category != original.get("category"):
@@ -7649,7 +7655,7 @@ def inject_shared_template_data() -> dict[str, Any]:
         "now_year": datetime.now(TIMEZONE).year,
     }
 
-HOME_STORIES_PER_PAGE = max(12, min(36, int(os.getenv("HOME_STORIES_PER_PAGE", "24"))))
+HOME_STORIES_PER_PAGE = max(12, min(36, int(os.getenv("HOME_STORIES_PER_PAGE", "18"))))
 
 
 @app.get("/")

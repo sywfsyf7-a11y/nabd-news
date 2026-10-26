@@ -55,14 +55,14 @@ Google's publisher policies disallow serving ads on screens that contain copied 
 
 ## Publishing cadence and resilience
 
-- **Every 15 minutes:** perform a bounded discovery scan over the approved publisher list, prioritizing the chosen sources and rotating the remaining eligible groups. The discovery queries do not broaden to the whole internet if a source group fails.
-- **Every 5 minutes:** publish at most one queued new story from the persistent Supabase queue. This spreads editorial work over time instead of sending large batches to the model. A normal tick processes one new story; the model may receive one bounded fallback call if its first model fails.
+- **Every 15 minutes:** perform one bounded discovery scan over the approved publisher list, prioritizing requested sources and rotating eligible groups. The scan may queue up to three new candidates and never broadens to the whole internet if a source group fails.
+- **Every 5 minutes:** publish at most one queued new story from the persistent Supabase queue. Each story gets its own editorial and image step, with up to two bounded Gemini calls for the story. A source-language brief remains possible during a Gemini outage.
 - Each story is saved in Supabase before any optional image lookup. Temporary image-provider failure must not block the article from being saved. Queue items are acknowledged only after the story is persisted and are deduplicated against the archive.
 - Queue processing and image revalidation do not delete old published articles or catalogued image records. Image cache/recheck age determines when a match can be reviewed again; it is not an article-retention period.
 
 ## Image catalogue and reuse rules
 
-The image catalogue is broader than the publisher list because it searches public-domain and openly licensed imagery, not other publishers' article photographs. Searches derive short, topic-aware terms from the story headline and category. A provider result is accepted only after relevance and item-level reuse checks. If no adequate story-specific image is found for technology, gaming, sports, science, or culture, the last bounded search tries a category-themed image through the same open catalogues; the credit explicitly labels it as illustrative. If that attempt fails, the site keeps its local category-specific SVG. The selected image keeps an item/source page, creator or credit, licence URL, and verification time in the story metadata.
+The image catalogue is broader than the publisher list because it searches public-domain and openly licensed imagery, not other publishers' article photographs. Searches derive short, topic-aware terms from the story headline and category. A provider result is accepted only after relevance and item-level reuse checks. If no adequate story-specific image is found for technology, gaming, sports, science, or culture, the last bounded search tries a category-themed image through the same open catalogues; the image is visibly labelled as illustrative on both card and article page, with its credit and licence metadata underneath. If that attempt fails, the site keeps its local category-specific SVG. The selected image keeps an item/source page, creator or credit, licence URL, and verification time in the story metadata.
 
 ### Providers used by the newsroom
 1. **Wikimedia Commons** — public-domain, CC0, CC BY, and CC BY-SA files. Attribution and licence links are saved for CC BY/CC BY-SA. Noncommercial and no-derivatives licences are rejected.

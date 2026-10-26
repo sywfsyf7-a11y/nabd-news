@@ -91,13 +91,17 @@ class SiteExperienceTests(unittest.TestCase):
         self.assertNotIn("English edition", template)
         self.assertNotIn("article.slug, lang='ar'", template)
         self.assertIn("story.original_language", template)
+        self.assertIn("loop.first", template)
+        self.assertIn("fetchpriority=", template)
+        self.assertIn("story.image_is_illustrative", template)
+        self.assertIn("article.image_is_illustrative", template)
         self.assertIn("https://www.googletagmanager.com/gtag/js?id=G-8Y07BZZ16N", template)
         self.assertIn("gtag('config', 'G-8Y07BZZ16N');", template)
         self.assertEqual(template.count("G-8Y07BZZ16N"), 2)
-        self.assertEqual(world_pulse.NEWS_REFRESH_MINUTES, 15)
+        self.assertEqual(world_pulse.NEWS_REFRESH_MINUTES, 5)
         self.assertEqual(world_pulse.NEWS_DISCOVERY_REFRESH_MINUTES, 15)
-        self.assertEqual(world_pulse.NEWS_RETRY_MINUTES, 15)
-        self.assertEqual(world_pulse.MAX_QUEUE_ADDITIONS_PER_DISCOVERY, 1)
+        self.assertEqual(world_pulse.NEWS_RETRY_MINUTES, 5)
+        self.assertEqual(world_pulse.MAX_QUEUE_ADDITIONS_PER_DISCOVERY, 3)
         self.assertEqual(world_pulse.MAX_ARTICLES_PER_REFRESH, 1)
         self.assertIn("الأخبار تتجدد باستمرار", world_pulse.UI_TEXT["ar"]["live"])
         self.assertIn("Continuously updated", world_pulse.UI_TEXT["en"]["live"])
@@ -321,7 +325,7 @@ class SiteExperienceTests(unittest.TestCase):
         self.assertEqual(english_view["display_language"], "ar")
         self.assertTrue(english_view["translation_fallback"])
 
-    def test_old_cross_language_bookmark_redirects_to_allowlisted_source_if_translation_is_missing(self):
+    def test_old_cross_language_bookmark_uses_native_language_fallback_if_translation_is_missing(self):
         source_url = "https://www.theverge.com/2026/10/16/example-story"
         stored = {
             "slug": "old-international-story",
@@ -343,8 +347,10 @@ class SiteExperienceTests(unittest.TestCase):
                 with patch.object(world_pulse, "_db_fetch_article_by_slug", return_value=stored):
                     response = world_pulse.app.test_client().get("/article/old-international-story?lang=ar")
 
-        self.assertEqual(response.status_code, 302)
-        self.assertEqual(response.headers.get("Location"), source_url)
+        self.assertEqual(response.status_code, 200)
+        body = response.get_data(as_text=True)
+        self.assertIn("An English-only technology headline", body)
+        self.assertIn("المحتوى معروض بلغة المصدر", body)
 
     def test_headline_only_article_stays_native_language_and_is_not_translated(self):
         row = {
@@ -845,7 +851,7 @@ class SiteExperienceTests(unittest.TestCase):
         ):
             self.assertEqual(world_pulse._display_category(row, "ar"), "gaming")
 
-    def test_incomplete_cross_language_story_is_filtered_before_category_classification(self):
+    def test_incomplete_cross_language_story_uses_native_language_fallback(self):
         row = {
             "slug": "incomplete-legacy-translation",
             "source_url": "https://www.theverge.com/news/legacy-story",
@@ -855,18 +861,25 @@ class SiteExperienceTests(unittest.TestCase):
             "original_language": "en",
             "title_en": "A new artificial intelligence chip is announced",
             "summary_en": "The publisher reports a new artificial intelligence chip announcement.",
-            "content_en": "The available English story details are retained in the permanent archive.",
+            "content_en": (
+                "The available English story details are retained in the permanent archive. "
+                "The short report stays limited to what the publisher actually supplied."
+            ),
             "title_ar": "إعلان شريحة ذكاء اصطناعي جديدة",
             "summary_ar": "ملخص عربي قصير لا يكفي لنشر ترجمة مكتملة.",
             "content_ar": "تفاصيل عربية قصيرة.",
             "is_demo": False,
         }
         with patch.object(world_pulse, "_all_live_articles", return_value=[row]):
-            with patch.object(
-                world_pulse, "_display_category",
-                side_effect=AssertionError("incomplete translated stories should be filtered first"),
-            ):
-                self.assertEqual(world_pulse._build_display_stories("ar"), [])
+            with patch.object(world_pulse, "_display_category", return_value="technology"):
+                stories = world_pulse._build_display_stories("ar")
+
+        self.assertEqual(len(stories), 1)
+        self.assertEqual(stories[0]["slug"], "incomplete-legacy-translation")
+        self.assertEqual(stories[0]["display_language"], "en")
+        self.assertTrue(stories[0]["translation_fallback"])
+        self.assertEqual(stories[0]["title"], row["title_en"])
+        self.assertTrue(stories[0]["content"])
 
     def test_display_builder_hides_legacy_section_titles_without_deleting_archive_rows(self):
         rows = [
