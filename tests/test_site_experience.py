@@ -325,7 +325,7 @@ class SiteExperienceTests(unittest.TestCase):
         self.assertEqual(english_view["display_language"], "ar")
         self.assertTrue(english_view["translation_fallback"])
 
-    def test_old_cross_language_bookmark_redirects_to_allowlisted_source_if_translation_is_missing(self):
+    def test_old_cross_language_bookmark_uses_native_language_fallback_if_translation_is_missing(self):
         source_url = "https://www.theverge.com/2026/10/16/example-story"
         stored = {
             "slug": "old-international-story",
@@ -347,8 +347,10 @@ class SiteExperienceTests(unittest.TestCase):
                 with patch.object(world_pulse, "_db_fetch_article_by_slug", return_value=stored):
                     response = world_pulse.app.test_client().get("/article/old-international-story?lang=ar")
 
-        self.assertEqual(response.status_code, 302)
-        self.assertEqual(response.headers.get("Location"), source_url)
+        self.assertEqual(response.status_code, 200)
+        body = response.get_data(as_text=True)
+        self.assertIn("An English-only technology headline", body)
+        self.assertIn("المحتوى معروض بلغة المصدر", body)
 
     def test_headline_only_article_stays_native_language_and_is_not_translated(self):
         row = {
