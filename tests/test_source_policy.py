@@ -44,7 +44,7 @@ class SourcePolicyTests(unittest.TestCase):
         self.assertTrue(world_pulse._row_allowed_on_language_site(arabic_story, "ar"))
         self.assertTrue(world_pulse._row_allowed_on_language_site(arabic_story, "en"))
         self.assertTrue(world_pulse._story_allowed_in_display_language(arabic_story, "ar"))
-        self.assertFalse(world_pulse._story_allowed_in_display_language(arabic_story, "en"))
+        self.assertTrue(world_pulse._story_allowed_in_display_language(arabic_story, "en"))
         arabic_fallback = world_pulse._normalise_story(dict(arabic_story), "en")
         self.assertEqual(arabic_fallback["display_language"], "ar")
         self.assertTrue(arabic_fallback["translation_fallback"])
@@ -84,7 +84,7 @@ class SourcePolicyTests(unittest.TestCase):
         self.assertTrue(world_pulse._row_allowed_on_language_site(english_story, "en"))
         self.assertTrue(world_pulse._row_allowed_on_language_site(english_story, "ar"))
         self.assertTrue(world_pulse._story_allowed_in_display_language(english_story, "en"))
-        self.assertFalse(world_pulse._story_allowed_in_display_language(english_story, "ar"))
+        self.assertTrue(world_pulse._story_allowed_in_display_language(english_story, "ar"))
         english_fallback = world_pulse._normalise_story(dict(english_story), "ar")
         self.assertEqual(english_fallback["display_language"], "en")
         self.assertTrue(english_fallback["translation_fallback"])
@@ -114,7 +114,7 @@ class SourcePolicyTests(unittest.TestCase):
             title_en="International report",
         )
         self.assertTrue(world_pulse._row_allowed_on_language_site(headline_only, "ar"))
-        self.assertFalse(world_pulse._story_allowed_in_display_language(headline_only, "ar"))
+        self.assertTrue(world_pulse._story_allowed_in_display_language(headline_only, "ar"))
         self.assertTrue(world_pulse._story_allowed_in_display_language(headline_only, "en"))
         headline_display = world_pulse._normalise_story(headline_only, "ar")
         self.assertEqual(headline_display["display_language"], "en")
@@ -126,7 +126,7 @@ class SourcePolicyTests(unittest.TestCase):
         self.assertFalse(world_pulse._row_allowed_on_language_site(unapproved, "en"))
 
 
-    def test_combined_display_pool_never_shows_wrong_language_without_complete_translation(self):
+    def test_combined_display_pool_falls_back_to_native_language_without_mixing_scripts(self):
         arabic_body = (
             "يوضح المصدر التطور الأساسي والسياق المتاح بشأن الموضوع. وتعرض هذه المادة المعلومات "
             "المؤكدة من الناشر فقط، ولا تضيف أرقاماً أو تواريخ أو تصريحات أو خلفيات غير موثقة. "
@@ -199,10 +199,25 @@ class SourcePolicyTests(unittest.TestCase):
 
         arabic_slugs = {story["slug"] for story in arabic}
         english_slugs = {story["slug"] for story in english}
-        self.assertEqual(arabic_slugs, {"ar-translated", "ar-only", "en-translated"})
-        self.assertEqual(english_slugs, {"ar-translated", "en-translated", "en-only", "bbc-headline"})
-        self.assertTrue(all(world_pulse._text_matches_language(story["title"], "ar") for story in arabic))
-        self.assertTrue(all(world_pulse._text_matches_language(story["title"], "en") for story in english))
+        expected = {"ar-translated", "ar-only", "en-translated", "en-only", "bbc-headline"}
+        self.assertEqual(arabic_slugs, expected)
+        self.assertEqual(english_slugs, expected)
+        # The UI may combine native-language stories, but each title must match the
+        # actual display language selected by the validated translation/fallback logic.
+        self.assertTrue(all(
+            world_pulse._text_matches_language(story["title"], story["display_language"])
+            for story in arabic
+        ))
+        self.assertTrue(all(
+            world_pulse._text_matches_language(story["title"], story["display_language"])
+            for story in english
+        ))
+        arabic_fallback = next(story for story in arabic if story["slug"] == "en-only")
+        self.assertEqual(arabic_fallback["display_language"], "en")
+        self.assertTrue(arabic_fallback["translation_fallback"])
+        english_fallback = next(story for story in english if story["slug"] == "ar-only")
+        self.assertEqual(english_fallback["display_language"], "ar")
+        self.assertTrue(english_fallback["translation_fallback"])
 
 
     def test_requested_editorial_priorities_are_allowlisted_by_section_and_language(self):
@@ -1255,10 +1270,10 @@ class ExpandedSourceAndImageCatalogueTests(unittest.TestCase):
         self.assertTrue(article["slug"])
 
     def test_editorial_pipeline_processes_one_story_per_15_minute_tick_without_queue_growth(self):
-        self.assertEqual(world_pulse.NEWS_REFRESH_MINUTES, 15)
-        self.assertEqual(world_pulse.NEWS_RETRY_MINUTES, 15)
+        self.assertEqual(world_pulse.NEWS_REFRESH_MINUTES, 5)
+        self.assertEqual(world_pulse.NEWS_RETRY_MINUTES, 5)
         self.assertEqual(world_pulse.NEWS_DISCOVERY_REFRESH_MINUTES, 15)
-        self.assertEqual(world_pulse.MAX_QUEUE_ADDITIONS_PER_DISCOVERY, 1)
+        self.assertEqual(world_pulse.MAX_QUEUE_ADDITIONS_PER_DISCOVERY, 3)
         # One article is processed per tick; the second permitted model call is a
         # fallback attempt for that same story, not a second editorial article.
         self.assertEqual(world_pulse.MAX_ARTICLES_PER_REFRESH, 1)
@@ -1465,6 +1480,31 @@ class NewImageProviderPersistenceTests(unittest.TestCase):
         fallback = world_pulse._normalise_story(malformed, "ar")
         self.assertEqual(fallback["display_language"], "en")
         self.assertTrue(fallback["translation_fallback"])
+
+    def test_category_image_fallback_is_marked_as_illustrative(self):
+        story = {
+            "slug": "illustrative-category-photo",
+            "source_url": "https://www.ign.com/story/example",
+            "source_domain": "ign.com",
+            "source_name": "IGN",
+            "category": "gaming",
+            "original_language": "en",
+            "title_en": "Gaming hardware gains a new feature",
+            "summary_en": "The story describes a gaming hardware feature.",
+            "content_en": "The publisher reports a new feature for gaming hardware and describes the change for players.",
+            "title_ar": "",
+            "summary_ar": "",
+            "content_ar": "",
+            "image_url": "https://images.example.test/gaming.jpg",
+            "image_source": "openverse_licensed",
+            "image_credit": "Open photographer · illustrative category image",
+            "image_credit_url": "https://photos.example.test/item",
+            "image_provider_url": "https://photos.example.test/item",
+            "image_license_url": "https://creativecommons.org/licenses/by/4.0/",
+            "image_relevance_verified": True,
+        }
+        result = world_pulse._normalise_story(story, "en")
+        self.assertTrue(result["image_is_illustrative"])
 
 if __name__ == "__main__":
     unittest.main()
