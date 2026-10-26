@@ -1269,7 +1269,7 @@ class ExpandedSourceAndImageCatalogueTests(unittest.TestCase):
         self.assertEqual(article["slug"], world_pulse._slug_for_url(raw["source_url"]))
         self.assertTrue(article["slug"])
 
-    def test_editorial_pipeline_processes_one_story_per_15_minute_tick_without_queue_growth(self):
+    def test_editorial_pipeline_processes_one_story_per_five_minute_tick(self):
         self.assertEqual(world_pulse.NEWS_REFRESH_MINUTES, 5)
         self.assertEqual(world_pulse.NEWS_RETRY_MINUTES, 5)
         self.assertEqual(world_pulse.NEWS_DISCOVERY_REFRESH_MINUTES, 15)
