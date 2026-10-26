@@ -6694,8 +6694,8 @@ def _refresh_news_job() -> None:
         queue_items: list[dict[str, Any]] = list(queue_state.get("items") or [])
         discovery_due = _news_queue_discovery_due(queue_state)
         if discovery_due:
-            # Discovery and publication both run on the 15-minute cadence. The queue lives
-            # in Supabase, so ordinary page visits never fan out to dozens of RSS feeds.
+            # Discovery runs every fifteen minutes, independently of the five-minute publishing
+            # tick. The queue lives in Supabase, so ordinary page visits never fan out to RSS feeds.
             rss_candidates = _collect_rss_articles()
             repaired_excerpts = _repair_existing_articles_from_rss(
                 rss_candidates, database_rows, limit=min(1, MAX_ARTICLES_PER_REFRESH)
@@ -6776,7 +6776,7 @@ def _refresh_news_job() -> None:
         # Preserve the known database URL set for the later fallback/retry guards.
         existing_url_keys = known_keys
 
-        # Publish at most one NEW queued story per 15-minute tick, while using
+        # Publish at most one NEW queued story per five-minute tick, while using
         # the same bounded Gemini request to repair one older eligible story. The repair
         # is not counted as a new publication and is never selected from headline-only or
         # rights-restricted publishers. This keeps the permanent archive from starving
