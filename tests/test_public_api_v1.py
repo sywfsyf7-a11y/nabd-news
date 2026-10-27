@@ -234,5 +234,151 @@ class PublicMobileApiV1Tests(unittest.TestCase):
         self.assertEqual(blocked.get_json()["error"]["code"], "rate_limit_exceeded")
 
 
+
+    def test_device_registration_upserts_settings_without_echoing_token(self):
+        token = "ExponentPushToken[abcdefghijklmnop]"
+        conn = MagicMock()
+        cursor = MagicMock()
+        conn.cursor.return_value.__enter__.return_value = cursor
+        with patch.object(world_pulse, "_ensure_schema", return_value=True):
+            with patch.object(world_pulse, "_connect_db", return_value=conn):
+                with patch.object(world_pulse, "_release_db_connection"):
+                    response = self.client.post("/api/v1/devices", json={
+                        "token": token,
+                        "platform": "ios",
+                        "lang": "en",
+                        "timezone": "Asia/Amman",
+                        "digest_enabled": True,
+                        "digest_hour_local": 8,
+                        "categories": [],
+                    })
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertTrue(payload["registered"])
+        self.assertEqual(payload["categories"], [])
+        self.assertNotIn("token", payload)
+        self.assertIn("ON CONFLICT (token) DO UPDATE", cursor.execute.call_args.args[0])
+
+    def test_digest_sender_sends_once_and_removes_unregistered_expo_tokens(self):
+        from zoneinfo import ZoneInfo
+
+        now_utc = datetime.now(timezone.utc)
+        local_hour = now_utc.astimezone(ZoneInfo("Asia/Amman")).hour
+        valid_token = "ExponentPushToken[abcdefghijklmnop]"
+        stale_token = "ExpoPushToken[qrstuvwxyzabcdef]"
+        state = {
+            "devices": [
+                {
+                    "token": valid_token, "lang": "en", "timezone": "Asia/Amman",
+                    "digest_hour_local": local_hour, "categories": [], "last_digest_sent_date": None,
+                },
+                {
+                    "token": stale_token, "lang": "en", "timezone": "Asia/Amman",
+                    "digest_hour_local": local_hour, "categories": [], "last_digest_sent_date": None,
+                },
+            ],
+            "updates": [],
+            "deletions": [],
+        }
+
+        class FakeCursor:
+            def __init__(self):
+                self.row = None
+                self.rows = []
+                self.rowcount = 0
+                self.sql = ""
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def execute(self, sql, params=None):
+                self.sql = sql
+                self.row = None
+                self.rows = []
+                self.rowcount = 0
+                if "pg_try_advisory_lock" in sql:
+                    self.row = (True,)
+                elif "SELECT token, lang, timezone, digest_hour_local" in sql:
+                    self.rows = [dict(device) for device in state["devices"]]
+                elif "UPDATE public.devices" in sql:
+                    local_date, token, _same_date = params
+                    for device in state["devices"]:
+                        if device["token"] == token and device["last_digest_sent_date"] != local_date:
+                            device["last_digest_sent_date"] = local_date
+                            self.rowcount = 1
+                            state["updates"].append((token, local_date))
+                            break
+                elif "DELETE FROM public.devices" in sql:
+                    token = params[0]
+                    before = len(state["devices"])
+                    state["devices"] = [device for device in state["devices"] if device["token"] != token]
+                    self.rowcount = before - len(state["devices"])
+                    if self.rowcount:
+                        state["deletions"].append(token)
+                elif "pg_advisory_unlock" in sql:
+                    self.row = (True,)
+
+            def fetchone(self):
+                return self.row
+
+            def fetchall(self):
+                return self.rows
+
+        class FakeConnection:
+            def __init__(self):
+                self.commit_count = 0
+                self.rollback_count = 0
+
+            def cursor(self):
+                return FakeCursor()
+
+            def commit(self):
+                self.commit_count += 1
+
+            def rollback(self):
+                self.rollback_count += 1
+
+        rows = [
+            raw_story("digest-tech", category="technology", published_at=now_utc - timedelta(minutes=3)),
+            raw_story("digest-game", category="gaming", published_at=now_utc - timedelta(minutes=2)),
+            raw_story("digest-world", category="world", published_at=now_utc - timedelta(minutes=1)),
+        ]
+        conn = FakeConnection()
+        ticket_batches = [
+            [
+                {"status": "ok", "id": "ticket-ok"},
+                {"status": "error", "details": {"error": "DeviceNotRegistered"}},
+            ]
+        ]
+        with patch.dict(os.environ, {"DIGEST_TOKEN": "server-only-test-secret"}):
+            with patch.object(world_pulse, "_db_fetch_all", return_value=rows):
+                with patch.object(world_pulse, "_connect_db", return_value=conn):
+                    with patch.object(world_pulse, "_release_db_connection"):
+                        with patch.object(world_pulse, "_story_allowed_in_display_language", return_value=True):
+                            with patch.object(world_pulse, "_normalise_story", side_effect=fake_normalise):
+                                with patch.object(public_api_v1, "_expo_send_batch", side_effect=ticket_batches) as send:
+                                    first = self.client.post(
+                                        "/internal/send-digest",
+                                        headers={"X-Digest-Token": "server-only-test-secret"},
+                                    )
+                                    second = self.client.post(
+                                        "/internal/send-digest",
+                                        headers={"X-Digest-Token": "server-only-test-secret"},
+                                    )
+
+        self.assertEqual(first.status_code, 200, first.get_data(as_text=True))
+        self.assertEqual(first.get_json()["sent"], 1)
+        self.assertEqual(first.get_json()["removed"], 1)
+        self.assertEqual(state["deletions"], [stale_token])
+        self.assertEqual(len(state["updates"]), 1)
+        self.assertEqual(state["updates"][0][0], valid_token)
+        self.assertEqual(second.status_code, 200, second.get_data(as_text=True))
+        self.assertEqual(second.get_json()["sent"], 0)
+        send.assert_called_once()
+
 if __name__ == "__main__":
     unittest.main()
