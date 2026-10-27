@@ -11,6 +11,7 @@ from datetime import date, datetime, timezone, timedelta
 from functools import wraps
 import json
 import logging
+import os
 import re
 import secrets
 import threading
@@ -422,7 +423,6 @@ def _expo_send_batch(messages: list[dict[str, Any]]) -> list[dict[str, Any]] | N
         headers={
             "Accept": "application/json",
             "Content-Type": "application/json",
-            "Accept-Encoding": "gzip, deflate",
         },
         method="POST",
     )
@@ -650,7 +650,7 @@ def register_public_api_v1(app, dependencies: dict[str, Any]) -> None:
     @app.post("/internal/send-digest")
     @_rate_limited(5)
     def internal_send_digest():
-        expected = str(__import__("os").getenv("DIGEST_TOKEN") or "").strip()
+        expected = str(os.getenv("DIGEST_TOKEN") or "").strip()
         supplied = str(request.headers.get("X-Digest-Token") or "")
         if not expected:
             return _json_error("not_configured", "Digest sender is not configured.", 503)
@@ -819,8 +819,3 @@ def register_public_api_v1(app, dependencies: dict[str, Any]) -> None:
     def api_v1_not_found(api_path: str):
         return _json_error("not_found", "API endpoint was not found.", 404)
 
-    @app.errorhandler(405)
-    def api_v1_method_not_allowed(error):
-        if request.path.startswith("/api/v1/") or request.path == "/api/v1":
-            return _json_error("method_not_allowed", "HTTP method is not allowed for this API endpoint.", 405)
-        return error
