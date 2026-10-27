@@ -110,6 +110,13 @@ jobs:
           curl --fail --silent --show-error --location \
             --connect-timeout 10 --max-time 45 \
             "$SITE_URL/api/news-status" --output /tmp/news-status.json
+          # Smoke-test the additive public mobile API on the live deployed commit.
+          curl --fail --silent --show-error --location --connect-timeout 8 --max-time 30 \
+            "$SITE_URL/api/v1/categories" --output /tmp/api-categories.json
+          curl --fail --silent --show-error --location --connect-timeout 8 --max-time 30 \
+            "$SITE_URL/api/v1/articles?lang=ar&page=1&per_page=1" --output /tmp/api-articles.json
+          curl --fail --silent --show-error --location --connect-timeout 8 --max-time 30 \
+            "$SITE_URL/api/v1/digest?lang=en" --output /tmp/api-digest.json
           python - <<'PY'
           import json
           import math
@@ -153,6 +160,23 @@ jobs:
               raise SystemExit("Database connection URL is not configured on the live service.")
           if database_state != "connected":
               raise SystemExit("Live database probe failed; inspect Render logs and the protected admin monitor.")
+
+          categories = json.loads(Path("/tmp/api-categories.json").read_text(encoding="utf-8"))
+          articles = json.loads(Path("/tmp/api-articles.json").read_text(encoding="utf-8"))
+          digest = json.loads(Path("/tmp/api-digest.json").read_text(encoding="utf-8"))
+          if not isinstance(categories, list) or len(categories) != 8:
+              raise SystemExit("Public API category endpoint did not return the 8 configured categories.")
+          if any(not all(field in item for field in ("slug", "label_ar", "label_en")) for item in categories):
+              raise SystemExit("Public API categories are missing required bilingual fields.")
+          if not isinstance(articles, dict) or not isinstance(articles.get("items"), list):
+              raise SystemExit("Public API article endpoint did not return the paginated list shape.")
+          if articles.get("page") != 1 or articles.get("per_page") != 1:
+              raise SystemExit("Public API article endpoint did not honor pagination parameters.")
+          if not isinstance(digest, dict) or not isinstance(digest.get("items"), list):
+              raise SystemExit("Public API digest endpoint did not return the expected JSON shape.")
+          print("  api_categories:", len(categories))
+          print("  api_articles_page_items:", len(articles["items"]))
+          print("  api_digest_items:", len(digest["items"]))
 
           base_host = urlparse(site_url).hostname
           load_paths = ["/healthz", "/?lang=en", "/?lang=ar"]
