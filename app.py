@@ -9459,6 +9459,11 @@ def not_found(_error):
     return render_template("index.html", page="404", stories=[], all_story_count=0,
                            active_category="all", breaking_story=None, related_stories=[], article=None), 404
 
+# Register the additive mobile API after all existing helpers and routes are defined.
+from public_api_v1 import register_public_api_v1 as _register_public_api_v1
+_register_public_api_v1(app, globals())
+
+
 if __name__ == "__main__":
     if "--refresh-news" in sys.argv:
         with _STATE_LOCK:

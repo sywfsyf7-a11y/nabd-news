@@ -8,6 +8,9 @@ on:
   push:
     paths:
       - "app.py"
+      - "public_api_v1.py"
+      - "API.md"
+      - "migrations/**"
       - "image_sources.py"
       - "trigger_news_refresh.py"
       - "render.yaml"
@@ -17,6 +20,9 @@ on:
   pull_request:
     paths:
       - "app.py"
+      - "public_api_v1.py"
+      - "API.md"
+      - "migrations/**"
       - "image_sources.py"
       - "trigger_news_refresh.py"
       - "render.yaml"
@@ -51,7 +57,7 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
       - name: Compile Python modules
-        run: python -m py_compile app.py image_sources.py trigger_news_refresh.py
+        run: python -m py_compile app.py image_sources.py trigger_news_refresh.py public_api_v1.py
       - name: Run regression tests
         run: python -m unittest discover -s tests -v
 
@@ -253,6 +259,29 @@ jobs:
               raise SystemExit("Production p95 latency exceeded 20 seconds under light load.")
           print("  result: passed")
           PY
+
+      - name: Send due mobile digest notifications
+        if: github.event_name == 'schedule'
+        env:
+          SITE_URL: https://nabd-news.onrender.com
+          DIGEST_TOKEN: ${{ secrets.DIGEST_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${DIGEST_TOKEN}" ]]; then
+            echo "DIGEST_TOKEN GitHub Actions secret is not configured; skipping mobile digest sender."
+            exit 0
+          fi
+          status_code="$(curl --silent --show-error --location \
+            --connect-timeout 8 --max-time 45 \
+            --output /tmp/digest-sender.json --write-out '%{http_code}' \
+            --request POST --header "X-Digest-Token: ${DIGEST_TOKEN}" \
+            "${SITE_URL}/internal/send-digest")"
+          cat /tmp/digest-sender.json
+          if [[ "${status_code}" != "200" ]]; then
+            echo "Digest sender returned HTTP ${status_code}."
+            exit 1
+          fi
 
   
   production-load-test:
