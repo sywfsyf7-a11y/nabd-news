@@ -31,6 +31,7 @@ _API_CACHE_MAX_ENTRIES = 256
 _API_RATE_WINDOW_SECONDS = 60
 _API_CACHE: OrderedDict[tuple[Any, ...], tuple[float, bytes, str]] = OrderedDict()
 _API_CACHE_LOCK = threading.Lock()
+_API_CACHE_MISS_LOCKS: dict[tuple[Any, ...], threading.Lock] = {}
 _API_RATE_BUCKETS: dict[tuple[str, str, int], int] = {}
 _API_RATE_LOCK = threading.Lock()
 _API_DIGEST_SEND_LOCK = threading.Lock()
@@ -168,29 +169,45 @@ def _cached_get(fn):
     @wraps(fn)
     def wrapped(*args, **kwargs):
         key = (request.path, tuple(sorted(request.args.items(multi=True))))
-        now = time.monotonic()
+
+        def cached_response() -> Response | None:
+            now = time.monotonic()
+            with _API_CACHE_LOCK:
+                cached = _API_CACHE.get(key)
+                if cached and now - cached[0] < _API_CACHE_TTL_SECONDS:
+                    _API_CACHE.move_to_end(key)
+                    response = Response(cached[1], status=200, content_type=cached[2])
+                    response.headers["Cache-Control"] = f"public, max-age={_API_CACHE_TTL_SECONDS}"
+                    response.headers["X-Content-Type-Options"] = "nosniff"
+                    return response
+                if cached:
+                    _API_CACHE.pop(key, None)
+                return None
+
+        hit = cached_response()
+        if hit is not None:
+            return hit
         with _API_CACHE_LOCK:
-            cached = _API_CACHE.get(key)
-            if cached and now - cached[0] < _API_CACHE_TTL_SECONDS:
-                _API_CACHE.move_to_end(key)
-                response = Response(cached[1], status=200, content_type=cached[2])
-                response.headers["Cache-Control"] = f"public, max-age={_API_CACHE_TTL_SECONDS}"
-                response.headers["X-Content-Type-Options"] = "nosniff"
+            miss_lock = _API_CACHE_MISS_LOCKS.setdefault(key, threading.Lock())
+        # Coalesce concurrent cold requests for the same URL so a cache miss cannot
+        # fan out into repeated search queries or connection attempts in both threads.
+        with miss_lock:
+            hit = cached_response()
+            if hit is not None:
+                return hit
+            response = fn(*args, **kwargs)
+            if not isinstance(response, Response) or response.status_code != 200:
                 return response
-            if cached:
-                _API_CACHE.pop(key, None)
-        response = fn(*args, **kwargs)
-        if not isinstance(response, Response) or response.status_code != 200:
+            response.headers["Cache-Control"] = f"public, max-age={_API_CACHE_TTL_SECONDS}"
+            body = response.get_data()
+            content_type = response.headers.get("Content-Type", "application/json; charset=utf-8")
+            with _API_CACHE_LOCK:
+                _API_CACHE[key] = (time.monotonic(), body, content_type)
+                _API_CACHE.move_to_end(key)
+                while len(_API_CACHE) > _API_CACHE_MAX_ENTRIES:
+                    _API_CACHE.popitem(last=False)
+                _API_CACHE_MISS_LOCKS.pop(key, None)
             return response
-        response.headers["Cache-Control"] = f"public, max-age={_API_CACHE_TTL_SECONDS}"
-        body = response.get_data()
-        content_type = response.headers.get("Content-Type", "application/json; charset=utf-8")
-        with _API_CACHE_LOCK:
-            _API_CACHE[key] = (time.monotonic(), body, content_type)
-            _API_CACHE.move_to_end(key)
-            while len(_API_CACHE) > _API_CACHE_MAX_ENTRIES:
-                _API_CACHE.popitem(last=False)
-        return response
     return wrapped
 
 
