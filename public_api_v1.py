@@ -128,7 +128,9 @@ def _api_client_ip() -> str:
     try:
         chain = request.access_route
         if chain:
-            return str(chain[0])[:80]
+            # Reverse proxies append the connected client to the right of any supplied
+            # X-Forwarded-For values; using the last hop avoids the easy leftmost spoof.
+            return str(chain[-1])[:80]
     except Exception:
         pass
     return str(request.remote_addr or "unknown")[:80]
