@@ -227,7 +227,11 @@ def _api_image(story: dict[str, Any]) -> dict[str, Any] | None:
     ).strip()
     if image_url.startswith("/"):
         image_url = _deps["_site_origin"]().rstrip("/") + image_url
-    if not image_url.startswith("https://") or not license_url.startswith("https://"):
+    if (
+        not image_url.startswith("https://")
+        or not license_url.startswith("https://")
+        or not source_page_url.startswith("https://")
+    ):
         return None
     return {
         "url": image_url,
