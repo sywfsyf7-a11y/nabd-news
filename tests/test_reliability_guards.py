@@ -157,5 +157,30 @@ class PersistentArchiveStabilityTests(unittest.TestCase):
         self.assertEqual(render.call_args.kwargs["article"]["slug"], "older-saved-story")
 
 
+
+class AdSenseVerificationTests(unittest.TestCase):
+    def test_publisher_meta_is_available_without_enabling_ad_serving(self):
+        with patch.dict("os.environ", {
+            "ADSENSE_PUBLISHER_ID": "ca-pub-8286658574742244",
+            "ADSENSE_ENABLED": "false",
+            "ADSENSE_CONSENT_READY": "false",
+        }, clear=False):
+            with world_pulse.app.test_request_context("/?lang=ar"):
+                values = world_pulse.inject_shared_template_data()
+
+        self.assertEqual(values["adsense_account_id"], "ca-pub-8286658574742244")
+        self.assertFalse(values["adsense_enabled"])
+        self.assertEqual(values["adsense_publisher_id"], "")
+
+        template_path = world_pulse.app.jinja_env.loader.get_source(
+            world_pulse.app.jinja_env, "index.html"
+        )[1]
+        with open(template_path, encoding="utf-8") as handle:
+            template = handle.read()
+        self.assertIn('name="google-adsense-account"', template)
+        self.assertIn("{% if adsense_account_id %}", template)
+        self.assertIn("{% if adsense_enabled %}", template)
+
+
 if __name__ == "__main__":
     unittest.main()

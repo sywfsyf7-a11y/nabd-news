@@ -7652,6 +7652,9 @@ def inject_shared_template_data() -> dict[str, Any]:
         "contact_smtp_enabled": bool(os.getenv("SMTP_HOST") and os.getenv("SMTP_USERNAME") and os.getenv("SMTP_PASSWORD")),
         "adsense_enabled": _adsense_settings()["enabled"],
         "adsense_publisher_id": _adsense_settings()["publisher_id"],
+        # Google supports this meta tag as a site-verification method. Keep it available
+        # whenever a valid publisher ID is configured, even when ad serving is gated on consent readiness.
+        "adsense_account_id": _adsense_publisher_id(),
         "now_year": datetime.now(TIMEZONE).year,
     }
 
