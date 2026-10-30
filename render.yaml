@@ -20,6 +20,8 @@ services:
         generateValue: true
       - key: DIGEST_TOKEN
         sync: false
+      - key: ADSENSE_PUBLISHER_ID
+        value: "ca-pub-8286658574742244"
       - key: NEWS_REFRESH_MINUTES
         value: "5"
       - key: MAX_IMAGE_PIXELS
@@ -39,7 +41,7 @@ services:
       - key: NEWS_RETRY_MINUTES
         value: "5"
       - key: NEWS_DISCOVERY_REFRESH_MINUTES
-        value: "15"
+        value: "30"
       - key: MAX_PENDING_NEWS_CANDIDATES
         value: "60"
       - key: MAX_QUEUE_ADDITIONS_PER_DISCOVERY
