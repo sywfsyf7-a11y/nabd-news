@@ -55,7 +55,7 @@ Google's publisher policies disallow serving ads on screens that contain copied 
 
 ## Publishing cadence and resilience
 
-- **Every 15 minutes:** perform one bounded discovery scan over the approved publisher list, prioritizing requested sources and rotating eligible groups. The scan may queue up to three new candidates and never broadens to the whole internet if a source group fails.
+- **Every 30 minutes:** perform one bounded discovery scan over the approved publisher list, prioritizing requested sources and rotating eligible groups. The scan may queue up to three new candidates and never broadens to the whole internet if a source group fails.
 - **Every 5 minutes:** publish at most one queued new story from the persistent Supabase queue. Each story gets its own editorial and image step, with up to two bounded Gemini calls for the story. A source-language brief remains possible during a Gemini outage.
 - Each story is saved in Supabase before any optional image lookup. Temporary image-provider failure must not block the article from being saved. Queue items are acknowledged only after the story is persisted and are deduplicated against the archive.
 - Queue processing and image revalidation do not delete old published articles or catalogued image records. Image cache/recheck age determines when a match can be reviewed again; it is not an article-retention period.
