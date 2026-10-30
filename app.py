@@ -336,6 +336,13 @@ PRIORITY_SOURCE_DOMAINS = {
 
 # Official NASA news feeds supplement its Google News RSS results. Both are NASA properties.
 DIRECT_RSS_SENTINEL = "__direct_rss__"
+# Back off from institutional feeds that block automated clients. Keep Google News
+# fallback restricted to the same allowlisted publisher while the direct endpoint cools.
+_DIRECT_RSS_COOLDOWNS: dict[str, float] = {}
+_DIRECT_RSS_COOLDOWNS_LOCK = threading.Lock()
+DIRECT_RSS_403_COOLDOWN_SECONDS = 24 * 60 * 60
+DIRECT_RSS_429_COOLDOWN_SECONDS = 60 * 60
+DIRECT_RSS_ERROR_COOLDOWN_SECONDS = 15 * 60
 DIRECT_RSS_FEEDS = (
     {
         "category": "science", "lang": "en", "domain": "nasa.gov",
@@ -5049,6 +5056,16 @@ def _parse_direct_rss_feed(
         logger.warning("Direct RSS feed is not allowlisted: source=%s", source_name)
         return category, lang, []
 
+    with _DIRECT_RSS_COOLDOWNS_LOCK:
+        cooldown_until = _DIRECT_RSS_COOLDOWNS.get(feed_url, 0.0)
+        cooldown_remaining = max(0.0, cooldown_until - time.monotonic())
+    if cooldown_remaining > 0:
+        logger.info(
+            "Direct RSS source cooling down: source=%s remaining_minutes=%d; using allowlisted Google News fallback",
+            source_name, max(1, int((cooldown_remaining + 59) // 60)),
+        )
+        return _parse_feed_task(category, lang, (expected_domain,))
+
     try:
         request_obj = Request(
             feed_url,
@@ -5125,16 +5142,28 @@ def _parse_direct_rss_feed(
                 "original_language": lang,
                 "headline_only": headline_only,
             })
+        with _DIRECT_RSS_COOLDOWNS_LOCK:
+            _DIRECT_RSS_COOLDOWNS.pop(feed_url, None)
         logger.info("Direct RSS source checked: source=%s accepted=%d", source_name, len(items))
         return category, lang, items
     except (URLError, TimeoutError) as exc:
-        # Some official feeds reject automated requests even when their published RSS
-        # endpoint is valid. Fall back only to a Google News query restricted to this
-        # exact allowlisted publisher domain; never broaden the query or scrape the site.
+        # Some institutional feeds block automated clients or rate-limit repeated checks.
+        # Keep discovery resilient by falling back only to the same allowlisted publisher.
         http_status = getattr(exc, "code", None) or ""
+        try:
+            status_code = int(http_status)
+        except (TypeError, ValueError):
+            status_code = 0
+        cooldown_seconds = (
+            DIRECT_RSS_403_COOLDOWN_SECONDS if status_code == 403
+            else DIRECT_RSS_429_COOLDOWN_SECONDS if status_code == 429
+            else DIRECT_RSS_ERROR_COOLDOWN_SECONDS
+        )
+        with _DIRECT_RSS_COOLDOWNS_LOCK:
+            _DIRECT_RSS_COOLDOWNS[feed_url] = time.monotonic() + cooldown_seconds
         logger.warning(
-            "Direct RSS source unavailable: source=%s error=%s http_status=%s; trying allowlisted Google News fallback",
-            source_name, type(exc).__name__, http_status,
+            "Direct RSS source unavailable: source=%s error=%s http_status=%s cooldown_minutes=%d; trying allowlisted Google News fallback",
+            source_name, type(exc).__name__, http_status, max(1, cooldown_seconds // 60),
         )
         fallback = _parse_feed_task(category, lang, (expected_domain,))
         logger.info(
@@ -5855,8 +5884,11 @@ def _translate_batch(raw_articles: list[dict[str, Any]]) -> dict[int, dict[str, 
     if not raw_articles or not GEMINI_API_KEY or genai is None or types is None:
         return {}
     primary_model = GEMINI_MODEL
+    # Production logs showed 3.1-flash-lite succeeding while 3.8-flash returned 503.
+    # Prefer the proven healthy alternate first; retain the other configured model as
+    # the final fallback and keep the strict per-refresh API-call budget unchanged.
     configured_models = list(dict.fromkeys(
-        model for model in (GEMINI_MODEL, GEMINI_FALLBACK_MODEL, GEMINI_FALLBACK_MODEL_2)
+        model for model in (GEMINI_MODEL, GEMINI_FALLBACK_MODEL_2, GEMINI_FALLBACK_MODEL)
         if model
     ))
     # Each model has an independent persisted cooldown. Pick the first model not in
