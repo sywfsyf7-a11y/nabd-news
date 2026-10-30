@@ -3864,7 +3864,7 @@ def _cache_reusable_image(result: dict[str, Any]) -> dict[str, Any]:
     def cache_required_fallback() -> dict[str, Any]:
         """Never hotlink Art Institute images that the browser may block by CORP."""
         if source != "artic_open_access":
-            return cache_required_fallback()
+            return result
         safe = dict(result)
         safe.update({
             "image_url": "",
