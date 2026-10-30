@@ -3860,49 +3860,66 @@ def _cache_reusable_image(result: dict[str, Any]) -> dict[str, Any]:
     """Save licensed image bytes to Supabase so browser hotlink failures cannot leave A/E placeholders."""
     image_url = str(result.get("image_url") or "").strip()
     source = str(result.get("image_source") or "")
+
+    def cache_required_fallback() -> dict[str, Any]:
+        """Never hotlink Art Institute images that the browser may block by CORP."""
+        if source != "artic_open_access":
+            return result
+        safe = dict(result)
+        safe.update({
+            "image_url": "",
+            "image_source": "none",
+            "image_credit": "",
+            "image_credit_url": "",
+            "image_provider_url": "",
+            "image_license_url": "",
+            "image_relevance_verified": False,
+        })
+        return safe
+
     if not image_url.startswith("https://") or not _image_license_verified(result):
-        return result
+        return cache_required_fallback()
     source_url = image_url
     cache_url = str(result.get("image_cache_url") or image_url).strip()
     try:
         source_parsed = urlparse(source_url)
         cache_parsed = urlparse(cache_url)
     except ValueError:
-        return result
+        return cache_required_fallback()
     if source_parsed.scheme != "https" or not source_parsed.hostname or cache_parsed.scheme != "https" or not cache_parsed.hostname:
-        return result
+        return cache_required_fallback()
 
     # Do not fetch arbitrary Openverse index hosts server-side. Use the official thumbnail endpoint instead.
     if source == "openverse_licensed":
         if cache_parsed.hostname.casefold() != "api.openverse.org" or not cache_parsed.path.startswith("/v1/images/"):
-            return result
+            return cache_required_fallback()
     elif source == "wikimedia_relevant":
         host = source_parsed.hostname.casefold()
         if not any(host == domain or host.endswith("." + domain) for domain in ("wikimedia.org", "wikipedia.org")):
-            return result
+            return cache_required_fallback()
     elif source == "loc_open_access":
         if not _domain_matches(source_parsed.hostname, "loc.gov"):
-            return result
+            return cache_required_fallback()
     elif source == "artic_open_access":
         if not _domain_matches(source_parsed.hostname, "artic.edu"):
-            return result
+            return cache_required_fallback()
     elif source == "met_open_access":
         if not _domain_matches(source_parsed.hostname, "metmuseum.org"):
-            return result
+            return cache_required_fallback()
     elif source == "cleveland_museum_open_access":
         if not _domain_matches(source_parsed.hostname, "openaccess-cdn.clevelandart.org"):
-            return result
+            return cache_required_fallback()
     elif source == "wellcome_open_access":
         if not _domain_matches(source_parsed.hostname, "iiif.wellcomecollection.org"):
-            return result
+            return cache_required_fallback()
     elif source == "nasa_images":
         if not _domain_matches(source_parsed.hostname, "nasa.gov"):
-            return result
+            return cache_required_fallback()
     elif source == "presskit_approved":
         # This host is listed in the owner's explicitly approved press-kit manifest.
         pass
     else:
-        return result
+        return cache_required_fallback()
 
     image_id = hashlib.sha256(source_url.encode("utf-8")).hexdigest()[:40]
     if _catalogued_image_exists(image_id):
@@ -3923,21 +3940,21 @@ def _cache_reusable_image(result: dict[str, Any]) -> dict[str, Any]:
             image_bytes = response.read(MAX_SOURCE_IMAGE_BYTES + 1)
     except Exception as exc:
         logger.debug("Licensed image download failed (source=%s error=%s)", source, type(exc).__name__)
-        return result
+        return cache_required_fallback()
 
     if not image_bytes or len(image_bytes) > MAX_SOURCE_IMAGE_BYTES:
         logger.info(
             "Licensed image not cached because it is empty or exceeds the configured source-image limit (source=%s bytes=%d)",
             source, len(image_bytes),
         )
-        return result
+        return cache_required_fallback()
     try:
         # Verify dimensions and decode successfully before storing bytes from any remote provider.
         with Image.open(io.BytesIO(image_bytes)) as opened:
             image_format = str(opened.format or "").upper()
             width, height = opened.size
             if image_format not in {"JPEG", "PNG", "WEBP"} or width < 300 or height < 180 or width * height > MAX_IMAGE_PIXELS:
-                return result
+                return cache_required_fallback()
             opened.verify()
 
         # Persist a standard, optimized 16:9-ish web image rather than large originals.
@@ -3956,16 +3973,16 @@ def _cache_reusable_image(result: dict[str, Any]) -> dict[str, Any]:
             image_bytes = optimized_buffer.getvalue()
             mime_type = "image/jpeg"
         if not image_bytes:
-            return result
+            return cache_required_fallback()
     except Exception as exc:
         logger.debug("Licensed image bytes failed verification/optimization (source=%s error=%s)", source, type(exc).__name__)
-        return result
+        return cache_required_fallback()
 
     if not _ensure_schema():
-        return result
+        return cache_required_fallback()
     conn = _connect_db()
     if conn is None:
-        return result
+        return cache_required_fallback()
     try:
         with conn.cursor() as cur:
             cur.execute("""
@@ -3982,7 +3999,7 @@ def _cache_reusable_image(result: dict[str, Any]) -> dict[str, Any]:
     except Exception as exc:
         conn.rollback()
         logger.warning("Could not persist licensed source image (source=%s error=%s)", source, type(exc).__name__)
-        return result
+        return cache_required_fallback()
     finally:
         _release_db_connection(conn)
 
@@ -4562,7 +4579,12 @@ def _resolve_article_image(raw: dict[str, Any]) -> dict[str, Any]:
                 checked = None
         if isinstance(checked, datetime) and checked.tzinfo is None:
             checked = checked.replace(tzinfo=timezone.utc)
-        if isinstance(checked, datetime) and (datetime.now(timezone.utc) - checked.astimezone(timezone.utc)).total_seconds() < IMAGE_CACHE_MAX_AGE_SECONDS:
+        is_local_catalogue_image = existing.startswith("/media/catalogued/")
+        if (
+            isinstance(checked, datetime)
+            and (datetime.now(timezone.utc) - checked.astimezone(timezone.utc)).total_seconds() < IMAGE_CACHE_MAX_AGE_SECONDS
+            and (source != "artic_open_access" or is_local_catalogue_image)
+        ):
             return {
                 "image_url": existing,
                 "image_source": source,
@@ -7231,6 +7253,10 @@ def _normalise_story(row: dict[str, Any], lang: str) -> dict[str, Any]:
         story.get("image_source") not in TRUSTED_REUSABLE_IMAGE_SOURCES
         or not _image_license_verified(story)
         or story.get("image_relevance_verified") is not True
+        or (
+            story.get("image_source") == "artic_open_access"
+            and not str(story.get("image_url") or "").startswith("/media/catalogued/")
+        )
     ):
         story.update({"image_url": "", "image_source": "none", "image_credit": "",
                       "image_credit_url": "", "image_provider_url": "", "image_license_url": "",
