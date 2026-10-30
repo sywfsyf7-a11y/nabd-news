@@ -87,7 +87,7 @@ class StructuredEditorialResponseTests(unittest.TestCase):
         )
         self.assertEqual(
             fake_client.models.generate_content.call_args_list[1].kwargs["model"],
-            world_pulse.GEMINI_FALLBACK_MODEL,
+            world_pulse.GEMINI_FALLBACK_MODEL_2,
         )
 
 
