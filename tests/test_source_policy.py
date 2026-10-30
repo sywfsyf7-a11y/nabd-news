@@ -1220,6 +1220,83 @@ class SourcePolicyTests(unittest.TestCase):
             self.assertLessEqual(stored.width, 1600)
             self.assertLessEqual(stored.height, 1200)
 
+    def test_art_institute_image_is_not_hotlinked_when_catalogue_cache_download_fails(self):
+        candidate = {
+            "image_url": "https://www.artic.edu/iiif/2/example/full/843,/0/default.jpg",
+            "image_source": "artic_open_access",
+            "image_credit": "Art Institute of Chicago",
+            "image_credit_url": "https://www.artic.edu/artworks/123",
+            "image_provider_url": "https://www.artic.edu/artworks/123",
+            "image_license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+            "image_relevance_verified": True,
+        }
+        with patch.object(world_pulse, "_image_license_verified", return_value=True):
+            with patch.object(world_pulse, "_catalogued_image_exists", return_value=False):
+                with patch.object(world_pulse, "urlopen", side_effect=OSError("remote image unavailable")):
+                    result = world_pulse._cache_reusable_image(candidate)
+
+        self.assertEqual(result["image_url"], "")
+        self.assertEqual(result["image_source"], "none")
+        self.assertFalse(result["image_relevance_verified"])
+        self.assertEqual(result["image_license_url"], "")
+
+    def test_uncached_art_institute_image_is_not_reused_from_old_article_row(self):
+        from datetime import datetime, timezone
+
+        row = {
+            "slug": "old-museum-image",
+            "source_url": "https://example.com/culture/story",
+            "category": "culture",
+            "source_name": "Example Culture",
+            "source_domain": "example.com",
+            "original_language": "en",
+            "title_en": "A public-domain artwork enters a museum collection",
+            "summary_en": "A museum has announced a newly catalogued public-domain artwork.",
+            "content_en": "The museum has added an artwork to its public-domain collection. The item record identifies the artist and describes the work in the collection.",
+            "image_url": "https://www.artic.edu/iiif/2/example/full/843,/0/default.jpg",
+            "image_source": "artic_open_access",
+            "image_credit": "Art Institute of Chicago",
+            "image_credit_url": "https://www.artic.edu/artworks/123",
+            "image_provider_url": "https://www.artic.edu/artworks/123",
+            "image_license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+            "image_relevance_verified": True,
+            "image_checked_at": datetime.now(timezone.utc),
+        }
+        with patch.object(world_pulse, "_control_enabled", return_value=True):
+            with patch.object(world_pulse, "_search_article_image_with_variants", return_value={}) as search:
+                with patch.object(world_pulse, "_generate_gemini_article_image", return_value={}):
+                    result = world_pulse._resolve_article_image(row)
+
+        search.assert_called_once()
+        self.assertEqual(result["image_url"], "")
+        self.assertEqual(result["image_source"], "none")
+
+    def test_normalise_story_uses_local_illustration_for_uncached_artic_hotlink(self):
+        row = {
+            "slug": "culture-art-story",
+            "source_url": "https://example.com/culture/art",
+            "category": "culture",
+            "source_name": "Example Culture",
+            "source_domain": "example.com",
+            "original_language": "en",
+            "title_en": "A new public art exhibition opens",
+            "summary_en": "A cultural institution has opened a new exhibition for visitors.",
+            "content_en": "The exhibition brings together a collection of public artworks. Visitors can explore the works and their historical context at the institution.",
+            "image_url": "https://www.artic.edu/iiif/2/example/full/843,/0/default.jpg",
+            "image_source": "artic_open_access",
+            "image_credit": "Art Institute of Chicago",
+            "image_credit_url": "https://www.artic.edu/artworks/123",
+            "image_provider_url": "https://www.artic.edu/artworks/123",
+            "image_license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+            "image_relevance_verified": True,
+        }
+        with patch.object(world_pulse, "_publisher_requires_license", return_value=False):
+            story = world_pulse._normalise_story(row, "en")
+
+        self.assertEqual(story["image_url"], "/static/images/fallback-en.svg")
+        self.assertEqual(story["image_source"], "fallback_en")
+        self.assertNotIn("artic.edu/iiif", story["image_url"])
+
     def test_catalogued_image_route_serves_persisted_bytes_and_cache_headers(self):
         from unittest.mock import patch
 
