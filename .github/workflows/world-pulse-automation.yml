@@ -106,10 +106,38 @@ jobs:
           curl --fail --silent --show-error --location \
             --connect-timeout 10 --max-time 30 \
             "$SITE_URL/healthz" --output /tmp/healthz.json
-          sleep 5
-          curl --fail --silent --show-error --location \
-            --connect-timeout 10 --max-time 45 \
-            "$SITE_URL/api/news-status" --output /tmp/news-status.json
+          # Public status intentionally uses stale-while-revalidate for its optional DB
+          # timestamp, so the first response after a worker restart can say "unknown"
+          # while a background Supabase probe is in flight. Poll briefly rather than
+          # treating that initial, nonblocking response as a database outage.
+          database_ready="false"
+          for attempt in $(seq 1 12); do
+            if curl --fail --silent --show-error --location \
+              --connect-timeout 8 --max-time 30 \
+              "$SITE_URL/api/news-status" --output /tmp/news-status.json; then
+              if python - <<'PY'
+          import json
+          from pathlib import Path
+          status = json.loads(Path("/tmp/news-status.json").read_text(encoding="utf-8"))
+          database_state = (status.get("database") or {}).get("state", "unknown")
+          configured = bool(status.get("database_url_configured", False))
+          print(f"Database status probe: configured={configured} state={database_state}")
+          raise SystemExit(0 if configured and database_state == "connected" else 1)
+          PY
+              then
+                database_ready="true"
+                break
+              fi
+              echo "The nonblocking database status probe is still warming up (attempt $attempt/12)."
+            else
+              echo "The news-status endpoint is not ready yet (attempt $attempt/12)."
+            fi
+            sleep 2
+          done
+          if [[ "$database_ready" != "true" ]]; then
+            echo "The database did not report connected after bounded status retries."
+            exit 1
+          fi
           # Smoke-test the additive public mobile API on the live deployed commit.
           curl --fail --silent --show-error --location --connect-timeout 8 --max-time 30 \
             "$SITE_URL/api/v1/categories" --output /tmp/api-categories.json
