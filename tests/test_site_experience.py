@@ -99,7 +99,7 @@ class SiteExperienceTests(unittest.TestCase):
         self.assertIn("gtag('config', 'G-8Y07BZZ16N');", template)
         self.assertEqual(template.count("G-8Y07BZZ16N"), 2)
         self.assertEqual(world_pulse.NEWS_REFRESH_MINUTES, 5)
-        self.assertEqual(world_pulse.NEWS_DISCOVERY_REFRESH_MINUTES, 15)
+        self.assertEqual(world_pulse.NEWS_DISCOVERY_REFRESH_MINUTES, 30)
         self.assertEqual(world_pulse.NEWS_RETRY_MINUTES, 5)
         self.assertEqual(world_pulse.MAX_QUEUE_ADDITIONS_PER_DISCOVERY, 3)
         self.assertEqual(world_pulse.MAX_ARTICLES_PER_REFRESH, 1)
@@ -160,11 +160,11 @@ class SiteExperienceTests(unittest.TestCase):
 
     def test_persistent_news_discovery_interval_is_separate_from_publish_interval(self):
         now = datetime(2026, 10, 16, 12, 30, tzinfo=timezone.utc)
-        state = {"discovered_at": (now - timedelta(minutes=14)).isoformat(), "items": []}
-        with patch.object(world_pulse, "NEWS_DISCOVERY_REFRESH_MINUTES", 15):
+        state = {"discovered_at": (now - timedelta(minutes=29)).isoformat(), "items": []}
+        with patch.object(world_pulse, "NEWS_DISCOVERY_REFRESH_MINUTES", 30):
             self.assertFalse(world_pulse._news_queue_discovery_due(state, now))
             self.assertTrue(world_pulse._news_queue_discovery_due(
-                {"discovered_at": (now - timedelta(minutes=16)).isoformat(), "items": []}, now
+                {"discovered_at": (now - timedelta(minutes=31)).isoformat(), "items": []}, now
             ))
 
     def test_category_source_allowlists_match_the_curated_arabic_and_english_publishers(self):
@@ -1454,17 +1454,42 @@ class SiteExperienceTests(unittest.TestCase):
 
                 self.assertEqual(cache["en"][1], new_stories)
 
-    def test_news_status_poll_reports_state_without_triggering_refresh(self):
+    def test_news_status_poll_does_not_wait_for_database_or_read_provider_toggles(self):
         with patch.object(world_pulse, "_maybe_start_refresh") as maybe_refresh:
-            with patch.object(world_pulse, "_db_last_fetched_at", return_value=None):
+            with patch.object(world_pulse, "_db_last_fetched_at", return_value=None) as last_fetched:
                 with patch.object(world_pulse, "_probe_database", return_value={"state": "not_configured", "error_code": "", "checked_at": None}):
                     with patch.object(world_pulse, "_database_url", return_value=""):
-                        with patch.object(world_pulse, "_control_enabled", return_value=True):
+                        with patch.object(world_pulse, "_control_enabled", return_value=True) as control_enabled:
                             with patch.object(world_pulse, "_presskit_provider_configured", return_value=False):
                                 with patch.object(world_pulse, "_news_setup_issues", return_value=[]):
                                     response = world_pulse.app.test_client().get("/api/news-status")
         self.assertEqual(response.status_code, 200)
         maybe_refresh.assert_not_called()
+        last_fetched.assert_called_once_with(nonblocking=True)
+        control_enabled.assert_not_called()
+
+    def test_cached_control_status_never_opens_a_database_connection(self):
+        with patch.object(world_pulse, "_CONTROL_CACHE", {}):
+            with patch.object(world_pulse, "_ensure_schema") as ensure_schema:
+                with patch.object(world_pulse, "_connect_db") as connect:
+                    self.assertTrue(world_pulse._cached_control_enabled("image:openverse_licensed", True))
+                    self.assertFalse(world_pulse._cached_control_enabled("image:openverse_licensed", False))
+        ensure_schema.assert_not_called()
+        connect.assert_not_called()
+
+    def test_nonblocking_last_fetched_timestamp_returns_cached_value_and_refreshes_in_background(self):
+        cached = datetime(2026, 10, 25, 12, 0, tzinfo=timezone.utc)
+        with patch.object(world_pulse, "_DB_LAST_FETCHED_VALUE", cached):
+            with patch.object(world_pulse, "_DB_LAST_FETCHED_CHECKED", 0.0):
+                with patch.object(world_pulse, "_DB_LAST_FETCHED_REFRESHING", False):
+                    with patch.object(world_pulse, "_ensure_schema") as ensure_schema:
+                        with patch.object(world_pulse.threading, "Thread") as thread:
+                            result = world_pulse._db_last_fetched_at(nonblocking=True)
+        self.assertEqual(result, cached)
+        ensure_schema.assert_not_called()
+        thread.assert_called_once()
+        thread.return_value.start.assert_called_once()
+        self.assertTrue(thread.call_args.kwargs["daemon"])
 
     def test_image_provider_group_prefers_higher_relevance_over_provider_order(self):
         low_relevance = {
@@ -2646,6 +2671,7 @@ class AdSenseConsentReadinessTests(unittest.TestCase):
         )
         with open(template_path, encoding="utf-8") as handle:
             template = handle.read()
+        self.assertIn('name="google-adsense-account" content="{{ adsense_account_id }}"', template)
         self.assertIn("{% if adsense_enabled %}", template)
         self.assertIn(
             "pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client={{ adsense_publisher_id }}",

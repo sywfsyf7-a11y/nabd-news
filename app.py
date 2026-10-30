@@ -99,11 +99,11 @@ def add_security_headers(response):
 SITE_NAME_AR = "نبض نيوز"
 SITE_NAME_EN = "Nabd News"
 TIMEZONE = ZoneInfo(os.getenv("SITE_TIMEZONE", "Asia/Amman"))
-# Keep the publishing tick small (one story every five minutes). Discovery remains a
-# bounded scan every fifteen minutes and fills up to three items in the durable queue.
+# Publish from the durable queue one story every five minutes. Run the more expensive
+# publisher discovery scan every thirty minutes and add a small bounded number of candidates.
 NEWS_REFRESH_MINUTES = 5
 NEWS_RETRY_MINUTES = 5
-NEWS_DISCOVERY_REFRESH_MINUTES = 15
+NEWS_DISCOVERY_REFRESH_MINUTES = max(15, min(120, int(os.getenv("NEWS_DISCOVERY_REFRESH_MINUTES", "30"))))
 MAX_PENDING_NEWS_CANDIDATES = max(24, min(160, int(os.getenv("MAX_PENDING_NEWS_CANDIDATES", "60"))))
 MAX_QUEUE_ADDITIONS_PER_DISCOVERY = 3
 NEWS_AUTO_FETCH = os.getenv("NEWS_AUTO_FETCH", "true").lower() not in {"0", "false", "no"}
@@ -705,6 +705,7 @@ _LAST_DB_STATUS: dict[str, Any] = {"state": "unknown", "error_code": "", "checke
 _DB_LAST_FETCHED_VALUE: datetime | None = None
 _DB_LAST_FETCHED_CHECKED = 0.0
 _DB_LAST_FETCHED_LOCK = threading.Lock()
+_DB_LAST_FETCHED_REFRESHING = False
 _DB_ARTICLE_CACHE_TTL_SECONDS = max(1, min(60, int(os.getenv("DB_ARTICLE_CACHE_TTL_SECONDS", "60"))))
 # Keep the active archive bounded, but reserve space for each news section and language.
 # A single newest-120-per-language window made Gaming/Science/etc. disappear behind
@@ -1615,6 +1616,19 @@ def _control_enabled(control_key: str, default: bool = True) -> bool:
         return default
     finally:
         _release_db_connection(conn)
+
+def _cached_control_enabled(control_key: str, default: bool = True) -> bool:
+    """Return an advisory provider toggle without opening a database connection."""
+    now = time.monotonic()
+    with _CONTROL_CACHE_LOCK:
+        cached = _CONTROL_CACHE.get(control_key)
+        if cached and cached[1] > now:
+            return cached[0]
+    # Public status reporting is informational. A cold cache falls back to the app's
+    # default and never blocks a visitor on a Supabase round-trip. Ingestion and the
+    # authenticated admin panel continue to use _control_enabled for authoritative values.
+    return default
+
 
 def _set_control_enabled(control_key: str, enabled: bool) -> bool:
     if not _ensure_schema():
@@ -2646,14 +2660,46 @@ def _raw_from_stored_article(row: dict[str, Any]) -> dict[str, Any]:
         "headline_only": _is_headline_only_domain(str(row.get("source_domain") or "")),
     }
 
-def _db_last_fetched_at() -> datetime | None:
-    global _DB_LAST_FETCHED_CHECKED, _DB_LAST_FETCHED_VALUE
+def _refresh_db_last_fetched_at_in_background() -> None:
+    global _DB_LAST_FETCHED_REFRESHING
+    try:
+        # Reuse the normal synchronous reader, which updates the shared timestamp cache.
+        _db_last_fetched_at(nonblocking=False)
+    finally:
+        with _DB_LAST_FETCHED_LOCK:
+            _DB_LAST_FETCHED_REFRESHING = False
+
+
+def _db_last_fetched_at(*, nonblocking: bool = False) -> datetime | None:
+    """Read the latest fetch timestamp; public status polling may opt into stale-while-revalidate."""
+    global _DB_LAST_FETCHED_CHECKED, _DB_LAST_FETCHED_VALUE, _DB_LAST_FETCHED_REFRESHING
     now = time.monotonic()
     with _DB_LAST_FETCHED_LOCK:
-        if now - _DB_LAST_FETCHED_CHECKED < 60:
+        if _DB_LAST_FETCHED_CHECKED > 0 and now - _DB_LAST_FETCHED_CHECKED < 60:
             return _DB_LAST_FETCHED_VALUE
-        _DB_LAST_FETCHED_CHECKED = now
         cached_value = _DB_LAST_FETCHED_VALUE
+        if nonblocking:
+            if _DB_LAST_FETCHED_REFRESHING:
+                return cached_value
+            _DB_LAST_FETCHED_REFRESHING = True
+        else:
+            _DB_LAST_FETCHED_CHECKED = now
+
+    if nonblocking:
+        # Status is advisory. Return the last known timestamp immediately rather than
+        # occupying a Gunicorn request thread while waiting for a scarce Supabase session.
+        try:
+            threading.Thread(
+                target=_refresh_db_last_fetched_at_in_background,
+                name="world-pulse-last-fetched-refresh",
+                daemon=True,
+            ).start()
+        except RuntimeError as exc:
+            with _DB_LAST_FETCHED_LOCK:
+                _DB_LAST_FETCHED_REFRESHING = False
+            logger.warning("Could not start last-fetched timestamp refresh (%s)", type(exc).__name__)
+        return cached_value
+
     if not _ensure_schema():
         return cached_value
     conn = _connect_db()
@@ -5158,7 +5204,7 @@ def _collect_rss_articles() -> list[dict[str, Any]]:
     # through groups of four eligible publisher domains and scan two groups per category
     # and language each cycle. This increases source diversity without fanning out to every
     # publisher simultaneously; the next cycle naturally advances to the following groups.
-    rotation_bucket = int(time.time() // max(900, NEWS_REFRESH_MINUTES * 60))
+    rotation_bucket = int(time.time() // max(900, NEWS_DISCOVERY_REFRESH_MINUTES * 60))
     for category in CATEGORY_NAMES:
         for lang in ("ar", "en"):
             eligible_domains = [
@@ -6694,7 +6740,7 @@ def _refresh_news_job() -> None:
         queue_items: list[dict[str, Any]] = list(queue_state.get("items") or [])
         discovery_due = _news_queue_discovery_due(queue_state)
         if discovery_due:
-            # Discovery runs every fifteen minutes, independently of the five-minute publishing
+            # Discovery runs every thirty minutes, independently of the five-minute publishing
             # tick. The queue lives in Supabase, so ordinary page visits never fan out to RSS feeds.
             rss_candidates = _collect_rss_articles()
             repaired_excerpts = _repair_existing_articles_from_rss(
@@ -7870,7 +7916,7 @@ def article(slug: str):
 @app.get("/api/news-status")
 def news_status():
     # The scheduler runs independently; this endpoint only reports current status.
-    persisted_at = _db_last_fetched_at()
+    persisted_at = _db_last_fetched_at(nonblocking=True)
     # Public polling is frequent; report the latest cached DB status instead of opening a
     # separate SELECT 1 connection for every status refresh. The protected admin monitor
     # retains an explicit active DB probe.
@@ -7883,6 +7929,7 @@ def news_status():
         "state": _LAST_REFRESH_STATE,
         "last_refresh_at": last_refresh_at.isoformat() if last_refresh_at else None,
         "interval_minutes": NEWS_REFRESH_MINUTES,
+        "discovery_interval_minutes": NEWS_DISCOVERY_REFRESH_MINUTES,
         "error": _LAST_REFRESH_ERROR,
         "database_url_configured": bool(_database_url()),
         "database": {
@@ -7906,13 +7953,13 @@ def news_status():
             "per_24_hours": MAX_GEMINI_IMAGES_PER_24H,
         },
         "image_providers": {
-            "gemini_image_generation": GEMINI_IMAGE_GENERATION_ENABLED and _control_enabled("image:gemini_generated", True),
-            "wikimedia_commons": _control_enabled("image:wikimedia_relevant", True),
-            "loc_open_access": _control_enabled("image:loc_open_access", True),
-            "artic_open_access": _control_enabled("image:artic_open_access", True),
-            "met_open_access": _control_enabled("image:met_open_access", True),
-            "cleveland_museum_open_access": _control_enabled("image:cleveland_museum_open_access", True),
-            "wellcome_open_access": _control_enabled("image:wellcome_open_access", True),
+            "gemini_image_generation": GEMINI_IMAGE_GENERATION_ENABLED and _cached_control_enabled("image:gemini_generated", True),
+            "wikimedia_commons": _cached_control_enabled("image:wikimedia_relevant", True),
+            "loc_open_access": _cached_control_enabled("image:loc_open_access", True),
+            "artic_open_access": _cached_control_enabled("image:artic_open_access", True),
+            "met_open_access": _cached_control_enabled("image:met_open_access", True),
+            "cleveland_museum_open_access": _cached_control_enabled("image:cleveland_museum_open_access", True),
+            "wellcome_open_access": _cached_control_enabled("image:wellcome_open_access", True),
             "presskit_manifest_configured": _presskit_provider_configured(),
             "stock_image_apis_enabled": False,
         },

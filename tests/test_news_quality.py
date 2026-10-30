@@ -193,7 +193,7 @@ class NewsQualityTests(unittest.TestCase):
         self.assertEqual(selected_queue_keys, {world_pulse._canonical_story_url(fresh["source_url"])})
 
     def test_five_minute_publication_tick_matches_bounded_discovery_queue(self):
-        self.assertEqual(world_pulse.NEWS_DISCOVERY_REFRESH_MINUTES, 15)
+        self.assertEqual(world_pulse.NEWS_DISCOVERY_REFRESH_MINUTES, 30)
         self.assertEqual(world_pulse.NEWS_REFRESH_MINUTES, 5)
         self.assertEqual(world_pulse.NEWS_RETRY_MINUTES, 5)
         self.assertEqual(world_pulse.MAX_ARTICLES_PER_REFRESH, 1)
