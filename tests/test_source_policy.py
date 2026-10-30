@@ -701,11 +701,11 @@ class SourcePolicyTests(unittest.TestCase):
                         )
                         self.assertEqual(
                             fake_client.models.generate_content.call_args_list[1].kwargs["model"],
-                            world_pulse.GEMINI_FALLBACK_MODEL,
+                            world_pulse.GEMINI_FALLBACK_MODEL_2,
                         )
                         self.assertEqual(
                             fake_client.models.generate_content.call_args_list[2].kwargs["model"],
-                            world_pulse.GEMINI_FALLBACK_MODEL_2,
+                            world_pulse.GEMINI_FALLBACK_MODEL,
                         )
                         self.assertGreater(world_pulse._GEMINI_RATE_LIMIT_UNTIL, world_pulse.time.monotonic())
 
@@ -740,11 +740,11 @@ class SourcePolicyTests(unittest.TestCase):
                             )
                             self.assertEqual(
                                 fake_client.models.generate_content.call_args_list[1].kwargs["model"],
-                                world_pulse.GEMINI_FALLBACK_MODEL,
+                                world_pulse.GEMINI_FALLBACK_MODEL_2,
                             )
                             self.assertEqual(
                                 fake_client.models.generate_content.call_args_list[2].kwargs["model"],
-                                world_pulse.GEMINI_FALLBACK_MODEL_2,
+                                world_pulse.GEMINI_FALLBACK_MODEL,
                             )
                             self.assertGreater(
                                 world_pulse._GEMINI_TRANSIENT_ERROR_UNTIL,
