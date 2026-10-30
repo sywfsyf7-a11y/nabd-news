@@ -1272,7 +1272,7 @@ class ExpandedSourceAndImageCatalogueTests(unittest.TestCase):
     def test_editorial_pipeline_processes_one_story_per_five_minute_tick(self):
         self.assertEqual(world_pulse.NEWS_REFRESH_MINUTES, 5)
         self.assertEqual(world_pulse.NEWS_RETRY_MINUTES, 5)
-        self.assertEqual(world_pulse.NEWS_DISCOVERY_REFRESH_MINUTES, 15)
+        self.assertEqual(world_pulse.NEWS_DISCOVERY_REFRESH_MINUTES, 30)
         self.assertEqual(world_pulse.MAX_QUEUE_ADDITIONS_PER_DISCOVERY, 3)
         # One article is processed per tick; the second permitted model call is a
         # fallback attempt for that same story, not a second editorial article.
