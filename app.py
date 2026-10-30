@@ -705,6 +705,7 @@ _LAST_DB_STATUS: dict[str, Any] = {"state": "unknown", "error_code": "", "checke
 _DB_LAST_FETCHED_VALUE: datetime | None = None
 _DB_LAST_FETCHED_CHECKED = 0.0
 _DB_LAST_FETCHED_LOCK = threading.Lock()
+_DB_LAST_FETCHED_REFRESHING = False
 _DB_ARTICLE_CACHE_TTL_SECONDS = max(1, min(60, int(os.getenv("DB_ARTICLE_CACHE_TTL_SECONDS", "60"))))
 # Keep the active archive bounded, but reserve space for each news section and language.
 # A single newest-120-per-language window made Gaming/Science/etc. disappear behind
@@ -2659,14 +2660,46 @@ def _raw_from_stored_article(row: dict[str, Any]) -> dict[str, Any]:
         "headline_only": _is_headline_only_domain(str(row.get("source_domain") or "")),
     }
 
-def _db_last_fetched_at() -> datetime | None:
-    global _DB_LAST_FETCHED_CHECKED, _DB_LAST_FETCHED_VALUE
+def _refresh_db_last_fetched_at_in_background() -> None:
+    global _DB_LAST_FETCHED_REFRESHING
+    try:
+        # Reuse the normal synchronous reader, which updates the shared timestamp cache.
+        _db_last_fetched_at(nonblocking=False)
+    finally:
+        with _DB_LAST_FETCHED_LOCK:
+            _DB_LAST_FETCHED_REFRESHING = False
+
+
+def _db_last_fetched_at(*, nonblocking: bool = False) -> datetime | None:
+    """Read the latest fetch timestamp; public status polling may opt into stale-while-revalidate."""
+    global _DB_LAST_FETCHED_CHECKED, _DB_LAST_FETCHED_VALUE, _DB_LAST_FETCHED_REFRESHING
     now = time.monotonic()
     with _DB_LAST_FETCHED_LOCK:
-        if now - _DB_LAST_FETCHED_CHECKED < 60:
+        if _DB_LAST_FETCHED_CHECKED > 0 and now - _DB_LAST_FETCHED_CHECKED < 60:
             return _DB_LAST_FETCHED_VALUE
-        _DB_LAST_FETCHED_CHECKED = now
         cached_value = _DB_LAST_FETCHED_VALUE
+        if nonblocking:
+            if _DB_LAST_FETCHED_REFRESHING:
+                return cached_value
+            _DB_LAST_FETCHED_REFRESHING = True
+        else:
+            _DB_LAST_FETCHED_CHECKED = now
+
+    if nonblocking:
+        # Status is advisory. Return the last known timestamp immediately rather than
+        # occupying a Gunicorn request thread while waiting for a scarce Supabase session.
+        try:
+            threading.Thread(
+                target=_refresh_db_last_fetched_at_in_background,
+                name="world-pulse-last-fetched-refresh",
+                daemon=True,
+            ).start()
+        except RuntimeError as exc:
+            with _DB_LAST_FETCHED_LOCK:
+                _DB_LAST_FETCHED_REFRESHING = False
+            logger.warning("Could not start last-fetched timestamp refresh (%s)", type(exc).__name__)
+        return cached_value
+
     if not _ensure_schema():
         return cached_value
     conn = _connect_db()
@@ -7883,7 +7916,7 @@ def article(slug: str):
 @app.get("/api/news-status")
 def news_status():
     # The scheduler runs independently; this endpoint only reports current status.
-    persisted_at = _db_last_fetched_at()
+    persisted_at = _db_last_fetched_at(nonblocking=True)
     # Public polling is frequent; report the latest cached DB status instead of opening a
     # separate SELECT 1 connection for every status refresh. The protected admin monitor
     # retains an explicit active DB probe.
