@@ -1293,8 +1293,10 @@ class SourcePolicyTests(unittest.TestCase):
         with patch.object(world_pulse, "_publisher_requires_license", return_value=False):
             story = world_pulse._normalise_story(row, "en")
 
-        self.assertEqual(story["image_url"], "/static/images/fallback-en.svg")
-        self.assertEqual(story["image_source"], "fallback_en")
+        self.assertTrue(story["image_url"].startswith("/media/editorial.svg?"))
+        self.assertIn("lang=en", story["image_url"])
+        self.assertIn("category=culture", story["image_url"])
+        self.assertEqual(story["image_source"], "editorial_generated")
         self.assertNotIn("artic.edu/iiif", story["image_url"])
 
     def test_catalogued_image_route_serves_persisted_bytes_and_cache_headers(self):
