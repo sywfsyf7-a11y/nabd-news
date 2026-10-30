@@ -118,7 +118,7 @@ GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite").strip()
 GEMINI_FALLBACK_MODEL = os.getenv("GEMINI_FALLBACK_MODEL", "gemini-3.8-flash").strip()
 GEMINI_FALLBACK_MODEL_2 = os.getenv("GEMINI_FALLBACK_MODEL_2", "gemini-3.1-flash-lite").strip()
 GEMINI_IMAGE_MODEL = os.getenv("GEMINI_IMAGE_MODEL", "gemini-nano-banana-2.1").strip()
-GEMINI_IMAGE_GENERATION_ENABLED = os.getenv("GEMINI_IMAGE_GENERATION_ENABLED", "false").lower() not in {"0", "false", "no"}
+GEMINI_IMAGE_GENERATION_ENABLED = os.getenv("GEMINI_IMAGE_GENERATION_ENABLED", "true").lower() not in {"0", "false", "no"}
 # Manual admin generation is an explicitly requested action; it does not enable scheduled AI image generation.
 ADMIN_GEMINI_IMAGE_GENERATION_ENABLED = os.getenv("ADMIN_GEMINI_IMAGE_GENERATION_ENABLED", "true").lower() not in {"0", "false", "no"}
 MAX_ADMIN_GEMINI_IMAGES_PER_24H = max(0, min(30, int(os.getenv("MAX_ADMIN_GEMINI_IMAGES_PER_24H", "8"))))
@@ -334,6 +334,13 @@ PRIORITY_SOURCE_DOMAINS = {
 
 # Official NASA news feeds supplement its Google News RSS results. Both are NASA properties.
 DIRECT_RSS_SENTINEL = "__direct_rss__"
+# Back off from institutional feeds that block automated clients. Keep Google News
+# fallback restricted to the same allowlisted publisher while the direct endpoint cools.
+_DIRECT_RSS_COOLDOWNS: dict[str, float] = {}
+_DIRECT_RSS_COOLDOWNS_LOCK = threading.Lock()
+DIRECT_RSS_403_COOLDOWN_SECONDS = 24 * 60 * 60
+DIRECT_RSS_429_COOLDOWN_SECONDS = 60 * 60
+DIRECT_RSS_ERROR_COOLDOWN_SECONDS = 15 * 60
 DIRECT_RSS_FEEDS = (
     {
         "category": "science", "lang": "en", "domain": "nasa.gov",
@@ -4278,6 +4285,7 @@ def _generate_gemini_article_image(raw: dict[str, Any], *, manual_admin: bool = 
             "image_provider_url": "https://ai.google.dev/gemini-api/docs/image-generation",
             "image_license_url": "",
             "image_checked_at": datetime.now(timezone.utc),
+            "image_relevance_verified": True,
         }
     except Exception as exc:
         rate_limited = _is_gemini_rate_limit_error(exc)
@@ -5117,6 +5125,16 @@ def _parse_direct_rss_feed(
         logger.warning("Direct RSS feed is not allowlisted: source=%s", source_name)
         return category, lang, []
 
+    with _DIRECT_RSS_COOLDOWNS_LOCK:
+        cooldown_until = _DIRECT_RSS_COOLDOWNS.get(feed_url, 0.0)
+        cooldown_remaining = max(0.0, cooldown_until - time.monotonic())
+    if cooldown_remaining > 0:
+        logger.info(
+            "Direct RSS source cooling down: source=%s remaining_minutes=%d; using allowlisted Google News fallback",
+            source_name, max(1, int((cooldown_remaining + 59) // 60)),
+        )
+        return _parse_feed_task(category, lang, (expected_domain,))
+
     try:
         request_obj = Request(
             feed_url,
@@ -5193,16 +5211,28 @@ def _parse_direct_rss_feed(
                 "original_language": lang,
                 "headline_only": headline_only,
             })
+        with _DIRECT_RSS_COOLDOWNS_LOCK:
+            _DIRECT_RSS_COOLDOWNS.pop(feed_url, None)
         logger.info("Direct RSS source checked: source=%s accepted=%d", source_name, len(items))
         return category, lang, items
     except (URLError, TimeoutError) as exc:
-        # Some official feeds reject automated requests even when their published RSS
-        # endpoint is valid. Fall back only to a Google News query restricted to this
-        # exact allowlisted publisher domain; never broaden the query or scrape the site.
+        # Some institutional feeds block automated clients or rate-limit repeated checks.
+        # Keep discovery resilient by falling back only to the same allowlisted publisher.
         http_status = getattr(exc, "code", None) or ""
+        try:
+            status_code = int(http_status)
+        except (TypeError, ValueError):
+            status_code = 0
+        cooldown_seconds = (
+            DIRECT_RSS_403_COOLDOWN_SECONDS if status_code == 403
+            else DIRECT_RSS_429_COOLDOWN_SECONDS if status_code == 429
+            else DIRECT_RSS_ERROR_COOLDOWN_SECONDS
+        )
+        with _DIRECT_RSS_COOLDOWNS_LOCK:
+            _DIRECT_RSS_COOLDOWNS[feed_url] = time.monotonic() + cooldown_seconds
         logger.warning(
-            "Direct RSS source unavailable: source=%s error=%s http_status=%s; trying allowlisted Google News fallback",
-            source_name, type(exc).__name__, http_status,
+            "Direct RSS source unavailable: source=%s error=%s http_status=%s cooldown_minutes=%d; trying allowlisted Google News fallback",
+            source_name, type(exc).__name__, http_status, max(1, cooldown_seconds // 60),
         )
         fallback = _parse_feed_task(category, lang, (expected_domain,))
         logger.info(
@@ -5923,8 +5953,11 @@ def _translate_batch(raw_articles: list[dict[str, Any]]) -> dict[int, dict[str, 
     if not raw_articles or not GEMINI_API_KEY or genai is None or types is None:
         return {}
     primary_model = GEMINI_MODEL
+    # Production logs showed 3.1-flash-lite succeeding while 3.8-flash returned 503.
+    # Prefer the proven healthy alternate first; retain the other configured model as
+    # the final fallback and keep the strict per-refresh API-call budget unchanged.
     configured_models = list(dict.fromkeys(
-        model for model in (GEMINI_MODEL, GEMINI_FALLBACK_MODEL, GEMINI_FALLBACK_MODEL_2)
+        model for model in (GEMINI_MODEL, GEMINI_FALLBACK_MODEL_2, GEMINI_FALLBACK_MODEL)
         if model
     ))
     # Each model has an independent persisted cooldown. Pick the first model not in

@@ -9,6 +9,7 @@ from datetime import datetime, timezone, timedelta
 from types import SimpleNamespace
 from unittest.mock import MagicMock, Mock, patch
 from urllib.parse import parse_qs, urlparse
+from urllib.error import HTTPError
 
 import app as world_pulse
 
@@ -149,6 +150,26 @@ class RSSPublisherGroupTests(unittest.TestCase):
         self.assertEqual(items[0]["source_domain"], "nasa.gov")
         self.assertEqual(items[0]["original_title"], good["title"])
 
+    def test_blocked_direct_rss_uses_same_publisher_google_news_fallback_during_cooldown(self):
+        feed_url = "https://www.jpl.nasa.gov/feeds/news/"
+        error = HTTPError(feed_url, 403, "Forbidden", None, None)
+        with patch.dict(world_pulse._DIRECT_RSS_COOLDOWNS, {}, clear=True):
+            with (
+                patch.object(world_pulse, "urlopen", side_effect=error) as direct_request,
+                patch.object(world_pulse, "_parse_feed_task", return_value=("science", "en", [])) as fallback,
+            ):
+                first = world_pulse._parse_direct_rss_feed(
+                    feed_url, "science", "en", "jpl.nasa.gov", "NASA Jet Propulsion Laboratory"
+                )
+                second = world_pulse._parse_direct_rss_feed(
+                    feed_url, "science", "en", "jpl.nasa.gov", "NASA Jet Propulsion Laboratory"
+                )
+
+        self.assertEqual(first, ("science", "en", []))
+        self.assertEqual(second, ("science", "en", []))
+        direct_request.assert_called_once()
+        self.assertEqual(fallback.call_count, 2)
+
 
 class RSSDeadlineSeparationTests(unittest.TestCase):
     def test_ready_feed_results_are_not_lost_to_classification_time(self):
@@ -223,7 +244,7 @@ class GeminiRequestBudgetTests(unittest.TestCase):
         def respond(**kwargs):
             model = kwargs["model"]
             calls.append(model)
-            if model in {"gemini-3.5-flash-lite", "gemini-3.8-flash"}:
+            if model in {"gemini-3.5-flash-lite", "gemini-3.1-flash-lite"}:
                 raise RuntimeError("429 RESOURCE_EXHAUSTED model-specific rate limit")
             return successful_response(**kwargs)
 
@@ -264,9 +285,9 @@ class GeminiRequestBudgetTests(unittest.TestCase):
 
         self.assertEqual(calls, [
             "gemini-3.5-flash-lite",
+            "gemini-3.1-flash-lite",
             "gemini-3.8-flash",
-            "gemini-3.1-flash-lite",
-            "gemini-3.1-flash-lite",
+            "gemini-3.8-flash",
         ])
         self.assertEqual(set(translated), set(range(12)))
 
@@ -317,6 +338,7 @@ class GeminiRequestBudgetTests(unittest.TestCase):
             patch.object(world_pulse, "GEMINI_API_KEY", "test-key"),
             patch.object(world_pulse, "GEMINI_MODEL", "gemini-3.5-flash-lite"),
             patch.object(world_pulse, "GEMINI_FALLBACK_MODEL", "gemini-3.8-flash"),
+            patch.object(world_pulse, "GEMINI_FALLBACK_MODEL_2", "gemini-3.1-flash-lite"),
             patch.object(world_pulse, "genai", fake_genai),
             patch.object(world_pulse, "types", fake_types),
             patch.object(world_pulse, "MAX_GEMINI_API_CALLS_PER_REFRESH", 3),
@@ -330,8 +352,8 @@ class GeminiRequestBudgetTests(unittest.TestCase):
 
         self.assertEqual(calls, [
             "gemini-3.5-flash-lite",
-            "gemini-3.8-flash",
-            "gemini-3.8-flash",
+            "gemini-3.1-flash-lite",
+            "gemini-3.1-flash-lite",
         ])
         self.assertEqual(set(translated), set(range(12)))
 
@@ -392,7 +414,7 @@ class GeminiRequestBudgetTests(unittest.TestCase):
 
         self.assertEqual(generate.call_count, 2)
         self.assertEqual(generate.call_args_list[0].kwargs["model"], "gemini-3.5-flash-lite")
-        self.assertEqual(generate.call_args_list[1].kwargs["model"], "gemini-3.8-flash")
+        self.assertEqual(generate.call_args_list[1].kwargs["model"], "gemini-3.1-flash-lite")
         self.assertEqual(set(translated), {0})
         persist.assert_called_once_with(
             "rate_limited_429", state_key="gemini_cooldown:gemini-3.5-flash-lite"
