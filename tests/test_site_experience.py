@@ -99,7 +99,7 @@ class SiteExperienceTests(unittest.TestCase):
         self.assertIn("gtag('config', 'G-8Y07BZZ16N');", template)
         self.assertEqual(template.count("G-8Y07BZZ16N"), 2)
         self.assertEqual(world_pulse.NEWS_REFRESH_MINUTES, 5)
-        self.assertEqual(world_pulse.NEWS_DISCOVERY_REFRESH_MINUTES, 15)
+        self.assertEqual(world_pulse.NEWS_DISCOVERY_REFRESH_MINUTES, 30)
         self.assertEqual(world_pulse.NEWS_RETRY_MINUTES, 5)
         self.assertEqual(world_pulse.MAX_QUEUE_ADDITIONS_PER_DISCOVERY, 3)
         self.assertEqual(world_pulse.MAX_ARTICLES_PER_REFRESH, 1)
@@ -160,11 +160,11 @@ class SiteExperienceTests(unittest.TestCase):
 
     def test_persistent_news_discovery_interval_is_separate_from_publish_interval(self):
         now = datetime(2026, 10, 16, 12, 30, tzinfo=timezone.utc)
-        state = {"discovered_at": (now - timedelta(minutes=14)).isoformat(), "items": []}
-        with patch.object(world_pulse, "NEWS_DISCOVERY_REFRESH_MINUTES", 15):
+        state = {"discovered_at": (now - timedelta(minutes=29)).isoformat(), "items": []}
+        with patch.object(world_pulse, "NEWS_DISCOVERY_REFRESH_MINUTES", 30):
             self.assertFalse(world_pulse._news_queue_discovery_due(state, now))
             self.assertTrue(world_pulse._news_queue_discovery_due(
-                {"discovered_at": (now - timedelta(minutes=16)).isoformat(), "items": []}, now
+                {"discovered_at": (now - timedelta(minutes=31)).isoformat(), "items": []}, now
             ))
 
     def test_category_source_allowlists_match_the_curated_arabic_and_english_publishers(self):
@@ -2646,6 +2646,7 @@ class AdSenseConsentReadinessTests(unittest.TestCase):
         )
         with open(template_path, encoding="utf-8") as handle:
             template = handle.read()
+        self.assertIn('name="google-adsense-account" content="{{ adsense_account_id }}"', template)
         self.assertIn("{% if adsense_enabled %}", template)
         self.assertIn(
             "pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client={{ adsense_publisher_id }}",
