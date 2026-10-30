@@ -562,6 +562,66 @@ class SourcePolicyTests(unittest.TestCase):
         self.assertEqual(result["image_source"], "gemini_generated")
         self.assertEqual(result["image_url"], generated["image_url"])
 
+    def test_gemini_image_reservation_reports_disabled_control(self):
+        from unittest.mock import patch
+
+        with (
+            patch.object(world_pulse, "GEMINI_IMAGE_GENERATION_ENABLED", True),
+            patch.object(world_pulse, "GEMINI_API_KEY", "test-key"),
+            patch.object(world_pulse, "genai", object()),
+            patch.object(world_pulse, "types", object()),
+            patch.object(world_pulse, "MAX_GEMINI_IMAGES_PER_REFRESH", 1),
+            patch.object(world_pulse, "MAX_GEMINI_IMAGES_PER_24H", 4),
+            patch.object(world_pulse, "_control_enabled", return_value=False),
+            patch.object(world_pulse, "_shared_gemini_cooldown_remaining") as cooldown,
+            self.assertLogs("world_pulse", level="INFO") as captured,
+        ):
+            self.assertEqual(world_pulse._reserve_gemini_image_slots(1), 0)
+
+        cooldown.assert_not_called()
+        self.assertIn("provider_disabled_in_controls", "\\n".join(captured.output))
+
+    def test_gemini_image_reservation_reports_daily_limit(self):
+        from unittest.mock import patch
+
+        with (
+            patch.object(world_pulse, "GEMINI_IMAGE_GENERATION_ENABLED", True),
+            patch.object(world_pulse, "GEMINI_API_KEY", "test-key"),
+            patch.object(world_pulse, "genai", object()),
+            patch.object(world_pulse, "types", object()),
+            patch.object(world_pulse, "MAX_GEMINI_IMAGES_PER_REFRESH", 1),
+            patch.object(world_pulse, "MAX_GEMINI_IMAGES_PER_24H", 4),
+            patch.object(world_pulse, "_control_enabled", return_value=True),
+            patch.object(world_pulse, "_shared_gemini_cooldown_remaining", return_value=(0, "")),
+            patch.object(world_pulse, "_db_count_gemini_images_last_24h", return_value=4),
+            patch.object(world_pulse, "_LAST_REFRESH_ATTEMPT", 12345.0),
+            patch.object(world_pulse, "_AI_IMAGE_REFRESH_MARKER", 0.0),
+            patch.object(world_pulse, "_AI_IMAGE_CALLS_THIS_REFRESH", 0),
+            self.assertLogs("world_pulse", level="INFO") as captured,
+        ):
+            self.assertEqual(world_pulse._reserve_gemini_image_slots(1), 0)
+
+        self.assertIn("daily_limit_reached", "\\n".join(captured.output))
+
+    def test_gemini_image_reservation_fails_closed_when_daily_quota_is_unavailable(self):
+        from unittest.mock import patch
+
+        with (
+            patch.object(world_pulse, "GEMINI_IMAGE_GENERATION_ENABLED", True),
+            patch.object(world_pulse, "GEMINI_API_KEY", "test-key"),
+            patch.object(world_pulse, "genai", object()),
+            patch.object(world_pulse, "types", object()),
+            patch.object(world_pulse, "MAX_GEMINI_IMAGES_PER_REFRESH", 1),
+            patch.object(world_pulse, "MAX_GEMINI_IMAGES_PER_24H", 4),
+            patch.object(world_pulse, "_control_enabled", return_value=True),
+            patch.object(world_pulse, "_shared_gemini_cooldown_remaining", return_value=(0, "")),
+            patch.object(world_pulse, "_db_count_gemini_images_last_24h", return_value=None),
+            self.assertLogs("world_pulse", level="WARNING") as captured,
+        ):
+            self.assertEqual(world_pulse._reserve_gemini_image_slots(1), 0)
+
+        self.assertIn("persistent_daily_quota_unavailable", "\\n".join(captured.output))
+
     def test_all_jinja_templates_compile(self):
         for template_name in world_pulse.app.jinja_env.list_templates():
             with self.subTest(template=template_name):
