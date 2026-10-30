@@ -4539,18 +4539,37 @@ def _search_article_image_with_variants(
 
 
 def _reserve_gemini_image_slots(pending_count: int) -> int:
+    """Reserve a bounded AI-image budget and explain every fail-closed decision."""
     global _AI_IMAGE_REFRESH_MARKER, _AI_IMAGE_CALLS_THIS_REFRESH
-    if (
-        pending_count <= 0
-        or MAX_GEMINI_IMAGES_PER_REFRESH <= 0
-        or MAX_GEMINI_IMAGES_PER_24H <= 0
-        or not GEMINI_IMAGE_GENERATION_ENABLED
-        or not GEMINI_API_KEY
-        or genai is None
-        or types is None
-        or not _control_enabled("image:gemini_generated", True)
-    ):
+
+    guard_reasons: list[str] = []
+    if pending_count <= 0:
+        guard_reasons.append("no_pending_images")
+    if MAX_GEMINI_IMAGES_PER_REFRESH <= 0:
+        guard_reasons.append("per_refresh_limit_zero")
+    if MAX_GEMINI_IMAGES_PER_24H <= 0:
+        guard_reasons.append("daily_limit_zero")
+    if not GEMINI_IMAGE_GENERATION_ENABLED:
+        guard_reasons.append("environment_disabled")
+    if not GEMINI_API_KEY:
+        guard_reasons.append("api_key_missing")
+    if genai is None or types is None:
+        guard_reasons.append("sdk_unavailable")
+    if guard_reasons:
+        logger.info(
+            "Gemini image slots not reserved: reasons=%s pending=%d per_refresh=%d daily_limit=%d api_key_configured=%s sdk_loaded=%s",
+            ",".join(guard_reasons), pending_count, MAX_GEMINI_IMAGES_PER_REFRESH,
+            MAX_GEMINI_IMAGES_PER_24H, bool(GEMINI_API_KEY), genai is not None and types is not None,
+        )
         return 0
+
+    if not _control_enabled("image:gemini_generated", True):
+        logger.info(
+            "Gemini image slots not reserved: reason=provider_disabled_in_controls pending=%d",
+            pending_count,
+        )
+        return 0
+
     shared_image_remaining, shared_image_reason = _shared_gemini_cooldown_remaining("gemini_image_cooldown")
     if shared_image_remaining > 0:
         logger.info(
@@ -4561,7 +4580,11 @@ def _reserve_gemini_image_slots(pending_count: int) -> int:
     recent_count = _db_count_gemini_images_last_24h()
     if recent_count is None:
         # Do not pay for generated images that cannot be stored durably.
+        logger.warning(
+            "Gemini image slots not reserved: reason=persistent_daily_quota_unavailable; image storage safety requires a successful Supabase quota read"
+        )
         return 0
+
     marker = float(_LAST_REFRESH_ATTEMPT or 0.0)
     with _AI_IMAGE_BUDGET_LOCK:
         if marker != _AI_IMAGE_REFRESH_MARKER:
@@ -4571,7 +4594,23 @@ def _reserve_gemini_image_slots(pending_count: int) -> int:
         daily_remaining = max(0, MAX_GEMINI_IMAGES_PER_24H - recent_count)
         reserve_count = min(pending_count, refresh_remaining, daily_remaining)
         _AI_IMAGE_CALLS_THIS_REFRESH += reserve_count
-        return reserve_count
+    if reserve_count <= 0:
+        reasons = []
+        if refresh_remaining <= 0:
+            reasons.append("per_refresh_limit_reached")
+        if daily_remaining <= 0:
+            reasons.append("daily_limit_reached")
+        logger.info(
+            "Gemini image slots not reserved: reasons=%s pending=%d images_last_24h=%d daily_limit=%d refresh_remaining=%d",
+            ",".join(reasons) or "budget_exhausted", pending_count, recent_count,
+            MAX_GEMINI_IMAGES_PER_24H, refresh_remaining,
+        )
+    else:
+        logger.info(
+            "Gemini image slots reserved: count=%d pending=%d images_last_24h=%d daily_limit=%d",
+            reserve_count, pending_count, recent_count, MAX_GEMINI_IMAGES_PER_24H,
+        )
+    return reserve_count
 
 def _resolve_article_image(raw: dict[str, Any]) -> dict[str, Any]:
     existing = str(raw.get("image_url") or "").strip()
