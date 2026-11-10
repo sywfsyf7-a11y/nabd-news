@@ -7749,7 +7749,7 @@ def current_language() -> str:
 
 def _adsense_publisher_id() -> str:
     """Normalize AdSense's pub- ID or ad-tag ca-pub- ID to the script-compatible form."""
-    publisher_id = (os.getenv("ADSENSE_PUBLISHER_ID") or "").strip()
+    publisher_id = (os.getenv("ADSENSE_PUBLISHER_ID") or "ca-pub-8286658574742244").strip()
     match = re.fullmatch(r"(?:ca-)?pub-(\d{16})", publisher_id)
     return f"ca-pub-{match.group(1)}" if match else ""
 
