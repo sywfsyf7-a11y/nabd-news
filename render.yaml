@@ -61,11 +61,11 @@ services:
       - key: GEMINI_IMAGE_MODEL
         value: "gemini-nano-banana-2.1"
       - key: GEMINI_IMAGE_GENERATION_ENABLED
-        value: "false"
+        value: "true"
       - key: MAX_GEMINI_IMAGES_PER_REFRESH
-        value: "0"
+        value: "1"
       - key: MAX_GEMINI_IMAGES_PER_24H
-        value: "0"
+        value: "4"
       - key: MAX_ARTICLES_PER_REFRESH
         value: "1"
       - key: MAX_ARTICLES_PER_CATEGORY
